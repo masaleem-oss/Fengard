@@ -1,0 +1,25 @@
+Fengard
+Copyright 2026 masaleem-oss
+
+Licensed under the Apache License, Version 2.0 (see LICENSE).
+
+This product includes third-party software and data, each under its own license:
+
+Bundled in the program
+  IBM Plex Sans and IBM Plex Mono fonts    SIL Open Font License 1.1
+                                           internal/web/static/fonts/LICENSE-IBM-Plex.txt
+  Lucide icons                             ISC License
+                                           internal/web/static/img/LICENSE-lucide.txt
+  Simple Icons platform logos              CC0 1.0
+  qrcode-generator, Kazuhiko Arase         MIT License (header of vendor-qrcode.mjs)
+                                           "QR Code" is a registered trademark of DENSO WAVE INCORPORATED.
+  IEEE MA-L (OUI) registry                 manufacturer names for MAC addresses
+  github.com/miekg/dns                     BSD 3-Clause License
+  go.etcd.io/bbolt                         MIT License
+  golang.org/x/crypto, x/net, x/sync, x/sys, and x/crypto/x509roots/fallback
+                                           BSD 3-Clause License (The Go Authors)
+
+Downloaded at run time, not distributed with Fengard
+  Blocklists (HaGeZi DNS blocklists, URLhaus, the Tor relay list and any lists a
+  user subscribes to) are fetched by each installation from their publishers and
+  remain under their publishers' licenses.

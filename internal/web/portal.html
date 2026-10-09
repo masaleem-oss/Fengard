@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0c0b10" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#f6f6f9" media="(prefers-color-scheme: light)">
+<meta name="robots" content="noindex">
+<title>My screen time · {{.Network}}</title>
+<link rel="icon" href="/__fengard/img/logo.svg" type="image/svg+xml">
+<style>
+  @font-face { font-family: "IBM Plex Sans"; font-weight: 100 700; font-display: swap; src: url("/__fengard/fonts/plex-sans-latin.woff2") format("woff2"); }
+  :root {
+    color-scheme: dark;
+    --bg: #0c0b10; --surface: #131219; --surface-2: #1a1922; --border: #25232f; --border-strong: #34313f;
+    --text: #ecebf2; --text-2: #a9a6b8; --text-3: #78758b;
+    --accent: #8b6cff; --accent-soft: rgba(139,108,255,.14); --accent-text: #b8a6ff;
+    --warn: #f0b429; --warn-soft: rgba(240,180,41,.13); --ok: #3fcf8e; --ok-soft: rgba(63,207,142,.12); --danger: #f2555a; --danger-soft: rgba(242,85,90,.12);
+    --logo: invert(1);
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      color-scheme: light;
+      --bg: #f6f6f9; --surface: #fff; --surface-2: #f6f5fa; --border: #e4e3ea; --border-strong: #d3d1dc;
+      --text: #17161c; --text-2: #55536a; --text-3: #85839a;
+      --accent: #6d4cf0; --accent-soft: rgba(109,76,240,.1); --accent-text: #5a39dc;
+      --warn: #b97a00; --warn-soft: rgba(212,140,0,.12); --ok: #12a46a; --ok-soft: rgba(18,164,106,.1); --danger: #d9373d; --danger-soft: rgba(217,55,61,.1);
+      --logo: none;
+    }
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    min-height: 100vh; min-height: 100dvh; display: grid; grid-template-rows: auto 1fr auto;
+    padding: max(14px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(20px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+    font: 15px/1.55 "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif; color: var(--text);
+    background: radial-gradient(800px 420px at 50% -8%, var(--accent-soft), transparent 70%), var(--bg);
+    -webkit-font-smoothing: antialiased; -webkit-tap-highlight-color: transparent; -webkit-text-size-adjust: 100%;
+  }
+  .status-on { --hue: var(--ok); --hue-soft: var(--ok-soft); }
+  .status-paused, .status-timeup { --hue: var(--warn); --hue-soft: var(--warn-soft); }
+  .status-pending { --hue: var(--accent); --hue-soft: var(--accent-soft); }
+  header { display: flex; align-items: center; gap: 10px; justify-content: center; color: var(--text-2); font-size: 13px; }
+  header img { width: 22px; height: 22px; filter: var(--logo); }
+  header b { color: var(--text); font-weight: 700; letter-spacing: .14em; font-size: 12px; }
+  main { width: 100%; max-width: 520px; margin: 0 auto; padding: 20px 0 8px; display: grid; gap: 14px; align-content: start; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 18px 18px 16px; }
+  .status { display: inline-flex; align-items: center; gap: 8px; padding: 4px 12px 4px 10px; border-radius: 99px; background: var(--hue-soft); color: var(--hue); font-weight: 600; font-size: 13.5px; }
+  .status::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+  h1 { font-size: 24px; font-weight: 650; letter-spacing: -.02em; line-height: 1.2; margin-top: 12px; }
+  .lead { color: var(--text-2); margin-top: 4px; }
+  .ring-wrap { display: grid; grid-template-columns: 112px 1fr; gap: 18px; align-items: center; margin-top: 18px; }
+  .ring { width: 112px; height: 112px; position: relative; }
+  .ring svg { width: 100%; height: 100%; transform: rotate(-90deg); }
+  .ring circle { fill: none; stroke-width: 9; stroke-linecap: round; }
+  .ring .track { stroke: var(--surface-2); }
+  .ring .fill { stroke: var(--hue); transition: stroke-dashoffset .4s ease; }
+  .ring .mid { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; font-size: 12px; color: var(--text-3); line-height: 1.2; }
+  .ring .mid b { display: block; font-size: 17px; color: var(--text); font-weight: 650; letter-spacing: -.01em; }
+  .big { font-size: 30px; font-weight: 650; letter-spacing: -.02em; line-height: 1.1; }
+  .big small { display: block; font-size: 13.5px; color: var(--text-2); font-weight: 400; letter-spacing: 0; margin-top: 4px; }
+  h2 { font-size: 12.5px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--text-3); margin-bottom: 10px; }
+  .rows { display: grid; gap: 10px; }
+  .row { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; font-size: 14px; }
+  .row small { color: var(--text-3); font-size: 12.5px; }
+  .row .val { font-variant-numeric: tabular-nums; color: var(--text-2); text-align: right; }
+  .bar { grid-column: 1 / -1; height: 6px; border-radius: 3px; background: var(--surface-2); overflow: hidden; }
+  .bar i { display: block; height: 100%; border-radius: 3px; background: var(--accent); }
+  .bar i.full { background: var(--warn); }
+  .ask { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+  .btn { height: 44px; padding: 0 16px; border-radius: 10px; font: 550 15px "IBM Plex Sans", system-ui, sans-serif; cursor: pointer; border: 1px solid var(--border-strong); background: var(--surface); color: var(--text); flex: 1 1 auto; min-width: 88px; }
+  .btn.primary { background: var(--accent); border-color: transparent; color: #fff; flex-basis: 100%; }
+  .btn:disabled { opacity: .6; cursor: default; }
+  .btn:active { filter: brightness(.92); }
+  .btn.on { border-color: var(--accent); color: var(--accent-text); background: var(--accent-soft); }
+  textarea { width: 100%; min-height: 72px; resize: vertical; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--border-strong); background: var(--bg); color: var(--text); font: 16px/1.5 "IBM Plex Sans", system-ui, sans-serif; margin-top: 10px; }
+  .msg { font-size: 14px; padding: 10px 12px; border-radius: 10px; margin-top: 10px; }
+  .msg.ok { background: var(--ok-soft); color: var(--ok); }
+  .msg.err { background: var(--danger-soft); color: var(--danger); }
+  .muted { color: var(--text-3); font-size: 13px; }
+  footer { text-align: center; color: var(--text-3); font-size: 12.5px; padding-top: 10px; }
+  [hidden] { display: none !important; }
+  @media (min-width: 521px) { body { padding-top: 24px; } .card { padding: 24px 24px 20px; } }
+</style>
+</head>
+<body class="status-{{if .Pending}}pending{{else if .Known}}{{.View.Status}}{{else}}on{{end}}">
+  <header><img src="/__fengard/img/logo.svg" alt=""><b>FENGARD</b><span>·</span><span>{{.Network}}</span></header>
+  <main>
+    {{if .Pending}}
+    <section class="card">
+      <span class="status">Waiting for approval</span>
+      <h1>This device is new here</h1>
+      <p class="lead">The network admin has been told. Once it's approved you'll be online.</p>
+    </section>
+    {{else if not .Known}}
+    <section class="card">
+      <span class="status">Internet is on</span>
+      <h1>No screen time to show</h1>
+      <p class="lead">{{if .View.Name}}<b>{{.Device}}</b> is in the “{{.View.Name}}” profile, which isn't set up as a person.{{else}}<b>{{.Device}}</b> isn't in a person's profile.{{end}} The admin can change that under Profiles → Time.</p>
+    </section>
+    {{else}}
+    {{$v := .View}}
+    <section class="card">
+      <span class="status">{{$v.StatusText}}</span>
+      <h1>Hi, {{$v.Name}}</h1>
+      <p class="lead">{{if $v.Limit}}You get {{call .Hours $v.Limit}}{{if $v.Bonus}} + {{call .Hours $v.Bonus}} extra{{end}} online a day, across all your devices.{{else}}Time today across all your devices. No daily limit.{{end}}</p>
+      <div class="ring-wrap">
+        <div class="ring">
+          <svg viewBox="0 0 100 100"><circle class="track" cx="50" cy="50" r="42"/><circle class="fill" cx="50" cy="50" r="42" stroke-dasharray="263.9" stroke-dashoffset="{{$.Dash}}"/></svg>
+          <div class="mid"><b>{{call .Hours $v.Used}}</b>{{if $v.Limit}}of {{call .Hours $v.Limit}}{{else}}today{{end}}</div>
+        </div>
+        <div class="big">{{if $v.Limit}}{{if eq $v.Left 0}}0 min<small>left today — it's done for now</small>{{else}}{{call .Hours $v.Left}}<small>left today</small>{{end}}{{else}}{{call .Hours $v.Used}}<small>online today</small>{{end}}</div>
+      </div>
+    </section>
+
+    {{if $v.Limits}}
+    <section class="card">
+      <h2>Limits</h2>
+      <div class="rows">{{range $v.Limits}}
+        <div class="row"><span>{{.Name}}</span><span class="val">{{if .Left}}{{call $.Hours .Left}} left{{else}}used up{{end}}</span>
+          <small>{{call $.Hours .Used}} of {{call $.Hours .Limit}}</small><span></span>
+          <div class="bar"><i class="{{if eq .Left 0}}full{{end}}" style="width:{{.Pct}}%"></i></div></div>{{end}}
+      </div>
+    </section>
+    {{end}}
+
+    {{if $v.Activity}}
+    <section class="card">
+      <h2>Today</h2>
+      <div class="rows">{{range $v.Activity}}<div class="row"><span>{{.Name}}</span><span class="val">{{call $.Hours .Used}}</span></div>{{end}}</div>
+    </section>
+    {{end}}
+
+    {{if $v.Devices}}
+    <section class="card">
+      <h2>Your devices</h2>
+      <div class="rows">{{range $v.Devices}}<div class="row"><span>{{.Name}}</span><span class="val">{{if .Used}}{{call $.Hours .Used}}{{else}}—{{end}}</span></div>{{end}}</div>
+    </section>
+    {{end}}
+
+    <section class="card" id="ask-card">
+      <h2>Need more time?</h2>
+      <p class="muted">The admin gets a message and can add time from their phone.</p>
+      <div class="ask" id="ask">
+        <button class="btn" type="button" data-min="15">+15 min</button>
+        <button class="btn on" type="button" data-min="30">+30 min</button>
+        <button class="btn" type="button" data-min="60">+1 hour</button>
+      </div>
+      <textarea id="note" maxlength="200" placeholder="Say why (optional)"></textarea>
+      <div class="ask"><button class="btn primary" id="send" type="button">Ask for more time</button></div>
+      <div class="msg ok" id="sent" hidden>Sent. You'll see the extra time here as soon as it's added.</div>
+      <div class="msg err" id="err" hidden></div>
+    </section>
+    {{end}}
+  </main>
+  <footer>{{.Device}} · Updates every minute · <a href="/__fengard/me" style="color:var(--accent-text);text-decoration:none">Refresh</a></footer>
+  <script src="/__fengard/js/me.js"></script>
+</body>
+</html>

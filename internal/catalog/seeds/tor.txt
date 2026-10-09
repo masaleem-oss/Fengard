@@ -1,0 +1,30 @@
+# tor site mirrors and the snowflake and meek brokers
+# relays get blocked by ip in the firewall since tor never looks them up by name
+torproject.org
+torproject.net
+tor.eff.org
+torbrowser.org
+tor-browser.org
+torflow.org
+onion.to
+onion.ws
+onion.ly
+onion.pet
+onion.cab
+onion.link
+onion.moe
+onion.sh
+tor2web.org
+tor2web.io
+onion.city
+darksearch.io
+ahmia.fi
+snowflake.torproject.net
+snowflake-broker.torproject.net
+snowflake-broker.azureedge.net
+meek.azureedge.net
+d2cly7j4zqgua7.cloudfront.net
+torbridges.torproject.org
+bridges.torproject.org
+orbot.app
+guardianproject.info

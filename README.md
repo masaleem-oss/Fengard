@@ -1,2 +1,500 @@
-# Fengard
-Kernel-enforced firewall and DNS filtering for any OpenWrt router.
+<p align="center">
+  <img src="docs/logo.svg" width="96" alt="Fengard logo">
+</p>
+
+<h1 align="center">Fengard</h1>
+
+<p align="center">
+  <b>Kernel-enforced firewall and DNS filtering for any OpenWrt router.</b><br>
+  One Go binary. Per-device profiles, screen time, a WireGuard VPN and a full dashboard.<br>
+  Installs next to your router's firmware with one double-click. Nothing gets reflashed.
+</p>
+
+<p align="center">
+  <a href="LICENSE"><img alt="License: Apache 2.0" src="https://img.shields.io/badge/license-Apache%202.0-blue"></a>
+  <img alt="Go" src="https://img.shields.io/badge/go-1.27-00ADD8?logo=go&logoColor=white">
+  <img alt="OpenWrt 19.07+" src="https://img.shields.io/badge/OpenWrt-19.07%2B-00B5E2?logo=openwrt&logoColor=white">
+  <img alt="Firewall: nftables and iptables" src="https://img.shields.io/badge/firewall-nftables%20%7C%20iptables-8f78ff">
+  <img alt="Runs on Windows, macOS and Linux" src="https://img.shields.io/badge/computer%20mode-Windows%20%7C%20macOS%20%7C%20Linux-555">
+</p>
+
+<p align="center">
+  <a href="#install">Install</a> ·
+  <a href="#screenshots">Screenshots</a> ·
+  <a href="#how-it-works">How it works</a> ·
+  <a href="#features">Features</a> ·
+  <a href="#configuration-reference">Reference</a> ·
+  <a href="#development">Development</a>
+</p>
+
+<p align="center">
+  <img src="docs/demo.gif" alt="A walk through the Fengard dashboard: overview, devices, profiles, site check, activity and firewall" width="900">
+</p>
+
+---
+
+## Contents
+
+- [Why Fengard](#why-fengard)
+- [Install](#install)
+  - [Which routers work](#which-routers-work)
+  - [What the installer changes](#what-the-installer-changes)
+  - [Running on a computer instead](#running-on-a-computer-instead)
+  - [Uninstall](#uninstall)
+- [Screenshots](#screenshots)
+- [How it works](#how-it-works)
+- [Features](#features)
+- [Performance](#performance)
+- [Configuration reference](#configuration-reference)
+- [Security](#security)
+- [Troubleshooting](#troubleshooting)
+- [Development](#development)
+- [Project layout](#project-layout)
+- [License](#license)
+
+## Why Fengard
+
+Most home filtering is either a DNS server on a Raspberry Pi, which any device can route around, or a
+subscription box that replaces your router. Fengard does it on the router you already have:
+
+- **It can't be bypassed by changing DNS.** Lookups sent to any other server are redirected back to Fengard,
+  and DNS-over-HTTPS, DNS-over-TLS, DNS-over-QUIC and Tor are blocked in the kernel.
+- **Every device gets its own rules.** Profiles carry blocked categories, blocked apps, SafeSearch,
+  schedules and daily screen-time limits, and a person's limit is counted across all their devices.
+- **The kernel does the work.** Filtering decisions live in nftables or iptables rules in Fengard's own
+  table. If Fengard stops, it removes them and the router carries on as a normal router.
+- **It stays out of your way.** It runs next to the stock firmware, installs and uninstalls in one step,
+  and uses about 25 MB of memory.
+
+## Install
+
+Download **`fengard-<version>.zip`** from the [latest release](https://github.com/masaleem-oss/Fengard/releases/latest),
+unzip it, and run the installer:
+
+| On | Run |
+|---|---|
+| Windows | Double-click **`Install Fengard.cmd`** |
+| macOS or Linux | `sh install.sh` in the unzipped folder |
+
+Both open the same menu:
+
+```
+Fengard setup
+
+  1  Install on my router        OpenWrt-based routers, including GL.iNet (recommended)
+  2  Run on this computer        protects the whole network through DNS; this computer stays on
+  3  Remove from my router
+  4  Remove from this computer
+```
+
+Choose **1**. The installer finds your router, asks for its root password (on most routers that's the admin
+page password), and does everything else. When it finishes it prints the dashboard address, usually
+**http://fengard.lan**. Open it and create the admin account.
+
+> Windows may warn about a downloaded file. Choose **More info → Run anyway**, or right-click the zip,
+> open **Properties** and tick **Unblock** before unzipping.
+
+**Without a computer.** A router with internet access can install straight from the latest release over SSH:
+
+```sh
+wget -O- https://github.com/masaleem-oss/Fengard/releases/latest/download/router-install.sh | sh
+```
+
+### Which routers work
+
+Fengard needs **OpenWrt-based firmware with SSH access**.
+
+| Works | Doesn't work |
+|---|---|
+| OpenWrt 19.07 and newer, on any brand | Stock ISP routers |
+| GL.iNet (its firmware is OpenWrt-based) | Eero, Google and Nest Wifi |
+| Turris and other OpenWrt-based firmware | Most stock TP-Link, Asus and Netgear firmware |
+
+If your router is in the right-hand column, use [computer mode](#running-on-a-computer-instead), or flash
+OpenWrt if your model supports it.
+
+| Requirement | Minimum |
+|---|---|
+| RAM | 128 MB (256 MB or more is comfortable) |
+| Free storage | about 30 MB, or USB storage with `FG_DIR=/mnt/<usb>/fengard` |
+| CPU | ARM64, ARMv5 and up, MIPS and MIPSEL (32 and 64-bit), x86-64, x86, RISC-V 64, LoongArch64 |
+
+The installer checks memory and storage first and stops cleanly if the router is too small.
+
+**Tested on** OpenWrt 25.12 (fw4, nftables) and OpenWrt 21.02 (fw3, iptables), and in daily use on a
+GL.iNet GL-MT3000 (GL.iNet firmware 4.7). The router installer is checked for install, reinstall, firewall
+reload, network restart, reboot, a guest network that's switched off, and uninstall back to the same
+configuration as a fresh router.
+
+### What the installer changes
+
+Everything is read from the router's own configuration, so nothing is hardcoded to one model:
+
+```mermaid
+flowchart LR
+    A[Computer runs installer] -->|one SSH upload,<br/>every CPU build| B[Router]
+    B --> C{Detect}
+    C --> C1[CPU type]
+    C --> C2[LAN address, subnet,<br/>guest networks]
+    C --> C3[WAN interfaces from<br/>the masquerading zone]
+    C --> C4[fw3 + iptables<br/>or fw4 + nftables]
+    C --> C5[free spare LAN address<br/>and web ports]
+    C1 & C2 & C3 & C4 & C5 --> D[Record originals in<br/>/etc/fengard/install.env]
+    D --> E[Install service,<br/>move DNS to Fengard]
+    E --> F{Answers DNS?}
+    F -->|yes| G[Done: dashboard at<br/>http://fengard.lan]
+    F -->|no| H[Roll back to the<br/>stock DNS setup]
+```
+
+| What | Change | Undone by uninstall |
+|---|---|---|
+| `/usr/bin/fengardd` | the program, only the one built for this CPU | yes |
+| `/etc/fengard/` | settings, database, certificates, blocklists | kept unless `--purge` |
+| `/etc/init.d/fengard` | the service; adds one spare LAN address for the dashboard and block page | yes |
+| dnsmasq | stops answering DNS and keeps doing DHCP; devices are told to use the router for DNS | restored exactly |
+| firewall | a hook that re-applies Fengard's rules after a firewall reload, plus the VPN interface and port | yes |
+| `/etc/sysupgrade.conf` | keeps Fengard across firmware upgrades | yes |
+
+Most firmware keeps its own web interface on ports 80 and 443, so Fengard listens on free ports and the
+firewall redirects the spare address's 80 and 443 to them. If any step fails the installer rolls back on its
+own, so the household never loses DNS. Reinstalling keeps the same address, ports and certificate.
+
+Optional settings for the router installer:
+
+| Variable | Use |
+|---|---|
+| `FG_IP=192.168.1.2` | choose the spare LAN address yourself |
+| `LAN_NET=lan` | the main LAN network name in `/etc/config/network` |
+| `FG_DIR=/mnt/usb/fengard` | keep data and the program on USB storage |
+| `FORCE=1` | install even if the router looks too small |
+
+### Running on a computer instead
+
+For routers that can't run Fengard, option 2 runs it on an always-on computer as a background service:
+
+| System | Runs as | Program | Data |
+|---|---|---|---|
+| Windows | scheduled task | `C:\Program Files\Fengard` | `C:\ProgramData\Fengard` |
+| macOS | launchd daemon | `/usr/local/fengard` | `/Library/Application Support/Fengard` |
+| Linux, Raspberry Pi | systemd service | `/usr/local/bin/fengardd` | `/var/lib/fengard` |
+
+It opens the local network through the computer's firewall (Windows Firewall, the macOS firewall, ufw or
+firewalld) and then tells you the one step left: set your router's DHCP DNS server to this computer.
+
+Computer mode filters every device by DNS but has limits:
+
+- **No firewall.** Port forwards, bypass blocking, flood limits and the VPN need the router install.
+- **The computer must stay on and awake.** While it sleeps, devices lose name lookups.
+- **Its address must not change.** Reserve it in the router's DHCP settings.
+- **Only one DNS server.** Give devices no second DNS server, or they can go around Fengard.
+
+### Uninstall
+
+- **Router:** option 3 in the menu, or `sh /etc/fengard/uninstall.sh` on the router. Add `--purge` to also delete
+  settings and history.
+- **Computer:** option 4 in the menu. Then set your router's DHCP DNS server back to automatic.
+
+## Screenshots
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: light)" srcset="docs/screenshots/dashboard-light.png">
+    <img src="docs/screenshots/dashboard.png" alt="Dashboard: queries, blocked share, activity chart, top lists and protection status" width="900">
+  </picture>
+  <br><sub>The dashboard follows your GitHub theme: dark or light, same as the real one.</sub>
+</p>
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/devices.png" alt="Devices list with manufacturer, profile and status"><br><b>Devices.</b> Found automatically, with the manufacturer from the MAC address.</td>
+    <td width="50%"><img src="docs/screenshots/device-detail.png" alt="One device's activity and settings"><br><b>One device.</b> Its activity, top sites, profile, pause and Wake-on-LAN.</td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/profiles.png" alt="Profiles with categories, apps and screen time"><br><b>Profiles.</b> Categories, apps, SafeSearch, schedules and screen time per person.</td>
+    <td><img src="docs/screenshots/check-site.png" alt="Check a site: what each profile does with tiktok.com"><br><b>Check a site.</b> What every profile would do with a domain, and why.</td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/activity.png" alt="Live and historical query activity"><br><b>Activity.</b> Every lookup, live or historical, filtered by device or domain.</td>
+    <td><img src="docs/screenshots/filtering.png" alt="Filtering: categories, custom rules and blocklists"><br><b>Filtering.</b> Categories, block and allow rules, temporary allows and custom lists.</td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/firewall.png" alt="Firewall protections and the generated ruleset"><br><b>Firewall.</b> Bypass blocking, quarantine and WAN hardening, with the live ruleset.</td>
+    <td><img src="docs/screenshots/alerts.png" alt="Alerts for new devices, access requests and limits"><br><b>Alerts.</b> New devices, access requests, limits and upstream problems.</td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/forwarding.png" alt="Port forwarding rules"><br><b>Port forwarding.</b> Open a port to one device, enforced in the kernel.</td>
+    <td><img src="docs/screenshots/dns.png" alt="DNS settings: upstreams and local records"><br><b>DNS.</b> Plain, DoT or DoH upstreams, DNSSEC and <code>.lan</code> records.</td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/palette.png" alt="Command palette searching for tiktok"><br><b>Command palette.</b> <kbd>Ctrl</kbd> <kbd>K</kbd> jumps to pages, devices or a site check.</td>
+    <td><img src="docs/screenshots/settings.png" alt="Settings: accounts, notifications, API keys, backups"><br><b>Settings.</b> Accounts, two-factor, notifications, API keys, backups and history.</td>
+  </tr>
+</table>
+
+What a device on the network sees:
+
+<table>
+  <tr>
+    <td width="33%" align="center"><img src="docs/screenshots/blockpage-phone.png" alt="Block page on a phone" width="260"><br><b>Block page</b> with the reason and a request-access form.</td>
+    <td width="33%" align="center"><img src="docs/screenshots/mytime-phone.png" alt="My time page on a phone" width="260"><br><b>My time</b> at <code>fengard.lan/me</code>: what's used, what's left, and a "need more time?" button.</td>
+    <td width="33%" align="center"><img src="docs/screenshots/blockpage.png" alt="Block page on a laptop"><br><b>On a laptop</b> the same page, served over HTTP and HTTPS.</td>
+  </tr>
+</table>
+
+<sub>Screenshots are from a simulated home network with demo devices and a month of generated history.</sub>
+
+## How it works
+
+```mermaid
+flowchart TB
+    subgraph LAN[Home network]
+        P[Phones, laptops,<br/>consoles, TVs, IoT]
+    end
+    subgraph R[Router, stock firmware]
+        DHCP[dnsmasq<br/>DHCP only]
+        subgraph F[fengardd, one Go binary]
+            DNS[DNS server<br/>cache, rate limits]
+            POL[Policy engine<br/>per-device decisions]
+            WEB[Dashboard, API,<br/>block page]
+            FWM[Firewall manager]
+            DB[(bbolt database<br/>config, history)]
+        end
+        K[Kernel: Fengard's own<br/>nftables table or iptables chains]
+    end
+    UP[Upstream DNS<br/>plain, DoT or DoH]
+    NET((Internet))
+
+    P -- DHCP --> DHCP
+    P -- every DNS lookup --> K
+    K -- redirected to Fengard --> DNS
+    DNS <--> POL
+    DNS --> UP
+    POL --- DB
+    WEB --- DB
+    FWM -- atomic ruleset --> K
+    P -- traffic --> K --> NET
+```
+
+A lookup's journey:
+
+```mermaid
+sequenceDiagram
+    participant D as Device
+    participant K as Kernel firewall
+    participant F as Fengard DNS
+    participant P as Policy engine
+    participant U as Upstream
+    D->>K: query to 8.8.8.8:53 (any server)
+    K->>F: redirected to the router
+    F->>F: per-device rate limit
+    F->>P: who is this device, what is its profile?
+    alt blocked
+        P-->>F: block, reason
+        F-->>D: address of the block page
+    else allowed
+        F->>F: cache hit?
+        F->>U: forward over DoH/DoT if not cached
+        U-->>F: answer
+        F-->>D: answer
+    end
+    F--)F: log, stats and screen time (async, never slows the answer)
+```
+
+The policy engine checks each lookup in this order and stops at the first match:
+
+```mermaid
+flowchart LR
+    A[New device<br/>not approved?] --> B[Device or<br/>profile paused?]
+    B --> C[Protection<br/>paused?]
+    C --> D[Daily screen<br/>time used up?]
+    D --> E[App time<br/>limit reached?]
+    E --> F[Schedule<br/>active?]
+    F --> G[Allow rule?]
+    G --> H[Temporary<br/>allow?]
+    H --> I[Block rule?]
+    I --> J[Blocked<br/>category?]
+    J --> K[Blocked app?]
+    K --> L[Custom<br/>blocklist?]
+    L --> M[SafeSearch<br/>rewrite?]
+    M --> N[Allow]
+```
+
+Design choices:
+
+- **The kernel does the heavy lifting.** Packet filtering, NAT, port forwards and flood limits are rules in
+  Fengard's own table or chains next to the router's normal firewall. Two backends, nftables (OpenWrt 22 and
+  newer, modern Linux) and iptables (OpenWrt 21, GL.iNet 4.x), picked automatically. Rules are applied
+  atomically and removed when Fengard stops.
+- **Bounded everything.** The DNS cache, rate-limiter keys, stats, certificate cache, device tracking and
+  notification queues all have hard caps, so floods of random names or addresses can't grow memory.
+- **DNS never waits on slow work.** Query logging, notifications and device discovery are asynchronous and
+  drop (and count) rather than slow a lookup down.
+- **Compact blocklists.** About 535k domains take about 13 MB: a sorted blob plus offsets instead of a Go map.
+- **No build step, no framework.** The dashboard is plain ES modules and CSS embedded in the binary, served
+  with ETags and gzip. A first visit downloads about 90 KB, and it works with no internet access.
+- **Nothing to install on the router.** One static binary with its own root certificates, so it works even on
+  firmware without a CA bundle.
+
+## Features
+
+| Area | What it does |
+|---|---|
+| Devices | Found from DHCP and the neighbor table (IPv4 and IPv6; the ARP table on Windows and macOS), with the manufacturer from the MAC. Rename, group, pause, block, forget, Wake-on-LAN |
+| Profiles | Blocked categories, 55 individual apps (TikTok, Roblox, Discord, Fortnite and more), SafeSearch, custom rules, schedules, pause |
+| Categories | Ads, malware, adult, gambling, social, gaming, streaming, AI chatbots, VPN and DNS bypass, Tor. Updated daily |
+| Screen time | Profiles marked as a person get a daily online limit and per-app or per-category limits (for example Fortnite 2 h a day), counted once across all their devices |
+| My time page | `http://fengard.lan/me` on any of the person's devices: time used and left, each limit, what it went on, and a "need more time?" request the admin can grant from the alert |
+| Bypass protection | Redirects all DNS to Fengard, blocks DoH, DoT and DoQ, turns off Firefox DoH and iCloud Private Relay |
+| Tor | Blocked by name (Tor Browser, bridges) and by address: the relay list refreshes daily into a firewall set, applied per profile |
+| Remote access VPN | Built-in WireGuard server. Add a phone, scan the QR code, and it gets the same filtering on mobile data. Detects double NAT and says what to forward |
+| Tailscale | When no port can be forwarded, the router can be a Tailscale exit node. Fengard filters `tailscale0` like the LAN and lists Tailscale devices |
+| Custom blocklists | Subscribe to up to 16 hosts-file or domain lists by URL |
+| Check a site | What every profile would do with a domain and why, also from the command palette |
+| Temporary allow | Allow a site for an hour, or any length, for one profile or everyone. One click from an access request |
+| Pause protection | Turn all filtering off for a few minutes when something breaks. Device pauses still apply |
+| Local DNS | Every device answers as `<name>.lan`, with custom A, AAAA and CNAME records and reverse lookups. `.lan` never leaks upstream |
+| Upstreams | Plain, DNS-over-TLS and DNS-over-HTTPS, with optional DNSSEC validation |
+| Block page | Branded, over HTTP and HTTPS (a per-router CA that only signs blocked names), with an access-request form |
+| Firewall | Port forwards, WAN hardening (service ports closed, SYN and ICMP limits, invalid packets dropped), per-device DNS flood limit, quarantine for new devices |
+| DNS resilience | Cache, serve-stale when the upstream is down, merged duplicate lookups, per-device and global rate limits |
+| Notifications | Discord, Slack, Telegram, ntfy and generic webhooks, by severity |
+| Accounts | Admin and viewer roles, two-factor (TOTP and recovery codes), API keys, idle and absolute session timeouts |
+| Dashboard HTTPS | Served with a CA-signed certificate for its names and IP, so installing the CA makes it green |
+| Certificate portability | The CA exports, imports and travels in backups, so a replacement router keeps the trust already installed on devices |
+| Admin | Audit log, config history with rollback, backup and restore |
+| Monitoring | Live and historical activity per device, 24 h, 7 d and 30 d charts with comparison, top lists, alerts |
+
+## Performance
+
+Measured on the network lab ([`dev/netlab.sh`](dev/netlab.sh)) with both firewall backends:
+
+| Measure | Result |
+|---|---|
+| Memory | 22 to 26 MB RSS |
+| Idle CPU | 0 ms over 20 s |
+| Cost per query under sustained load | about 16 µs |
+| A busy home at about 20 queries per second | about 0.03% of one core |
+| One device flooding 1.4 million queries per second | dropped in the kernel; other devices keep resolving with 0 failures and single-digit-ms latency |
+| Blocklists | about 535k domains in about 13 MB |
+
+## Configuration reference
+
+The installers set everything up, so these are only needed to run `fengardd` by hand.
+
+| Flag | Default | Meaning |
+|---|---|---|
+| `-dns` | `:53` | comma-separated DNS listen addresses |
+| `-http` | `:80` | dashboard and block page listen address |
+| `-https` | `:443` | HTTPS block page listen address, empty to disable |
+| `-block-ip` | this machine's LAN address | IPv4 address blocked domains resolve to (the block page and dashboard) |
+| `-dns-ip` | the block IP | LAN IPv4 address devices' DNS is redirected to |
+| `-block-ip6` | none | the router's LAN IPv6 address |
+| `-data` | `/etc/fengard` | directory for persistent state |
+| `-leases` | `/tmp/dhcp.leases` | dnsmasq DHCP lease file |
+| `-dashboard-hosts` | `fengard.lan` | comma-separated hostnames that open the dashboard |
+| `-lan` | `br-lan` | comma-separated LAN interfaces |
+| `-wan` | `wan,eth0` | comma-separated WAN interfaces |
+| `-firewall` | off | apply firewall rules (Linux router only) |
+| `-firewall-backend` | `auto` | `auto`, `nftables` or `iptables` |
+| `-netns` | none | apply firewall rules inside a network namespace (testing) |
+| `-harden` | off | set kernel network hardening options |
+| `-mem-limit` | `96` | soft memory limit in MB |
+| `-no-list-updates` | off | don't download blocklists, use cached copies only |
+
+`SIGUSR1` makes Fengard re-apply its firewall rules; the router installer wires this to firewall reloads.
+
+**API.** Everything the dashboard does goes through a JSON API under `/api`: devices, groups (profiles),
+rules, lists, port forwards, DNS records, VPN peers, alerts, settings, users, API keys, config export,
+import and rollback. Use an API key from **Settings → API keys** as a bearer token for scripts.
+
+## Security
+
+- **Accounts.** Passwords are hashed with bcrypt. Two-factor uses TOTP with recovery codes. Sessions have
+  idle and absolute timeouts, and login attempts are rate limited.
+- **CSRF.** Every write needs a custom header that browsers won't send cross-origin, and the Origin is checked.
+- **Certificates.** Each router makes its own CA. It only signs names Fengard blocks and the dashboard's own
+  names, so installing it on devices doesn't let Fengard impersonate other sites.
+- **Kernel enforcement.** Bypass blocking, quarantine and flood limits are firewall rules, so they hold even
+  while Fengard is busy.
+
+If you find a security issue, please report it privately through
+[GitHub security advisories](https://github.com/masaleem-oss/Fengard/security/advisories/new) rather than an issue.
+
+## Troubleshooting
+
+| Problem | Fix |
+|---|---|
+| "Can't reach SSH on the router" | Turn on SSH in the router's settings. OpenWrt: **System → Administration → SSH Access**. GL.iNet has it on by default |
+| "Router has a new identity" | The router was reset or replaced. Answer yes when the installer asks to forget the old one |
+| "Not enough free storage" | Use USB storage with `FG_DIR=/mnt/<usb>/fengard`, or a router with more flash |
+| "Another program uses DNS port 53" | Turn off AdGuard Home, unbound or similar in the router's settings and run the installer again |
+| Blocklists show only a few hundred domains | The router has no internet yet. Lists download as soon as it does |
+| VPN page says WireGuard isn't installed | Install the `kmod-wireguard` and `wireguard-tools` packages. Everything else works without them |
+| Phones show "no internet" on Wi-Fi | Check that devices get the router as their DNS server. The installer sets DHCP option 6 for every LAN network |
+| Something is wrongly blocked | Use **Check a site**, then add an allow rule or a temporary allow. **Pause protection** turns filtering off for a few minutes |
+
+## Development
+
+Requires Go (see [`go.mod`](go.mod)).
+
+```sh
+go test ./...                              # unit and integration tests
+go build -o bin/fengardd ./cmd/fengardd    # the daemon for this machine
+go run ./tools/release -version 1.0.0      # the full kit for every platform, into dist/
+```
+
+The tests cover DNS end to end against fake plain and DoH upstreams, policy, local DNS, two-factor, API keys,
+web auth and firewall rendering for both backends.
+
+**Try it on Windows.** Build `bin/fengardd.exe`, run `dev\run.ps1`, and open http://127.0.0.1. State lives in
+`dev\data`, and `dev\leases.txt` makes this PC appear as a device. To filter this PC's own browsing, run
+`dev\test-mode-on.ps1` as Administrator; `dev\test-mode-off.ps1` undoes it. The firewall isn't applied on
+Windows; the Firewall page shows the generated ruleset instead.
+
+**Network lab.** [`dev/netlab.sh`](dev/netlab.sh) builds a simulated home network in network namespaces and
+checks the real firewall: DNS hijack, DoT blocking, pause at the firewall, port forwarding, WAN exposure and a
+DNS flood. It needs root on Linux or WSL2, and `FW_BACKEND=iptables` runs it with the iptables backend.
+
+```sh
+GOOS=linux GOARCH=amd64 go build -o bin/linux/fengardd ./cmd/fengardd
+GOOS=linux GOARCH=amd64 go build -o bin/linux/dnsq ./tools/dnsq
+GOOS=linux GOARCH=amd64 go build -o bin/linux/dnsflood ./tools/dnsflood
+sudo FENGARD_ROOT=. bash dev/netlab.sh
+```
+
+**Releasing.** `go run ./tools/release -version 1.0.0` writes `dist/assets/`. Attach all of it to a GitHub
+release: the kit zip, `router-install.sh`, `router-uninstall.sh`, one `fengardd-linux-<cpu>.gz` per router CPU,
+and `SHA256SUMS`. The router installer downloads from the latest release, which is what makes the one-line
+install work.
+
+## Project layout
+
+| Path | What's there |
+|---|---|
+| [`cmd/fengardd`](cmd/fengardd) | the daemon: flags and wiring |
+| [`install/`](install) | installers: `Install Fengard.cmd` and `fengard-setup.ps1` (Windows), `install.sh` (macOS, Linux), `router-install.sh` and `router-uninstall.sh` (run on the router) |
+| [`internal/config`](internal/config) | config model, validation, versioned store with rollback |
+| [`internal/catalog`](internal/catalog) | category blocklists, custom lists, app catalog, compact domain set |
+| [`internal/policy`](internal/policy) | compiled per-device decision engine |
+| [`internal/dnsserver`](internal/dnsserver) | resolver, cache, rate limiting, DoH and DoT upstreams, local answers |
+| [`internal/localdns`](internal/localdns) | `.lan` names, records, reverse lookups |
+| [`internal/devices`](internal/devices) | IP to device tracking, MAC vendor table, Wake-on-LAN |
+| [`internal/firewall`](internal/firewall) | ruleset generation and atomic apply, nftables and iptables |
+| [`internal/certs`](internal/certs) | per-router CA: block page and dashboard certificates, Apple profile, export and import |
+| [`internal/vpn`](internal/vpn) | WireGuard keys, client profiles, kernel interface, public address detection, Tailscale status |
+| [`internal/screentime`](internal/screentime) | minutes online per person and per app, persisted, with bonus minutes |
+| [`internal/auth`](internal/auth) | accounts, sessions, TOTP two-factor, API keys |
+| [`internal/notify`](internal/notify) | alert delivery to chat apps and webhooks |
+| [`internal/web`](internal/web) | API, embedded dashboard (`static/`), asset server, block page |
+| [`internal/store`](internal/store), [`querylog`](internal/querylog), [`alerts`](internal/alerts) | embedded database, query history and hourly series, alerts |
+| [`tools/`](tools) | `release` (builds the kit), `dnsq` (test lookups), `dnsflood` (resilience test), `memcheck`, `genoui` (vendor table), `wgkey` |
+| [`dev/`](dev) | local test scripts and the network lab |
+
+## License
+
+Fengard is licensed under the [Apache License 2.0](LICENSE). Third-party components are listed in [NOTICE](NOTICE):
+IBM Plex Sans and Mono (OFL), Lucide icons (ISC), Simple Icons logos (CC0), qrcode-generator (MIT) and the
+IEEE MA-L vendor registry, all bundled so the dashboard works offline. Blocklists aren't distributed with
+Fengard; each installation downloads them from their publishers under the publishers' licenses.
+
+<p align="center"><sub>Made by <a href="https://github.com/masaleem-oss">masaleem-oss</a></sub></p>

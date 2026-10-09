@@ -1,0 +1,7 @@
+# sh has to stay lf even on windows checkouts
+*.sh text eol=lf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+*.go text eol=lf
+*.woff2 binary
+*.gz binary
