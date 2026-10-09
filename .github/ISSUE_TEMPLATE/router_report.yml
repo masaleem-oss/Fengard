@@ -1,0 +1,35 @@
+name: Router report
+description: Tell us how Fengard runs on your router, working or not
+title: "Router report: "
+labels: ["router report"]
+body:
+  - type: input
+    id: model
+    attributes:
+      label: Router model
+      placeholder: GL.iNet GL-MT3000, Linksys E8450, x86 mini PC...
+    validations:
+      required: true
+  - type: input
+    id: firmware
+    attributes:
+      label: Firmware and version
+      placeholder: OpenWrt 24.10.2, GL.iNet 4.7.0...
+    validations:
+      required: true
+  - type: dropdown
+    id: result
+    attributes:
+      label: Did it work?
+      options:
+        - Yes, everything works
+        - Mostly, with some problems
+        - No, the install failed
+    validations:
+      required: true
+  - type: textarea
+    id: details
+    attributes:
+      label: Details
+      description: Anything that went wrong, plus the installer output if it failed
+      render: text

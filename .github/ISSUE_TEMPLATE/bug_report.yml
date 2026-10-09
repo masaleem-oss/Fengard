@@ -1,0 +1,29 @@
+name: Bug report
+description: Something doesn't work the way it should
+labels: ["bug"]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected and what happened instead
+    validations:
+      required: true
+  - type: input
+    id: where
+    attributes:
+      label: Where it runs
+      placeholder: GL.iNet GL-MT3000 on firmware 4.7, or Windows 11 in computer mode
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Fengard version
+      description: The release you downloaded, for example 1.0.0
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: "On a router: logread -e fengardd | tail -50"
+      render: text

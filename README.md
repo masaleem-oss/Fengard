@@ -11,6 +11,12 @@
 </p>
 
 <p align="center">
+  Parental controls, ad blocking and screen time for every device on your home network,
+  running on the router itself: OpenWrt, GL.iNet and other OpenWrt-based routers.
+  A self-hosted alternative to Pi-hole and AdGuard Home that kids can't get around by changing DNS.
+</p>
+
+<p align="center">
   <a href="LICENSE"><img alt="License: Apache 2.0" src="https://img.shields.io/badge/license-Apache%202.0-blue"></a>
   <img alt="Go" src="https://img.shields.io/badge/go-1.27-00ADD8?logo=go&logoColor=white">
   <img alt="OpenWrt 19.07+" src="https://img.shields.io/badge/OpenWrt-19.07%2B-00B5E2?logo=openwrt&logoColor=white">
@@ -36,6 +42,7 @@
 ## Contents
 
 - [Why Fengard](#why-fengard)
+- [How it compares](#how-it-compares)
 - [Install](#install)
   - [Which routers work](#which-routers-work)
   - [What the installer changes](#what-the-installer-changes)
@@ -48,8 +55,10 @@
 - [Configuration reference](#configuration-reference)
 - [Security](#security)
 - [Troubleshooting](#troubleshooting)
+- [FAQ](#faq)
 - [Development](#development)
 - [Project layout](#project-layout)
+- [Contributing](#contributing)
 - [License](#license)
 
 ## Why Fengard
@@ -65,6 +74,26 @@ subscription box that replaces your router. Fengard does it on the router you al
   table. If Fengard stops, it removes them and the router carries on as a normal router.
 - **It stays out of your way.** It runs next to the stock firmware, installs and uninstalls in one step,
   and uses about 25 MB of memory.
+
+## How it compares
+
+Pi-hole and AdGuard Home are great DNS blockers. Fengard covers the same ground and adds the parts a family
+network needs, enforced by the router's firewall:
+
+| | Fengard | Pi-hole | AdGuard Home |
+|---|:---:|:---:|:---:|
+| Network-wide ad and tracker blocking | ✅ | ✅ | ✅ |
+| Per-device profiles | ✅ | ✅ groups | ✅ per client |
+| Runs on the router itself | ✅ any OpenWrt router | ❌ needs a separate machine | ✅ |
+| Stops devices using another DNS server, DoH or DoT | ✅ in the kernel | ❌ needs your own firewall rules | ❌ needs your own firewall rules |
+| Daily screen-time limits per person, across their devices | ✅ | ❌ | ❌ |
+| Block single apps (TikTok, Roblox, Fortnite...) | ✅ | lists only | ✅ |
+| Block page with a "request access" button | ✅ | ❌ | ❌ |
+| Built-in WireGuard VPN with the same filtering on mobile data | ✅ | ❌ | ❌ |
+| Port forwarding and WAN hardening | ✅ | ❌ | ❌ |
+| One-click install and clean uninstall | ✅ | ✅ | ✅ |
+
+<sub>Based on each project's out-of-the-box features. Pi-hole and AdGuard Home can do more with extra setup.</sub>
 
 ## Install
 
@@ -433,6 +462,33 @@ If you find a security issue, please report it privately through
 | Phones show "no internet" on Wi-Fi | Check that devices get the router as their DNS server. The installer sets DHCP option 6 for every LAN network |
 | Something is wrongly blocked | Use **Check a site**, then add an allow rule or a temporary allow. **Pause protection** turns filtering off for a few minutes |
 
+## FAQ
+
+**Is Fengard a Pi-hole or AdGuard Home alternative?**
+Yes. It blocks ads, trackers and malware for the whole network like they do, and adds per-person screen
+time, app blocking, a block page and firewall enforcement. See [How it compares](#how-it-compares).
+
+**Can kids get around it with DNS-over-HTTPS, a VPN or a different DNS server?**
+Changing DNS doesn't help: all lookups are redirected back to Fengard, and DoH, DoT, DoQ and Tor are blocked
+in the router's firewall. Known VPN and proxy services are blocked by the "VPN, proxy & DNS bypass" category.
+No filter catches every VPN, so for younger kids pair it with a schedule or a device pause.
+
+**Do I have to flash my router?**
+No. If it already runs OpenWrt or GL.iNet firmware, Fengard installs next to it and uninstalls cleanly.
+If it runs stock firmware that isn't OpenWrt-based, use computer mode or flash OpenWrt.
+
+**Does it work on GL.iNet routers?**
+Yes. GL.iNet firmware is OpenWrt-based, and Fengard is used daily on a GL-MT3000 (Beryl AX). The installer
+handles GL.iNet's own web server and firewall setup.
+
+**Will it slow my internet down?**
+No. Only DNS lookups go through Fengard, answered in milliseconds and mostly from cache. Everything else is
+plain kernel routing. It uses about 25 MB of memory.
+
+**Is it free?**
+Yes. Fengard is open source under the Apache 2.0 license, with no accounts, cloud or subscription.
+Everything stays on your router.
+
 ## Development
 
 Requires Go (see [`go.mod`](go.mod)).
@@ -489,6 +545,12 @@ install work.
 | [`internal/store`](internal/store), [`querylog`](internal/querylog), [`alerts`](internal/alerts) | embedded database, query history and hourly series, alerts |
 | [`tools/`](tools) | `release` (builds the kit), `dnsq` (test lookups), `dnsflood` (resilience test), `memcheck`, `genoui` (vendor table), `wgkey` |
 | [`dev/`](dev) | local test scripts and the network lab |
+
+## Contributing
+
+Router test reports are the most useful thing right now: if you try Fengard on a router, please
+[tell us how it went](https://github.com/masaleem-oss/Fengard/issues/new?template=router_report.yml).
+Bug reports and pull requests are welcome too, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 
