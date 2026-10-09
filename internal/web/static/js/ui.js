@@ -92,6 +92,13 @@ export async function busy(btn, fn) {
 const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 // backdrop and focus trap and escape to close
+const openOverlays = new Set();
+
+// drawers and dialogs belong to the page they were opened on
+export function closeOverlays() {
+  [...openOverlays].forEach((close) => close());
+}
+
 function overlay(className, html, { onClose, label } = {}) {
   const prev = document.activeElement;
   const backdrop = document.createElement('div');
@@ -108,6 +115,7 @@ function overlay(className, html, { onClose, label } = {}) {
   const close = () => {
     if (closed) return;
     closed = true;
+    openOverlays.delete(close);
     backdrop.remove();
     el.remove();
     document.removeEventListener('keydown', onKey, true);
@@ -126,6 +134,7 @@ function overlay(className, html, { onClose, label } = {}) {
       else if (!e.shiftKey && document.activeElement === last) { first.focus(); e.preventDefault(); }
     }
   };
+  openOverlays.add(close);
   document.addEventListener('keydown', onKey, true);
   backdrop.addEventListener('click', close);
   el.addEventListener('click', (e) => { if (e.target.closest('[data-close]')) close(); });

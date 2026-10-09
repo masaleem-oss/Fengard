@@ -1,5 +1,5 @@
 import { get, post, put, setUnauthorizedHandler } from './api.js';
-import { $, $$, esc, icon, toast, busy, menu, popover, closeMenus, ago, until, attempt, inFuture } from './ui.js';
+import { $, $$, esc, icon, toast, busy, menu, popover, closeMenus, closeOverlays, ago, until, attempt, inFuture } from './ui.js';
 import { deviceName, deviceType } from './meta.js';
 
 // state
@@ -524,6 +524,6 @@ export async function render() {
   }
 }
 
-window.addEventListener('hashchange', () => { if (state.me) render(); });
+window.addEventListener('hashchange', () => { closeOverlays(); if (state.me) render(); });
 
 boot();

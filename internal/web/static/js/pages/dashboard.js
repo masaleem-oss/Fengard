@@ -144,14 +144,20 @@ export async function render(el, ctx) {
     if (e.target.closest('[data-resume]') && await attempt(() => post('/api/protection/pause', { minutes: 0 }), 'Protection resumed')) { refreshShell(); draw(); }
   });
 
+  if (!Object.keys(appNames).length) {
+    try { appNames = Object.fromEntries((await get('/api/apps')).apps.map((a) => [a.id, a.name])); } catch (e) {}
+  }
   await loadSeries();
   await draw();
   ctx.every(5000, draw);
   ctx.every(60000, loadSeries);
 }
 
+// real app names like TikTok instead of guessing from the id
+let appNames = {};
+
 function labelFor(id, lists) {
-  if (id.startsWith('app:')) return id.slice(4).replace(/^\w/, (c) => c.toUpperCase());
+  if (id.startsWith('app:')) return appNames[id.slice(4)] || id.slice(4).replace(/^\w/, (c) => c.toUpperCase());
   if (id.startsWith('list:')) return 'Custom list';
   return lists.find((l) => l.id === id)?.name || id;
 }
