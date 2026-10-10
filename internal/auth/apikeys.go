@@ -26,6 +26,8 @@ type APIKey struct {
 const maxKeys = 50
 
 func (a *Auth) CreateKey(name string, role Role) (string, APIKey, error) {
+	a.keyMu.Lock()
+	defer a.keyMu.Unlock()
 	name = strings.TrimSpace(name)
 	if name == "" || len(name) > 60 {
 		return "", APIKey{}, errors.New("give the key a name (up to 60 characters)")
@@ -64,6 +66,8 @@ func (a *Auth) Keys() []APIKey {
 }
 
 func (a *Auth) DeleteKey(id string) error {
+	a.keyMu.Lock()
+	defer a.keyMu.Unlock()
 	var k APIKey
 	if ok, _ := a.keys.Get(id, &k); !ok {
 		return errors.New("no such key")
@@ -72,6 +76,8 @@ func (a *Auth) DeleteKey(id string) error {
 }
 
 func (a *Auth) KeySession(token string) *Session {
+	a.keyMu.Lock()
+	defer a.keyMu.Unlock()
 	if !strings.HasPrefix(token, "fg_") {
 		return nil
 	}

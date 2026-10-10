@@ -33,6 +33,7 @@ var ErrTwoFactor = errors.New("two-factor code required")
 var b32 = base32.StdEncoding.WithPadding(base32.NoPadding)
 
 type pending struct {
+	version uint64
 	user    string
 	expires time.Time
 }
@@ -77,15 +78,21 @@ func (a *Auth) verifyTOTP(username string, secret []byte, code string) bool {
 
 // nothing is saved until TOTPEnable
 func (a *Auth) TOTPSetup(username string) (secret, uri string, err error) {
+	a.security.Lock()
+	defer a.security.Unlock()
 	var u User
 	if ok, err := a.users.Get(username, &u); !ok || err != nil {
 		return "", "", errors.New("no such user")
+	}
+	if len(u.TOTPSecret) != 0 {
+		return "", "", errors.New("disable two-factor authentication before setting it up again")
 	}
 	raw := make([]byte, 20)
 	if _, err := rand.Read(raw); err != nil {
 		return "", "", err
 	}
 	a.mu.Lock()
+	delete(a.lastStep, username)
 	a.enroll[username] = enrollment{secret: raw, expires: time.Now().Add(enrollTTL)}
 	a.mu.Unlock()
 	secret = b32.EncodeToString(raw)
@@ -100,6 +107,8 @@ func (a *Auth) TOTPSetup(username string) (secret, uri string, err error) {
 
 // recovery codes are only shown once
 func (a *Auth) TOTPEnable(username, code string) ([]string, error) {
+	a.security.Lock()
+	defer a.security.Unlock()
 	a.mu.Lock()
 	e, ok := a.enroll[username]
 	a.mu.Unlock()
@@ -117,7 +126,9 @@ func (a *Auth) TOTPEnable(username, code string) ([]string, error) {
 	u.Recovery = make([][]byte, recoveryN)
 	for i := range codes {
 		raw := make([]byte, 5)
-		rand.Read(raw)
+		if _, err := rand.Read(raw); err != nil {
+			return nil, err
+		}
 		c := strings.ToLower(b32.EncodeToString(raw))
 		codes[i] = c[:4] + "-" + c[4:]
 		h := sha256.Sum256([]byte(codes[i]))
@@ -125,16 +136,19 @@ func (a *Auth) TOTPEnable(username, code string) ([]string, error) {
 	}
 	u.TOTPSecret = e.secret
 	u.TOTPSince = time.Now()
+	u.SecurityVersion++
 	if err := a.users.Put(username, u); err != nil {
 		return nil, err
 	}
 	a.mu.Lock()
-	delete(a.enroll, username)
+	a.revokeUserLocked(username)
 	a.mu.Unlock()
 	return codes, nil
 }
 
 func (a *Auth) TOTPDisable(username, password string) error {
+	a.security.Lock()
+	defer a.security.Unlock()
 	var u User
 	if ok, err := a.users.Get(username, &u); !ok || err != nil {
 		return errors.New("no such user")
@@ -143,21 +157,43 @@ func (a *Auth) TOTPDisable(username, password string) error {
 		return errors.New("wrong password")
 	}
 	u.TOTPSecret, u.Recovery, u.TOTPSince = nil, nil, time.Time{}
-	return a.users.Put(username, u)
+	u.SecurityVersion++
+	if err := a.users.Put(username, u); err != nil {
+		return err
+	}
+	a.revokeUser(username)
+	return nil
 }
 
 // lost phone case
 func (a *Auth) AdminResetTOTP(username string) error {
+	a.security.Lock()
+	defer a.security.Unlock()
 	var u User
 	if ok, err := a.users.Get(username, &u); !ok || err != nil {
 		return errors.New("no such user")
 	}
 	u.TOTPSecret, u.Recovery, u.TOTPSince = nil, nil, time.Time{}
-	return a.users.Put(username, u)
+	u.SecurityVersion++
+	if err := a.users.Put(username, u); err != nil {
+		return err
+	}
+	a.revokeUser(username)
+	return nil
 }
 
 // token is only good for CompleteLogin
 func (a *Auth) Pending(username string) (string, error) {
+	a.security.Lock()
+	defer a.security.Unlock()
+	var u User
+	if ok, err := a.users.Get(username, &u); err != nil || !ok || len(u.TOTPSecret) == 0 {
+		return "", ErrBadLogin
+	}
+	return a.pendingFor(&u)
+}
+
+func (a *Auth) pendingFor(u *User) (string, error) {
 	tok := make([]byte, 24)
 	if _, err := rand.Read(tok); err != nil {
 		return "", err
@@ -174,12 +210,14 @@ func (a *Auth) Pending(username string) (string, error) {
 		a.mu.Unlock()
 		return "", errors.New("too many sign-ins in progress, try again in a few minutes")
 	}
-	a.pendings[t] = pending{user: username, expires: now.Add(pendingTTL)}
+	a.pendings[t] = pending{user: u.Username, version: u.SecurityVersion, expires: now.Add(pendingTTL)}
 	a.mu.Unlock()
 	return t, nil
 }
 
 func (a *Auth) CompleteLogin(token, code string) (*Session, error) {
+	a.security.Lock()
+	defer a.security.Unlock()
 	a.mu.Lock()
 	p, ok := a.pendings[token]
 	a.mu.Unlock()
@@ -188,6 +226,9 @@ func (a *Auth) CompleteLogin(token, code string) (*Session, error) {
 	}
 	var u User
 	if ok, err := a.users.Get(p.user, &u); !ok || err != nil {
+		return nil, ErrBadLogin
+	}
+	if u.SecurityVersion != p.version || len(u.TOTPSecret) == 0 {
 		return nil, ErrBadLogin
 	}
 	code = strings.ToLower(strings.TrimSpace(code))
@@ -211,7 +252,7 @@ func (a *Auth) CompleteLogin(token, code string) (*Session, error) {
 	a.mu.Lock()
 	delete(a.pendings, token)
 	a.mu.Unlock()
-	return a.StartSession(&u)
+	return a.startSession(&u)
 }
 
 func (a *Auth) RecoveryLeft(username string) int {

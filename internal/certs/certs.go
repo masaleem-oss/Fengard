@@ -1,4 +1,3 @@
-// unique ca per box and it only signs blocked hosts so it cant fake real sites
 package certs
 
 import (
@@ -14,6 +13,7 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"log"
 	"math/big"
 	"net"
 	"os"
@@ -22,13 +22,16 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/masaleem-oss/Fengard/internal/persist"
 )
 
 const (
-	caCertFile = "ca.crt"
-	caKeyFile  = "ca.key"
-	leafTTL    = 7 * 24 * time.Hour
-	maxCached  = 2048 // cap so random hostnames cant eat memory
+	caBundleFile = "ca.bundle"
+	caCertFile   = "ca.crt"
+	caKeyFile    = "ca.key"
+	leafTTL      = 7 * 24 * time.Hour
+	maxCached    = 2048 // cap so random hostnames cant eat memory
 )
 
 type caState struct {
@@ -39,9 +42,10 @@ type caState struct {
 }
 
 type Authority struct {
-	dir     string
-	st      atomic.Pointer[caState]
-	leafKey *ecdsa.PrivateKey // one key for all leafs cheaper on routers
+	importMu sync.Mutex
+	dir      string
+	st       atomic.Pointer[caState]
+	leafKey  *ecdsa.PrivateKey // one key for all leafs cheaper on routers
 
 	Allowed func(host string) bool
 
@@ -55,20 +59,34 @@ type Authority struct {
 }
 
 func LoadOrCreate(dir string) (*Authority, error) {
-	certPath, keyPath := filepath.Join(dir, caCertFile), filepath.Join(dir, caKeyFile)
-	certPEM, err := os.ReadFile(certPath)
-	if errors.Is(err, os.ErrNotExist) {
-		if certPEM, err = create(certPath, keyPath); err != nil {
-			return nil, fmt.Errorf("create CA: %w", err)
+	bundlePath := filepath.Join(dir, caBundleFile)
+	bundle, err := os.ReadFile(bundlePath)
+	var st *caState
+	if err == nil {
+		st, err = parseExport(bundle)
+	} else if errors.Is(err, os.ErrNotExist) {
+		certPEM, readErr := os.ReadFile(filepath.Join(dir, caCertFile))
+		if errors.Is(readErr, os.ErrNotExist) {
+			st, err = create()
+			if err == nil {
+				err = persist.WriteFile(bundlePath, append(append([]byte{}, st.certPEM...), st.keyPEM...), 0o600)
+			}
+		} else if readErr != nil {
+			return nil, readErr
+		} else {
+			keyPEM, readErr := os.ReadFile(filepath.Join(dir, caKeyFile))
+			if readErr != nil {
+				return nil, readErr
+			}
+			st, err = parseBundle(certPEM, keyPEM)
+			// the old pair still works so a full flash shouldnt stop dns
+			if err == nil {
+				if werr := persist.WriteFile(bundlePath, append(append([]byte{}, st.certPEM...), st.keyPEM...), 0o600); werr != nil {
+					log.Printf("CA bundle not saved, using ca.crt and ca.key: %v", werr)
+				}
+			}
 		}
-	} else if err != nil {
-		return nil, err
 	}
-	keyPEM, err := os.ReadFile(keyPath)
-	if err != nil {
-		return nil, err
-	}
-	st, err := parseBundle(certPEM, keyPEM)
 	if err != nil {
 		return nil, fmt.Errorf("CA files: %w", err)
 	}
@@ -81,13 +99,15 @@ func LoadOrCreate(dir string) (*Authority, error) {
 	return a, nil
 }
 
-func create(certPath, keyPath string) ([]byte, error) {
+func create() (*caState, error) {
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		return nil, err
 	}
 	id := make([]byte, 4)
-	rand.Read(id)
+	if _, err := rand.Read(id); err != nil {
+		return nil, err
+	}
 	tmpl := &x509.Certificate{
 		SerialNumber:          serial(),
 		Subject:               pkix.Name{CommonName: "Fengard Local CA " + strings.ToUpper(hex.EncodeToString(id)), Organization: []string{"Fengard"}},
@@ -106,11 +126,9 @@ func create(certPath, keyPath string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := os.WriteFile(keyPath, pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER}), 0o600); err != nil {
-		return nil, err
-	}
 	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
-	return certPEM, os.WriteFile(certPath, certPEM, 0o644)
+	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER})
+	return parseBundle(certPEM, keyPEM)
 }
 
 func parseBundle(certPEM, keyPEM []byte) (*caState, error) {
@@ -149,48 +167,45 @@ func (a *Authority) Export() []byte {
 	return append(append([]byte{}, s.certPEM...), s.keyPEM...)
 }
 
-// drops old leafs so new connections use the new ca
-func (a *Authority) Import(bundle []byte) error {
+func parseExport(bundle []byte) (*caState, error) {
 	var certPEM, keyPEM []byte
 	for rest := bundle; ; {
-		var b *pem.Block
-		if b, rest = pem.Decode(rest); b == nil {
+		var block *pem.Block
+		block, rest = pem.Decode(rest)
+		if block == nil {
 			break
 		}
-		switch b.Type {
+		switch block.Type {
 		case "CERTIFICATE":
-			certPEM = pem.EncodeToMemory(b)
+			certPEM = pem.EncodeToMemory(block)
 		case "EC PRIVATE KEY":
-			keyPEM = pem.EncodeToMemory(b)
+			keyPEM = pem.EncodeToMemory(block)
 		}
 	}
 	if certPEM == nil || keyPEM == nil {
-		return errors.New("not a Fengard certificate bundle (needs the certificate and its private key)")
+		return nil, errors.New("not a Fengard certificate bundle (needs the certificate and its private key)")
 	}
-	st, err := parseBundle(certPEM, keyPEM)
+	return parseBundle(certPEM, keyPEM)
+}
+
+// drops old leafs so new connections use the new ca
+func (a *Authority) Import(bundle []byte) error {
+	a.importMu.Lock()
+	defer a.importMu.Unlock()
+	st, err := parseExport(bundle)
 	if err != nil {
 		return err
 	}
 	if a.dir != "" {
-		keyPath, certPath := filepath.Join(a.dir, caKeyFile), filepath.Join(a.dir, caCertFile)
-		if err := os.WriteFile(keyPath+".tmp", st.keyPEM, 0o600); err != nil {
-			return err
-		}
-		if err := os.WriteFile(certPath+".tmp", st.certPEM, 0o644); err != nil {
-			return err
-		}
-		if err := os.Rename(keyPath+".tmp", keyPath); err != nil {
-			return err
-		}
-		if err := os.Rename(certPath+".tmp", certPath); err != nil {
+		if err := persist.WriteFile(filepath.Join(a.dir, caBundleFile), append(append([]byte{}, st.certPEM...), st.keyPEM...), 0o600); err != nil {
 			return err
 		}
 	}
-	a.st.Store(st)
 	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.st.Store(st)
 	a.cache = map[string]*tls.Certificate{}
 	a.dash = nil
-	a.mu.Unlock()
 	return nil
 }
 
@@ -238,7 +253,7 @@ func (a *Authority) MobileConfig(network string) []byte {
 			<key>PayloadVersion</key><integer>1</integer>
 		</dict>
 	</array>
-	<key>PayloadDescription</key><string>Lets %s show its block page on HTTPS sites. The certificate is unique to this gateway and only signs sites the network blocks.</string>
+	<key>PayloadDescription</key><string>Lets %s show its block page on HTTPS sites. Fengard restricts signing to blocked sites and its dashboard. Installing this root trusts its private key for any website; verify its fingerprint through the router console before installation.</string>
 	<key>PayloadDisplayName</key><string>%s</string>
 	<key>PayloadIdentifier</key><string>net.fengard.%s</string>
 	<key>PayloadOrganization</key><string>Fengard</string>

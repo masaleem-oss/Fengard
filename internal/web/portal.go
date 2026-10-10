@@ -137,8 +137,7 @@ func (s *Server) groupBonus(w http.ResponseWriter, r *http.Request) {
 	}
 	total := s.Screen.AddBonus(id, body.Minutes)
 	s.audit(r, fmt.Sprintf("Gave %s %d extra minutes today", g.Name, body.Minutes), fmt.Sprintf("total bonus %d", total))
-	s.Policy.Rebuild(c, s.Catalog.Set()) // limits are read live but offline state is cached by the firewall
-	go s.Firewall.Sync()
+	s.Config.Reconcile()
 	writeJSON(w, s.personSummary(c, *g, time.Now()))
 }
 

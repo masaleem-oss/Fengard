@@ -406,7 +406,7 @@ async function signOut() {
 }
 
 const SEV_ICON = { info: 'info', warning: 'triangle-alert', critical: 'octagon-x' };
-export const alertIcon = (a) => ({ new_device: 'monitor-smartphone', access_request: 'send', time_request: 'timer', login_failed: 'key-round', dns_flood: 'zap', upstream_down: 'unplug', test: 'bell' }[a.kind] || SEV_ICON[a.severity] || 'info');
+export const alertIcon = (a) => ({ new_device: 'monitor-smartphone', access_request: 'send', time_request: 'timer', login_failed: 'key-round', dns_flood: 'zap', upstream_down: 'unplug', update: 'download', update_failed: 'triangle-alert', test: 'bell' }[a.kind] || SEV_ICON[a.severity] || 'info');
 
 async function alertsPopover(anchor) {
   if ($('.popover')) return closeMenus();

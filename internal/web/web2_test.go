@@ -69,6 +69,9 @@ func TestTwoFactorLoginFlow(t *testing.T) {
 	if code, body := c.do("POST", "/api/2fa/enable", `{"code":"`+totp+`"}`, true); code != 200 || len(body["recoveryCodes"].([]any)) != 8 {
 		t.Fatalf("2fa enable = %d %v", code, body)
 	}
+	if code, _ := c.do("GET", "/api/2fa", "", false); code != 200 {
+		t.Fatalf("turning on 2fa signed this browser out: %d", code)
+	}
 
 	other := newClient(t, srv)
 	code, body = other.do("POST", "/api/login", `{"username":"admin","password":"correct horse battery"}`, true)

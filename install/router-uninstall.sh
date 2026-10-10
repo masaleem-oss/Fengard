@@ -27,6 +27,9 @@ FG_DIR=${FG_DIR:-/etc/fengard}
 echo "== stopping Fengard"
 [ -x "$INIT" ] && { "$INIT" stop; "$INIT" disable; } >/dev/null 2>&1
 killall fengardd 2>/dev/null && sleep 1
+# the stand in dns from stopping the service, dnsmasq gets port 53 back below
+[ -f /var/run/fengard-rescue.pid ] && kill "$(cat /var/run/fengard-rescue.pid)" 2>/dev/null
+rm -f /var/run/fengard-rescue.pid /var/run/fengard-stopped
 if [ -n "$FG_IP" ]; then
 	ip -o -4 addr show 2>/dev/null | awk -v a="$FG_IP/" 'index($4, a) == 1 { print $2, $4 }' |
 		while read -r dev cidr; do ip addr del "$cidr" dev "$dev" 2>/dev/null; done

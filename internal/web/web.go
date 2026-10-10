@@ -3,6 +3,7 @@
 package web
 
 import (
+	"context"
 	"embed"
 	"encoding/json"
 	"errors"
@@ -10,8 +11,10 @@ import (
 	"io/fs"
 	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/masaleem-oss/Fengard/internal/alerts"
@@ -29,6 +32,7 @@ import (
 	"github.com/masaleem-oss/Fengard/internal/screentime"
 	"github.com/masaleem-oss/Fengard/internal/store"
 	"github.com/masaleem-oss/Fengard/internal/sysinfo"
+	"github.com/masaleem-oss/Fengard/internal/update"
 	"github.com/masaleem-oss/Fengard/internal/vpn"
 )
 
@@ -46,23 +50,30 @@ var portalTmpl = template.Must(template.New("portal").Parse(portalHTML))
 var blockTmpl = template.Must(template.New("block").Parse(blockPageHTML))
 
 type Server struct {
-	CA       *certs.Authority
-	Config   *config.Store
-	Catalog  *catalog.Catalog
-	Policy   *policy.Engine
-	Log      *querylog.Log
-	Devices  *devices.Tracker
-	DNS      *dnsserver.Server
-	Firewall *firewall.Manager
-	Auth     *auth.Auth
-	Alerts   *alerts.Alerts
-	Audit    *store.Log
-	Prefs    *store.KV // per user dashboard state like alerts read up to
-	Notifier *notify.Notifier
-	CPU      *sysinfo.Sampler
-	VPN      *vpn.Manager
-	Screen   *screentime.Tracker
-	Version  string
+	Context      context.Context
+	workMu       sync.Mutex
+	workWG       sync.WaitGroup
+	workerCtx    context.Context
+	workerCancel context.CancelFunc
+	stopping     bool
+	CA           *certs.Authority
+	Config       *config.Store
+	Catalog      *catalog.Catalog
+	Policy       *policy.Engine
+	Log          *querylog.Log
+	Devices      *devices.Tracker
+	DNS          *dnsserver.Server
+	Firewall     *firewall.Manager
+	Auth         *auth.Auth
+	Alerts       *alerts.Alerts
+	Audit        *store.Log
+	Prefs        *store.KV // per user dashboard state like alerts read up to
+	Notifier     *notify.Notifier
+	CPU          *sysinfo.Sampler
+	VPN          *vpn.Manager
+	Screen       *screentime.Tracker
+	Updater      *update.Updater
+	Version      string
 
 	// https url signed by our ca the dashboard fetches it to see if the browser trusts the cert
 	ProbeURL string
@@ -77,6 +88,7 @@ type Server struct {
 const sessionCookie = "fengard_session"
 
 func (s *Server) Handler() http.Handler {
+	s.initWorkers()
 	s.loginLimit = ratelimit.New(5.0/60, 5, 1024)    // 5 tries then 1 per 12s per ip
 	s.requestLimit = ratelimit.New(1.0/120, 3, 1024) // block page access requests per device
 	static, _ := fs.Sub(staticFS, "static")
@@ -102,7 +114,7 @@ func (s *Server) Handler() http.Handler {
 	view("GET /api/certificate", s.certificateInfo)
 	view("GET /api/vpn", s.vpnInfo)
 	view("GET /api/screentime", s.screenTime)
-	view("GET /api/vpn/peers/{id}/config", s.vpnPeerConfig)
+	mux.HandleFunc("GET /api/vpn/peers/{id}/config", s.require(auth.Admin, s.vpnPeerConfig))
 	mux.HandleFunc("POST /api/alerts/read", s.mutating(s.require(auth.Viewer, s.markAlertsRead)))
 	view("GET /api/groups", s.listGroups)
 	view("GET /api/categories", s.listCategories)
@@ -117,6 +129,7 @@ func (s *Server) Handler() http.Handler {
 	view("GET /api/dns", s.dnsInfo)
 	view("GET /api/series", s.series)
 	view("GET /api/2fa", s.twoFactorStatus)
+	view("GET /api/update", s.updateStatus)
 	mux.HandleFunc("POST /api/2fa/setup", s.mutating(s.require(auth.Viewer, s.twoFactorSetup)))
 	mux.HandleFunc("POST /api/2fa/enable", s.mutating(s.require(auth.Viewer, s.twoFactorEnable)))
 	mux.HandleFunc("POST /api/2fa/disable", s.mutating(s.require(auth.Viewer, s.twoFactorDisable)))
@@ -137,6 +150,8 @@ func (s *Server) Handler() http.Handler {
 	admin("PUT /api/portforwards/{id}", s.saveForward)
 	admin("DELETE /api/portforwards/{id}", s.deleteForward)
 	admin("PUT /api/settings", s.putSettings)
+	admin("POST /api/update/check", s.updateCheck)
+	admin("POST /api/update/install", s.updateInstall)
 	admin("POST /api/rules/temp", s.addTempAllow)
 	admin("DELETE /api/rules/temp", s.deleteTempAllow)
 	admin("POST /api/protection/pause", s.pauseProtection)
@@ -220,10 +235,18 @@ func (s *Server) Handler() http.Handler {
 			return
 		}
 		if strings.HasPrefix(r.URL.Path, "/__fengard/") {
+			if !publicBlockAsset(r.URL.Path) {
+				http.NotFound(w, r)
+				return
+			}
 			blockAssets.ServeHTTP(w, r)
 			return
 		}
 		if s.isDashboard(r.Host) {
+			if r.TLS == nil && !s.plainHTTPAllowed(r) && !publicCARequest(r) {
+				s.httpsBootstrap(w, r)
+				return
+			}
 			mux.ServeHTTP(w, r)
 			return
 		}
@@ -442,4 +465,63 @@ func (s *Server) caCert(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/x-x509-ca-cert")
 	w.Header().Set("Content-Disposition", `attachment; filename="fengard-ca.crt"`)
 	w.Write(s.CA.CertPEM())
+}
+
+// plain http is fine on the lan unless the admin turned on require https
+func (s *Server) plainHTTPAllowed(r *http.Request) bool {
+	ip, err := netip.ParseAddr(clientIP(r))
+	if err != nil {
+		return false
+	}
+	ip = ip.Unmap()
+	if ip.IsLoopback() {
+		return true
+	}
+	if s.Config == nil || s.Config.Get().Settings.RequireHTTPS {
+		return false
+	}
+	return ip.IsPrivate() || ip.IsLinkLocalUnicast() || tunnelRange.Contains(ip)
+}
+
+// tailscale addresses come in over its own encrypted tunnel
+var tunnelRange = netip.MustParsePrefix("100.64.0.0/10")
+
+func publicCARequest(r *http.Request) bool {
+	if r.Method != http.MethodGet {
+		return false
+	}
+	switch r.URL.Path {
+	case "/fengard-ca.crt", "/fengard-ca.der", "/fengard.mobileconfig":
+		return true
+	}
+	return false
+}
+
+var bootstrapTmpl = template.Must(template.New("bootstrap").Parse(`<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Fengard secure dashboard</title><body><main><h1>Open the secure dashboard</h1><p>Administration requires HTTPS. Do not enter passwords or API keys over HTTP.</p>{{if .URL}}<p>Before installing the certificate, compare its SHA-256 fingerprint with the value shown by <code>logread -e 'CA SHA-256'</code> on your router over SSH or its trusted console. This HTTP page and downloads do not prove the certificate's identity.</p><p>Installing this root certificate trusts its private key for any website. Keep the key and router secure.</p><p><a href="/fengard-ca.crt">Download the public CA certificate</a> · <a href="/fengard-ca.der">Android certificate</a> · <a href="/fengard.mobileconfig">Apple profile</a></p><p>Install the verified certificate, then <a href="{{.URL}}">continue to the HTTPS dashboard</a>.</p>{{else}}<p>The HTTPS listener is disabled. Enable it on the router, or use a trusted SSH tunnel to the loopback dashboard for recovery.</p>{{end}}</main></body></html>`))
+
+func (s *Server) httpsBootstrap(w http.ResponseWriter, r *http.Request) {
+	dashboardURL := ""
+	if u, err := url.Parse(s.ProbeURL); err == nil && u.Scheme == "https" && u.Host != "" && u.User == nil {
+		dashboardURL = "https://" + u.Host + "/"
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	if r.Method != http.MethodGet || (r.URL.Path != "/" && r.URL.Path != "/index.html") {
+		httpError(w, http.StatusUpgradeRequired, "administration requires HTTPS; open the router's secure dashboard")
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	bootstrapTmpl.Execute(w, struct{ URL string }{dashboardURL})
+}
+
+func publicBlockAsset(path string) bool {
+	switch path {
+	case "/__fengard/js/block.js", "/__fengard/js/me.js", "/__fengard/img/logo.svg", "/__fengard/fonts/plex-sans-latin.woff2":
+		return true
+	}
+	return false
+}
+
+func loopbackClient(r *http.Request) bool {
+	ip, err := netip.ParseAddr(clientIP(r))
+	return err == nil && ip.Unmap().IsLoopback()
 }

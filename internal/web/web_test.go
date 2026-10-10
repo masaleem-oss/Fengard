@@ -1,6 +1,7 @@
 package web
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -55,6 +56,8 @@ func newTestServer(t *testing.T) *httptest.Server {
 		Notifier: notify.New("test"),
 		Started:  time.Now(),
 	}
+	t.Cleanup(func() { s.Log.Close(context.Background()) })
+	t.Cleanup(func() { s.CloseWorkers(context.Background()) })
 	srv := httptest.NewServer(s.Handler())
 	t.Cleanup(srv.Close)
 	return srv

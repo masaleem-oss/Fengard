@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"runtime"
 	"slices"
@@ -76,14 +77,9 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) startSession(w http.ResponseWriter, r *http.Request, c credentials) {
-	sess, err := s.Auth.Login(c.Username, c.Password)
-	if errors.Is(err, auth.ErrTwoFactor) {
-		tok, perr := s.Auth.Pending(c.Username)
-		if perr != nil {
-			httpError(w, http.StatusTooManyRequests, perr.Error())
-			return
-		}
-		writeJSON(w, map[string]any{"twoFactor": true, "token": tok})
+	sess, token, err := s.Auth.BeginLogin(c.Username, c.Password)
+	if err == nil && token != "" {
+		writeJSON(w, map[string]any{"twoFactor": true, "token": token})
 		return
 	}
 	if err != nil {
@@ -108,7 +104,7 @@ func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
 	if c, err := r.Cookie(sessionCookie); err == nil {
 		s.Auth.Logout(c.Value)
 	}
-	http.SetCookie(w, &http.Cookie{Name: sessionCookie, Value: "", Path: "/", MaxAge: -1, HttpOnly: true})
+	http.SetCookie(w, &http.Cookie{Name: sessionCookie, Value: "", Path: "/", MaxAge: -1, HttpOnly: true, Secure: r.TLS != nil, SameSite: http.SameSiteStrictMode})
 	writeJSON(w, map[string]bool{"ok": true})
 }
 
@@ -121,11 +117,7 @@ func (s *Server) changePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sess := sessionFrom(r)
-	if _, err := s.Auth.Login(sess.Username, body.Current); err != nil {
-		httpError(w, http.StatusBadRequest, "current password is wrong")
-		return
-	}
-	if err := s.Auth.SetPassword(sess.Username, body.New); err != nil {
+	if err := s.Auth.ChangePassword(sess.Username, body.Current, body.New); err != nil {
 		httpError(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -167,6 +159,7 @@ func (s *Server) overview(w http.ResponseWriter, r *http.Request) {
 		cpu = s.CPU.CPUPercent()
 	}
 	writeJSON(w, map[string]any{
+		"alertDrops":     s.Alerts.Dropped(),
 		"pendingDevices": pendingList,
 		"recentAlerts":   s.Alerts.List(5, time.Time{}),
 		"protection": map[string]any{
@@ -509,12 +502,17 @@ func (s *Server) listCategories(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) updateCategories(w http.ResponseWriter, r *http.Request) {
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	if !s.startWorker(func(parent context.Context) {
+		ctx, cancel := context.WithTimeout(parent, 5*time.Minute)
 		defer cancel()
 		s.Catalog.Update(ctx)
-		s.Policy.SetDomains(s.Catalog.Set())
-	}()
+		if ctx.Err() == nil {
+			s.Config.Reconcile()
+		}
+	}) {
+		httpError(w, http.StatusServiceUnavailable, "Fengard is shutting down")
+		return
+	}
 	s.audit(r, "Started blocklist update", "")
 	writeJSON(w, map[string]bool{"started": true})
 }
@@ -616,6 +614,11 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &set) {
 		return
 	}
+	// turning it on from plain http would lock this browser out straight away
+	if set.RequireHTTPS && !s.Config.Get().Settings.RequireHTTPS && r.TLS == nil && !loopbackClient(r) {
+		httpError(w, http.StatusBadRequest, "open the dashboard over HTTPS first, then turn this on")
+		return
+	}
 	before := strings.Join(s.Config.Get().Settings.Upstreams, ",")
 	if s.update(w, r, "Changed settings", func(c *config.Config) error {
 		c.Settings = set
@@ -698,6 +701,7 @@ func (s *Server) certificateImport(w http.ResponseWriter, r *http.Request) {
 		httpError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	log.Printf("CA SHA-256: %s", s.CA.Fingerprint())
 	s.audit(r, "Replaced the certificate authority", s.CA.Name())
 	s.certificateInfo(w, r)
 }
@@ -730,7 +734,7 @@ func (s *Server) listAlerts(w http.ResponseWriter, r *http.Request) {
 			unread++
 		}
 	}
-	writeJSON(w, map[string]any{"alerts": list, "unread": unread, "readAt": p.AlertsReadAt})
+	writeJSON(w, map[string]any{"alerts": list, "unread": unread, "readAt": p.AlertsReadAt, "dropped": s.Alerts.Dropped()})
 }
 
 func (s *Server) markAlertsRead(w http.ResponseWriter, r *http.Request) {

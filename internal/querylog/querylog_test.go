@@ -1,6 +1,7 @@
 package querylog
 
 import (
+	"context"
 	"path/filepath"
 	"testing"
 	"time"
@@ -23,7 +24,9 @@ func TestStatsSurviveRestart(t *testing.T) {
 		l.Add(Entry{Time: now.Add(-time.Duration(i) * time.Minute), Domain: "ads.example", Device: "Phone", Action: "blocked", Category: "ads"})
 	}
 	l.Add(Entry{Time: now, Domain: "ok.example", Device: "Phone", Action: "allowed"})
-	time.Sleep(1500 * time.Millisecond) // let the async writer flush
+	if err := l.Close(context.Background()); err != nil {
+		t.Fatal(err)
+	}
 
 	r := New(100, logdb, nil) // restart
 	st := r.Stats()
@@ -36,7 +39,9 @@ func TestStatsSurviveRestart(t *testing.T) {
 	if got := r.Recent(1); len(got) != 1 || got[0].Domain != "ok.example" {
 		t.Errorf("newest recent entry = %+v", got)
 	}
-	time.Sleep(1500 * time.Millisecond)
+	if err := r.Close(context.Background()); err != nil {
+		t.Fatal(err)
+	}
 	if n := len(r.History(Filter{Limit: 1000})); n != 12 {
 		t.Errorf("history has %d entries after restore, want 12 (restore must not re-persist)", n)
 	}

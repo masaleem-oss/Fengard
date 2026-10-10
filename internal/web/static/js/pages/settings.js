@@ -2,6 +2,7 @@ import { api, get, post, put, del } from '../api.js';
 import { $, $$, esc, icon, dateTime, ago, isSet, attempt, busy, modal, confirmDialog, empty, copyText, toast, switchInput } from '../ui.js';
 import { platformTiles, wirePlatformTiles, trustStatus, trustBadge } from '../cert.js';
 import { state, isAdmin, refreshShell } from '../main.js';
+import { startUpdate } from '../update.js';
 
 const TABS = [
   ['general', 'settings', 'General', true],
@@ -32,6 +33,40 @@ async function saveSettings(patch, msg = 'Settings saved') {
   toast(msg);
 }
 
+// updates
+
+async function updates(box) {
+  const draw = async () => {
+    const u = await get('/api/update').catch(() => null);
+    if (!u) return;
+    const admin = isAdmin();
+    let line = 'Not checked yet.';
+    if (u.disabled) line = 'Update checks are turned off.';
+    else if (u.installing) line = `Updating to ${esc(u.latest)}. Fengard restarts in a moment and DNS keeps working while it does.`;
+    else if (u.available) line = `<b>Fengard ${esc(u.latest)} is available.</b>${u.canInstall ? '' : ' Download the new kit from GitHub to install it.'}`;
+    else if (u.newer && !u.supported) line = `Fengard ${esc(u.latest)} is out but doesn't support this router. ${esc(u.reason || '')}`;
+    else if (isSet(u.checkedAt) && u.latest) line = 'You have the latest version.';
+    box.innerHTML = `<div class="section-title">Updates</div>
+      <dl class="kv" style="margin-bottom:10px">
+        <dt>This router</dt><dd>Fengard ${esc(u.current)} <span class="t-3 mono t-xs">${esc(u.target || '')}</span></dd>
+        <dt>Latest</dt><dd>${u.latest ? esc(u.latest) : '<span class="t-3">unknown</span>'}${u.url ? ` · <a href="${esc(u.url)}" target="_blank" rel="noopener">what's new</a>` : ''}${isSet(u.checkedAt) ? ` <span class="t-3 t-xs">checked ${ago(u.checkedAt).toLowerCase()}</span>` : ''}</dd>
+      </dl>
+      <p class="t-2 t-sm">${line}</p>
+      ${u.error ? `<p class="t-sm" style="color:var(--danger)">${esc(u.error)}</p>` : ''}
+      ${admin && !u.disabled ? `<div class="row" style="margin:12px 0">
+          <button class="btn btn-sm" type="button" id="up-check">${icon('refresh-cw', 'icon-sm')}Check now</button>
+          ${u.available && u.canInstall && !u.installing ? `<button class="btn btn-sm btn-primary" type="button" id="up-go">${icon('download', 'icon-sm')}Update to ${esc(u.latest)}</button>` : ''}
+        </div>
+        <div class="setting" style="padding-left:0;padding-right:0"><div class="setting-text"><b>Install updates automatically</b><small>New releases install overnight, between 3 and 5 am, once Fengard has checked they support this router. If a new version doesn't start, the old one comes back on its own.</small></div>
+          ${switchInput('id="up-auto"', u.autoUpdate, 'Install updates automatically')}</div>` : ''}`;
+    $('#up-check', box)?.addEventListener('click', (e) => busy(e.currentTarget, () => attempt(async () => { await post('/api/update/check'); await draw(); })));
+    $('#up-go', box)?.addEventListener('click', () => startUpdate(u, draw));
+    $('#up-auto', box)?.addEventListener('change', (e) => attempt(() => saveSettings({ autoUpdate: e.target.checked },
+      e.target.checked ? 'Updates will install automatically' : 'Automatic updates turned off')));
+  };
+  await draw();
+}
+
 // general
 
 async function general(body) {
@@ -46,7 +81,9 @@ async function general(body) {
     <label class="field"><span>Keep activity history</span><div class="row"><input class="input" name="logRetentionDays" type="number" min="1" max="365" value="${s.logRetentionDays}" style="width:110px"><span class="t-2">days</span></div></label>
     <label class="field"><span>Per-device DNS limit</span><div class="row"><input class="input" name="clientRateQps" type="number" min="5" max="10000" value="${s.clientRateQps}" style="width:110px"><span class="t-2">queries per second</span></div>
       <span class="help">Normal devices use under 20. Raise it only for servers that make many lookups.</span></label>
-    <div><button class="btn btn-primary" type="submit">Save changes</button></div></form>`;
+    <div><button class="btn btn-primary" type="submit">Save changes</button></div></form>
+    <div class="panel-body" id="upd" style="border-top:1px solid var(--border)"></div>`;
+  updates($('#upd', body));
   const f = $('#f', body);
   f.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -63,6 +100,7 @@ async function general(body) {
 async function account(body) {
   const tfa = await get('/api/2fa');
   const https = location.protocol === 'https:';
+  const set = isAdmin() ? await get('/api/settings').catch(() => null) : null;
   body.innerHTML = `
     <div class="section"><div class="row" style="gap:12px"><span class="avatar" style="width:40px;height:40px;font-size:14px">${esc(state.me.user.slice(0, 2))}</span>
       <div><b>${esc(state.me.user)}</b><div class="t-sm t-3">${state.me.role === 'admin' ? 'Administrator' : 'Read-only viewer'} · sessions end after 1 hour idle or 12 hours</div></div></div></div>
@@ -77,6 +115,8 @@ async function account(body) {
       <b>Dashboard over HTTPS</b>
       <p class="t-sm t-3" style="margin-bottom:8px">${https ? 'This connection is encrypted with the gateway\'s own certificate.' : 'This connection is plain HTTP. Once the Fengard certificate is installed on this computer the secure address works without warnings.'}</p>
       ${https ? '' : `<a class="btn btn-sm" href="https://${location.hostname}${location.port === '80' || !location.port ? '' : ':443'}/">${icon('lock', 'icon-sm')}Open secure dashboard</a>`}
+      ${set ? `<div class="setting" style="padding-left:0;padding-right:0"><div class="setting-text"><b>Require HTTPS</b><small>${https || set.requireHttps ? 'Plain HTTP stops working for the dashboard, even on your own network. The block page and certificate downloads still work.' : 'Open the dashboard over HTTPS to turn this on, so you can\'t lock yourself out.'}</small></div>
+        ${switchInput(`id="req-https"${https || set.requireHttps ? '' : ' disabled'}`, set.requireHttps, 'Require HTTPS')}</div>` : ''}
     </div>
     <form class="section form-grid" id="pw" novalidate>
       <b>Change password</b>
@@ -86,6 +126,8 @@ async function account(body) {
       <p class="t-sm t-danger" id="err" hidden></p>
       <div><button class="btn" type="submit">Change password</button></div>
     </form>`;
+  $('#req-https', body)?.addEventListener('change', (e) => attempt(() => saveSettings({ requireHttps: e.target.checked },
+    e.target.checked ? 'The dashboard now needs HTTPS' : 'Plain HTTP works on your network again')).then(() => account(body)));
   $('#tfa-on', body)?.addEventListener('click', () => enroll2FA(() => account(body)));
   $('#tfa-off', body)?.addEventListener('click', () => {
     const m = modal({ title: 'Turn off two-factor authentication', body: `<form id="off"><label class="field"><span>Confirm your password</span><input class="input" type="password" name="password" autocomplete="current-password" required autofocus></label><p class="t-sm t-danger" id="e" hidden></p></form>`,
@@ -317,7 +359,7 @@ async function certificate(body) {
   const admin = isAdmin();
   body.innerHTML = `<div class="grid g-2 panel-body" style="align-items:start">
     <div class="stack">
-      <div><div class="row wrap" style="gap:8px"><b>${esc(c.name)}</b><span id="trust"></span></div><p class="t-sm t-3">Valid until ${new Date(c.expires).toLocaleDateString()}. Signs only sites that are blocked and the dashboard itself, so it can't be used to read other traffic.</p></div>
+      <div><div class="row wrap" style="gap:8px"><b>${esc(c.name)}</b><span id="trust"></span></div><p class="t-sm t-3">Valid until ${new Date(c.expires).toLocaleDateString()}. Fengard restricts signing to blocked sites and its dashboard. Installing this root trusts its private key for any website; protect the router and verify the fingerprint through SSH or its console.</p></div>
       <div><div class="row t-xs t-3" style="margin-bottom:6px">SHA-256 fingerprint<button class="btn btn-ghost btn-sm" id="cp" style="margin-left:auto">${icon('copy', 'icon-sm')}Copy</button></div><div class="fingerprint">${esc(c.fingerprint)}</div></div>
       <div class="row wrap"><a class="btn btn-sm" href="/fengard-ca.crt" download>${icon('download', 'icon-sm')}PEM (.crt)</a><a class="btn btn-sm" href="/fengard-ca.der" download>${icon('download', 'icon-sm')}DER (.der)</a><a class="btn btn-sm" href="/fengard.mobileconfig" download>${icon('download', 'icon-sm')}Apple profile</a></div>
       ${admin ? `<div class="section" style="padding-top:14px;border-top:1px solid var(--border)"><b>Keep the same certificate on another gateway</b>

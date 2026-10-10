@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/http"
 	"net/url"
 	"regexp"
 	"strings"
@@ -42,6 +43,8 @@ type Settings struct {
 	LogRetentionDay int       `json:"logRetentionDays"`
 	ClientRateQPS   int       `json:"clientRateQps"`
 	Timezone        string    `json:"timezone"`
+	AutoUpdate      bool      `json:"autoUpdate"`   // install new releases overnight
+	RequireHTTPS    bool      `json:"requireHttps"` // off means plain http still works from the lan
 	PausedTill      time.Time `json:"protectionPausedUntil,omitzero"`
 }
 
@@ -497,7 +500,7 @@ func (c *Config) Validate() error {
 		if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" {
 			bad("blocklist %q: the URL must start with http:// or https://", l.Name)
 		}
-		if l.Name == "" {
+		if l.Name == "" && err == nil && u != nil {
 			l.Name = u.Host
 		}
 	}
@@ -602,6 +605,9 @@ func (c *Config) Validate() error {
 		case "telegram":
 			if ch.Token == "" || ch.ChatID == "" {
 				bad("channel %q: Telegram needs a bot token and chat ID", ch.Name)
+			}
+			if _, err := http.NewRequest(http.MethodPost, "https://api.telegram.org/bot"+ch.Token+"/sendMessage", nil); err != nil || strings.ContainsAny(ch.Token, "/?#&% \r\n") {
+				bad("channel %q: invalid Telegram credentials", ch.Name)
 			}
 		default:
 			bad("channel %q: unknown type %q", ch.Name, ch.Type)

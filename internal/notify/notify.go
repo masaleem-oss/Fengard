@@ -50,7 +50,9 @@ func New(boxName string) *Notifier {
 }
 
 func (n *Notifier) Configure(boxName string, chans []config.Channel) {
+	n.mu.Lock()
 	n.BoxName = boxName
+	n.mu.Unlock()
 	cp := append([]config.Channel{}, chans...)
 	n.channels.Store(&cp)
 }
@@ -104,49 +106,57 @@ func (n *Notifier) record(id string, err error) {
 func (n *Notifier) Send(ch config.Channel, a alerts.Alert) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	title := fmt.Sprintf("[%s] %s", n.BoxName, a.Title)
+	n.mu.Lock()
+	boxName := n.BoxName
+	n.mu.Unlock()
+	title := fmt.Sprintf("[%s] %s", boxName, a.Title)
+	headers := make(http.Header)
 	var req *http.Request
 	var err error
 	switch ch.Type {
 	case "webhook":
 		body, _ := json.Marshal(map[string]any{
-			"source": "fengard", "network": n.BoxName, "time": a.Time, "kind": a.Kind,
+			"source": "fengard", "network": boxName, "time": a.Time, "kind": a.Kind,
 			"severity": a.Severity, "title": a.Title, "detail": a.Detail, "mac": a.MAC, "domain": a.Domain,
 		})
 		req, err = http.NewRequestWithContext(ctx, "POST", ch.URL, bytes.NewReader(body))
-		req.Header.Set("Content-Type", "application/json")
+		headers.Set("Content-Type", "application/json")
 	case "discord":
 		color := map[alerts.Severity]int{alerts.Info: 0x8b6cff, alerts.Warning: 0xf0b429, alerts.Critical: 0xf2555a}[a.Severity]
 		body, _ := json.Marshal(map[string]any{
 			"username": "Fengard",
 			"embeds": []map[string]any{{"title": a.Title, "description": a.Detail, "color": color,
-				"footer": map[string]string{"text": n.BoxName + " · " + string(a.Severity)}, "timestamp": a.Time.UTC().Format(time.RFC3339)}},
+				"footer": map[string]string{"text": boxName + " · " + string(a.Severity)}, "timestamp": a.Time.UTC().Format(time.RFC3339)}},
 		})
 		req, err = http.NewRequestWithContext(ctx, "POST", ch.URL, bytes.NewReader(body))
-		req.Header.Set("Content-Type", "application/json")
+		headers.Set("Content-Type", "application/json")
 	case "slack":
 		body, _ := json.Marshal(map[string]any{"text": fmt.Sprintf("*%s*\n%s", title, a.Detail)})
 		req, err = http.NewRequestWithContext(ctx, "POST", ch.URL, bytes.NewReader(body))
-		req.Header.Set("Content-Type", "application/json")
+		headers.Set("Content-Type", "application/json")
 	case "ntfy":
 		req, err = http.NewRequestWithContext(ctx, "POST", ch.URL, strings.NewReader(a.Detail))
-		req.Header.Set("Title", title)
-		req.Header.Set("Priority", map[alerts.Severity]string{alerts.Info: "default", alerts.Warning: "high", alerts.Critical: "urgent"}[a.Severity])
-		req.Header.Set("Tags", map[alerts.Severity]string{alerts.Info: "information_source", alerts.Warning: "warning", alerts.Critical: "rotating_light"}[a.Severity])
+		headers.Set("Title", title)
+		headers.Set("Priority", map[alerts.Severity]string{alerts.Info: "default", alerts.Warning: "high", alerts.Critical: "urgent"}[a.Severity])
+		headers.Set("Tags", map[alerts.Severity]string{alerts.Info: "information_source", alerts.Warning: "warning", alerts.Critical: "rotating_light"}[a.Severity])
 	case "telegram":
 		form := url.Values{"chat_id": {ch.ChatID}, "text": {title + "\n" + a.Detail}}
 		req, err = http.NewRequestWithContext(ctx, "POST", "https://api.telegram.org/bot"+ch.Token+"/sendMessage", strings.NewReader(form.Encode()))
-		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		headers.Set("Content-Type", "application/x-www-form-urlencoded")
 	default:
 		return fmt.Errorf("unknown channel type %q", ch.Type)
 	}
 	if err != nil {
-		return err
+		return fmt.Errorf("invalid %s notification request", ch.Type)
 	}
-	req.Header.Set("User-Agent", "Fengard/1.0")
+	headers.Set("User-Agent", "Fengard/1.0")
+	req.Header = headers
 	resp, err := n.client.Do(req)
 	if err != nil {
-		return err
+		if e, ok := err.(*url.Error); ok {
+			err = e.Err
+		}
+		return fmt.Errorf("%s notification delivery failed: %v", ch.Type, err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 300 {

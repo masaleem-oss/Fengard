@@ -215,6 +215,7 @@ func (s *Server) vpnPeerConfig(w http.ResponseWriter, r *http.Request) {
 		defer cancel()
 		reach := s.VPN.Reachability(ctx)
 		endpoint := vpn.Endpoint(v, reach.PublicIP)
+		s.audit(r, "Exported VPN credentials", p.ID)
 		conf := vpn.ClientConfig(v, p, endpoint)
 		if r.URL.Query().Get("download") != "" {
 			name := strings.Map(func(c rune) rune {

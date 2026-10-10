@@ -191,6 +191,9 @@ say "stopping any running Fengard"
 [ -x "$INIT" ] && "$INIT" stop >/dev/null 2>&1
 for _ in 1 2 3 4 5 6 7 8 9 10; do pidof fengardd >/dev/null 2>&1 || break; sleep 1; done
 killall fengardd 2>/dev/null && sleep 1
+# stopping starts the stand in dns, the install takes port 53 itself
+[ -f /var/run/fengard-rescue.pid ] && kill "$(cat /var/run/fengard-rescue.pid)" 2>/dev/null
+rm -f /var/run/fengard-rescue.pid
 
 set -- $(echo "$LAN_IP" | tr . ' ')
 A=$1 B=$2 C=$3 D=$4
@@ -329,6 +332,8 @@ fg_join() {
 }
 
 start_service() {
+	# after a manual stop take port 53 back, network reloads leave the guard in charge
+	[ -f /var/run/fengard-stopped ] && { rm -f /var/run/fengard-stopped; /bin/sh /etc/fengard/guard.sh off; }
 	lan_dev=$(fg_dev "$LAN_NET")
 	lan_ip=$(fg_ip "$LAN_NET")
 	lan_ip=${lan_ip:-$LAN_IP}
@@ -359,6 +364,11 @@ start_service() {
 	procd_set_param stderr 1
 	procd_set_param limits nofile="16384 16384"
 	procd_close_instance
+	# keeps the house online if fengard ever stops answering dns
+	procd_open_instance guard
+	procd_set_param command /bin/sh /etc/fengard/guard.sh
+	procd_set_param respawn 3600 5 0
+	procd_close_instance
 }
 
 service_triggers() {
@@ -371,9 +381,73 @@ stop_service() {
 	for d in $(ip -o -4 addr show 2>/dev/null | awk -v a="$FG_IP/" 'index($4, a) == 1 { print $2 }'); do
 		ip addr del "$FG_IP/$FG_PREFIX" dev "$d" 2>/dev/null
 	done
+	# port 53 has to be free before the stand in dns can take it
+	killall fengardd 2>/dev/null
+	for _ in 1 2 3 4 5 6 7 8 9 10; do pidof fengardd >/dev/null || break; sleep 1; done
+	touch /var/run/fengard-stopped
+	/bin/sh /etc/fengard/guard.sh on
 }
 EOF
 chmod 755 "$INIT"
+
+# plain dnsmasq stands in on port 53 whenever fengard is stopped or not answering
+cat >/etc/fengard/guard.sh <<'EOF'
+#!/bin/sh
+# guard.sh       watch fengard and stand in for it when its down
+# guard.sh on    start the stand in dns now
+# guard.sh off   stop it so fengard can have port 53
+PID=/var/run/fengard-rescue.pid
+. /etc/fengard/install.env
+
+answering() { nslookup fengard.lan 127.0.0.1 2>/dev/null | grep -q "$FG_IP"; }
+rescuing() { [ -f $PID ] && kill -0 "$(cat $PID)" 2>/dev/null; }
+rescue_on() {
+	rescuing && return
+	resolv=/tmp/resolv.conf.d/resolv.conf.auto
+	[ -f $resolv ] || resolv=/tmp/resolv.conf.auto
+	addrs=127.0.0.1
+	for n in $LAN_NET $EXTRA_NETS; do
+		a=$(ubus call "network.interface.$n" status 2>/dev/null | jsonfilter -e '@["ipv4-address"][0].address' 2>/dev/null)
+		[ -n "$a" ] && addrs=$addrs,$a
+	done
+	logger -t fengard "not answering dns, plain dnsmasq is standing in until it recovers"
+	dnsmasq --port=53 --conf-file=/dev/null --no-hosts --resolv-file="$resolv" --bind-interfaces \
+		--listen-address="$addrs" --cache-size=1000 --pid-file=$PID
+}
+rescue_off() {
+	rescuing && kill "$(cat $PID)" 2>/dev/null
+	rm -f $PID
+	sleep 1
+}
+
+case "$1" in
+on) rescue_on; exit 0 ;;
+off) rescue_off; exit 0 ;;
+esac
+
+sleep 30
+bad=0 n=0
+while :; do
+	if rescuing; then
+		# every 10 minutes hand the port back and see if fengard copes now
+		n=$((n + 1))
+		if [ $n -ge 30 ]; then
+			n=0
+			rescue_off
+			killall fengardd 2>/dev/null
+			for _ in 1 2 3 4 5 6 7 8 9 10 11 12; do sleep 5; answering && break; done
+			if answering; then logger -t fengard "answering dns again"; else rescue_on; fi
+		fi
+	elif answering; then
+		bad=0
+	else
+		bad=$((bad + 1))
+		[ $bad -ge 3 ] && { rescue_on; bad=0 n=0; }
+	fi
+	sleep 20
+done
+EOF
+chmod 755 /etc/fengard/guard.sh
 
 say "firewall ($FW): re-apply Fengard's rules whenever the router's firewall reloads"
 cat >/etc/fengard/firewall.include <<'EOF'
@@ -428,6 +502,16 @@ if ! { [ -d /sys/module/wireguard ] || modprobe wireguard 2>/dev/null; } || ! co
 	note "kmod-wireguard and wireguard-tools packages to use it; everything else works without."
 fi
 
+say "keep Fengard across firmware upgrades"
+touch /etc/sysupgrade.conf
+for f in "$BIN" "$INIT" /etc/fengard/ /etc/rc.d/S95fengard /etc/rc.d/K10fengard; do
+	grep -qxF "$f" /etc/sysupgrade.conf || echo "$f" >>/etc/sysupgrade.conf
+done
+[ "$FG_DIR" = /etc/fengard ] || grep -qxF "$FG_DIR/" /etc/sysupgrade.conf || echo "$FG_DIR/" >>/etc/sysupgrade.conf
+# enabled and on flash before dns moves so a power cut never leaves the router without dns
+"$INIT" enable
+sync
+
 say "DNS: Fengard answers on port 53, dnsmasq keeps doing DHCP"
 for s in $DNSMASQ; do uci set "dhcp.$s.port=0"; done
 for n in $LAN_NET $EXTRA_NETS; do
@@ -446,15 +530,7 @@ if awk '$4 == "07" && substr($2, length($2) - 4) == ":0035" { f = 1 } END { exit
 	die "another program still uses DNS port 53 (AdGuard Home, unbound or similar). Turn it off in the router's settings and run the installer again."
 fi
 
-say "keep Fengard across firmware upgrades"
-touch /etc/sysupgrade.conf
-for f in "$BIN" "$INIT" /etc/fengard/ /etc/rc.d/S95fengard /etc/rc.d/K10fengard; do
-	grep -qxF "$f" /etc/sysupgrade.conf || echo "$f" >>/etc/sysupgrade.conf
-done
-[ "$FG_DIR" = /etc/fengard ] || grep -qxF "$FG_DIR/" /etc/sysupgrade.conf || echo "$FG_DIR/" >>/etc/sysupgrade.conf
-
 say "starting"
-"$INIT" enable
 "$INIT" start
 ok=
 for _ in $(seq 1 45); do

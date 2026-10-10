@@ -25,7 +25,7 @@ export async function render(el, ctx) {
           <textarea class="textarea" name="upstreams" rows="4" spellcheck="false" ${ro}></textarea>
           <p class="t-xs t-3">One per line, tried in order. Plain <code>1.1.1.1</code>, encrypted <code>tls://1.1.1.1:853@cloudflare-dns.com</code> or <code>https://cloudflare-dns.com/dns-query</code>.</p>
           <div class="setting" style="padding:12px 0;border-top:1px solid var(--border);border-bottom:0">
-            <div class="setting-text"><b>DNSSEC validation</b><small>Ask the upstream to verify signatures. Forged answers for signed domains fail instead of resolving.</small></div>
+            <div class="setting-text"><b>Request DNSSEC records</b><small>Send the DNSSEC OK bit. Fengard does not validate signatures locally. Protection requires a validating upstream over trusted DoH or DoT; plain DNS can be altered in transit.</small></div>
             ${switchInput(`name="dnssec" ${ro}`, false, 'DNSSEC')}
           </div>
           ${admin ? `<div><button class="btn btn-primary" type="submit">Save resolvers</button></div>` : ''}

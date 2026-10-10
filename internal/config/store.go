@@ -12,6 +12,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/masaleem-oss/Fengard/internal/persist"
 )
 
 const keepVersions = 30
@@ -20,9 +22,10 @@ type Store struct {
 	path    string
 	histDir string
 
-	cur  atomic.Pointer[Config]
-	mu   sync.Mutex
-	subs []func(*Config)
+	cur     atomic.Pointer[Config]
+	applyMu sync.Mutex
+	mu      sync.Mutex
+	subs    []func(*Config)
 }
 
 type Version struct {
@@ -68,6 +71,8 @@ func Open(dir string) (*Store, error) {
 func (s *Store) Get() *Config { return s.cur.Load() }
 
 func (s *Store) Subscribe(fn func(*Config)) {
+	s.applyMu.Lock()
+	defer s.applyMu.Unlock()
 	s.mu.Lock()
 	s.subs = append(s.subs, fn)
 	s.mu.Unlock()
@@ -75,6 +80,8 @@ func (s *Store) Subscribe(fn func(*Config)) {
 }
 
 func (s *Store) Update(actor, summary string, fn func(*Config) error) (*Config, error) {
+	s.applyMu.Lock()
+	defer s.applyMu.Unlock()
 	s.mu.Lock()
 	next := s.Get().Clone()
 	if err := fn(next); err != nil {
@@ -92,6 +99,7 @@ func (s *Store) Update(actor, summary string, fn func(*Config) error) (*Config, 
 		return nil, err
 	}
 	s.cur.Store(next)
+	s.prune()
 	subs := append([]func(*Config){}, s.subs...)
 	s.mu.Unlock()
 
@@ -99,6 +107,18 @@ func (s *Store) Update(actor, summary string, fn func(*Config) error) (*Config, 
 		fn(next)
 	}
 	return next, nil
+}
+
+func (s *Store) Reconcile() {
+	s.applyMu.Lock()
+	defer s.applyMu.Unlock()
+	s.mu.Lock()
+	subs := append([]func(*Config){}, s.subs...)
+	c := s.Get()
+	s.mu.Unlock()
+	for _, fn := range subs {
+		fn(c)
+	}
 }
 
 func (s *Store) Replace(actor, summary string, c *Config) (*Config, error) {
@@ -113,9 +133,6 @@ func (s *Store) persist(c *Config, summary, actor string) error {
 	if err != nil {
 		return err
 	}
-	if err := writeAtomic(s.path, data); err != nil {
-		return err
-	}
 	meta, _ := json.Marshal(Version{c.Version, c.Updated, summary, actor})
 	name := filepath.Join(s.histDir, fmt.Sprintf("%08d", c.Version))
 	if err := writeAtomic(name+".json", data); err != nil {
@@ -124,7 +141,9 @@ func (s *Store) persist(c *Config, summary, actor string) error {
 	if err := writeAtomic(name+".meta", meta); err != nil {
 		return err
 	}
-	s.prune()
+	if err := writeAtomic(s.path, data); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -144,7 +163,9 @@ func (s *Store) versionNumbers() []int {
 	for _, e := range entries {
 		if n, ok := strings.CutSuffix(e.Name(), ".json"); ok {
 			if v, err := strconv.Atoi(n); err == nil {
-				vs = append(vs, v)
+				if c := s.cur.Load(); c == nil || v <= c.Version {
+					vs = append(vs, v)
+				}
 			}
 		}
 	}
@@ -166,6 +187,9 @@ func (s *Store) History() []Version {
 }
 
 func (s *Store) Rollback(actor string, version int) (*Config, error) {
+	if version < 1 || version > s.Get().Version {
+		return nil, fmt.Errorf("version %d not found", version)
+	}
 	data, err := os.ReadFile(filepath.Join(s.histDir, fmt.Sprintf("%08d.json", version)))
 	if err != nil {
 		return nil, fmt.Errorf("version %d not found", version)
@@ -178,9 +202,5 @@ func (s *Store) Rollback(actor string, version int) (*Config, error) {
 }
 
 func writeAtomic(path string, data []byte) error {
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o600); err != nil {
-		return err
-	}
-	return os.Rename(tmp, path)
+	return persist.WriteFile(path, data, 0o600)
 }

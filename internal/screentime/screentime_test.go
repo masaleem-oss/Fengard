@@ -10,7 +10,7 @@ import (
 
 func TestCountsMinutesOncePerPerson(t *testing.T) {
 	tr := New(nil, time.UTC)
-	at := time.Date(2026, 10, 9, 15, 0, 0, 0, time.UTC)
+	at := time.Now().UTC().Truncate(24 * time.Hour).Add(12 * time.Hour)
 	// one lookup a minute is just background noise
 	tr.Note("phone", "kid", "push.apple.com", nil, at)
 	if tr.Used("kid", "") != 0 {

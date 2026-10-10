@@ -20,6 +20,7 @@ import (
 	"runtime/debug"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -27,6 +28,8 @@ import (
 
 	// routers often have no ca bundle so tls downloads need these
 	_ "golang.org/x/crypto/x509roots/fallback"
+	// routers have no timezone database so named zones in settings would not load
+	_ "time/tzdata"
 
 	"github.com/masaleem-oss/Fengard/internal/alerts"
 	"github.com/masaleem-oss/Fengard/internal/auth"
@@ -43,6 +46,7 @@ import (
 	"github.com/masaleem-oss/Fengard/internal/screentime"
 	"github.com/masaleem-oss/Fengard/internal/store"
 	"github.com/masaleem-oss/Fengard/internal/sysinfo"
+	"github.com/masaleem-oss/Fengard/internal/update"
 	"github.com/masaleem-oss/Fengard/internal/vpn"
 	"github.com/masaleem-oss/Fengard/internal/web"
 )
@@ -51,25 +55,36 @@ var version = "0.5.0-dev"
 
 func main() {
 	var (
-		dnsAddr   = flag.String("dns", ":53", "comma-separated DNS listen addresses")
-		httpAddr  = flag.String("http", ":80", "dashboard and block page listen address")
-		httpsAddr = flag.String("https", ":443", "HTTPS block page listen address (empty to disable)")
-		blockIP   = flag.String("block-ip", "", "LAN IPv4 address blocked domains resolve to (the block page and dashboard; default: this machine's LAN address)")
-		dnsIP     = flag.String("dns-ip", "", "LAN IPv4 address devices' DNS is redirected to (default: the block IP)")
-		blockIP6  = flag.String("block-ip6", "", "this box's LAN IPv6 address (optional)")
-		dataDir   = flag.String("data", "/etc/fengard", "directory for persistent state")
-		leases    = flag.String("leases", "/tmp/dhcp.leases", "dnsmasq DHCP lease file")
-		hosts     = flag.String("dashboard-hosts", "fengard.lan", "comma-separated hostnames that open the dashboard")
-		lan       = flag.String("lan", "br-lan", "comma-separated LAN interfaces")
-		wan       = flag.String("wan", "wan,eth0", "comma-separated WAN interfaces")
-		fwOn      = flag.Bool("firewall", false, "apply firewall rules (Linux router only)")
-		fwBackend = flag.String("firewall-backend", "auto", "auto, nftables or iptables")
-		netns     = flag.String("netns", "", "apply firewall rules inside this network namespace (testing)")
-		harden    = flag.Bool("harden", false, "set kernel network hardening options")
-		memMB     = flag.Int("mem-limit", 96, "soft memory limit in MB")
-		noUpdate  = flag.Bool("no-list-updates", false, "don't download blocklists (use cached copies only)")
+		dnsAddr      = flag.String("dns", ":53", "comma-separated DNS listen addresses")
+		httpAddr     = flag.String("http", ":80", "dashboard and block page listen address")
+		httpsAddr    = flag.String("https", ":443", "HTTPS dashboard and block page listen address (empty to disable)")
+		blockIP      = flag.String("block-ip", "", "LAN IPv4 address blocked domains resolve to (the block page and dashboard; default: this machine's LAN address)")
+		dnsIP        = flag.String("dns-ip", "", "LAN IPv4 address devices' DNS is redirected to (default: the block IP)")
+		blockIP6     = flag.String("block-ip6", "", "this box's LAN IPv6 address (optional)")
+		dataDir      = flag.String("data", "/etc/fengard", "directory for persistent state")
+		leases       = flag.String("leases", "/tmp/dhcp.leases", "dnsmasq DHCP lease file")
+		hosts        = flag.String("dashboard-hosts", "fengard.lan", "comma-separated hostnames that open the dashboard")
+		lan          = flag.String("lan", "br-lan", "comma-separated LAN interfaces")
+		wan          = flag.String("wan", "wan,eth0", "comma-separated WAN interfaces")
+		fwOn         = flag.Bool("firewall", false, "apply firewall rules (Linux router only)")
+		fwBackend    = flag.String("firewall-backend", "auto", "auto, nftables or iptables")
+		netns        = flag.String("netns", "", "apply firewall rules inside this network namespace (testing)")
+		harden       = flag.Bool("harden", false, "set kernel network hardening options")
+		logMB        = flag.Int("query-log-mb", 4, "query history JSON budget in MiB")
+		logRecords   = flag.Int("query-log-records", 10000, "maximum retained detailed queries")
+		logFileMB    = flag.Int("log-file-mb", 16, "database high-water threshold in MiB for suspending log writes")
+		logReserveMB = flag.Int("log-space-reserve-mb", 4, "free-space reserve in MiB for critical state")
+		memMB        = flag.Int("mem-limit", 96, "soft memory limit in MB")
+		noUpdate     = flag.Bool("no-list-updates", false, "don't download blocklists (use cached copies only)")
+		updateURL    = flag.String("update-url", "https://api.github.com/repos/masaleem-oss/Fengard/releases/latest", "where to check for new Fengard releases (empty to turn checks off)")
 	)
 	flag.Parse()
+	if *logMB < 1 || *logRecords < 1 || *logFileMB < *logMB+4 || *logReserveMB < 1 {
+		log.Fatal("invalid logging storage limits")
+	}
+	if z := sysinfo.UseRouterTimezone(); z != "" {
+		log.Printf("timezone %s from the router settings", z)
+	}
 	if *blockIP == "" {
 		*blockIP = lanIPv4()
 	}
@@ -96,6 +111,12 @@ func main() {
 		log.Fatal(err)
 	}
 
+	var workers sync.WaitGroup
+	run := func(fn func()) {
+		workers.Add(1)
+		go func() { defer workers.Done(); fn() }()
+	}
+
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
@@ -103,8 +124,14 @@ func main() {
 	if err != nil {
 		log.Fatalf("database: %v", err)
 	}
-	defer db.Close()
-	queryDB := must(db.Log("queries"))
+	closeDB := true
+	defer func() {
+		if closeDB {
+			db.Close()
+		}
+	}()
+	db.SetStorageBudget(int64(*logFileMB)<<20, int64(*logReserveMB)<<20)
+	queryDB := must(db.Log("queries", store.LogLimits{MaxRecords: *logRecords, MaxBytes: int64(*logMB) << 20}))
 	auditDB := must(db.Log("audit"))
 	alertDB := must(db.Log("alerts"))
 	users := must(db.KV("users"))
@@ -125,7 +152,8 @@ func main() {
 	engine := policy.New()
 	screen := screentime.New(screenKV, location(cfgStore.Get().Settings.Timezone))
 	engine.SetUsage(screen)
-	cat := catalog.New(filepath.Join(*dataDir, "lists"))
+	initialSources := customSources(cfgStore.Get())
+	cat := catalog.New(filepath.Join(*dataDir, "lists"), initialSources...)
 	fwKick := make(chan struct{}, 1)
 	kick := func() {
 		select {
@@ -133,8 +161,14 @@ func main() {
 		default:
 		}
 	}
+	configKick := make(chan struct{}, 1)
 	cat.OnChange = func() {
+		// swap now so the old set can be freed, the reconcile below catches config changes
 		engine.SetDomains(cat.Set())
+		select {
+		case configKick <- struct{}{}:
+		default:
+		}
 		kick()
 		// give the list loading garbage back to the os now
 		go debug.FreeOSMemory()
@@ -168,18 +202,13 @@ func main() {
 	vpnMgr := &vpn.Manager{DataDir: *dataDir, WAN: split(*wan)}
 	vpnMgr.Detect()
 
-	var lastLists string
+	lastLists := fmt.Sprint(initialSources)
 	cfgStore.Subscribe(func(c *config.Config) {
 		// only rebuild the domain set when the lists actually change
-		var src []catalog.CustomSource
-		for _, l := range c.Lists {
-			if l.Enabled {
-				src = append(src, catalog.CustomSource{ID: l.ID, Name: l.Name, URL: l.URL})
-			}
-		}
+		src := customSources(c)
 		if sig := fmt.Sprint(src); sig != lastLists {
 			lastLists = sig
-			cat.SetCustom(src) // ends up in engine.SetDomains via OnChange
+			cat.SetCustom(src)
 		}
 		screen.SetLocation(location(c.Settings.Timezone))
 		engine.Rebuild(c, cat.Set())
@@ -209,8 +238,21 @@ func main() {
 		tunnelClients(ctx, cfgStore, tracker)
 		kick()
 	})
+	run(func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-configKick:
+				if ctx.Err() != nil {
+					return
+				}
+				cfgStore.Reconcile()
+			}
+		}
+	})
 	if vpn.TailscaleSupported() {
-		go func() {
+		run(func() {
 			tk := time.NewTicker(15 * time.Second)
 			defer tk.Stop()
 			for {
@@ -221,9 +263,9 @@ func main() {
 					tunnelClients(ctx, cfgStore, tracker)
 				}
 			}
-		}()
+		})
 	}
-	go recordNewDevices(ctx, newDevices, cfgStore, alrt)
+	run(func() { recordNewDevices(ctx, newDevices, cfgStore, alrt) })
 
 	ca, err := certs.LoadOrCreate(*dataDir)
 	if err != nil {
@@ -239,6 +281,7 @@ func main() {
 		ca.DashboardIPs = append(ca.DashboardIPs, ip6)
 	}
 	log.Printf("certificate authority: %s", ca.Name())
+	log.Printf("CA SHA-256: %s", ca.Fingerprint())
 
 	fw := &firewall.Manager{Enabled: *fwOn, Netns: *netns}
 	switch *fwBackend {
@@ -249,6 +292,8 @@ func main() {
 	default:
 		if *fwOn {
 			fw.Backend = firewall.Detect(*netns)
+		} else {
+			fw.Backend = &firewall.NFTables{Netns: *netns}
 		}
 	}
 	fw.Inputs = func() (firewall.Params, error) {
@@ -293,34 +338,55 @@ func main() {
 			kick()
 		}
 	}()
-	go tracker.Run(ctx, 15*time.Second)
-	go screen.Run(ctx)
-	go fw.Run(ctx, 30*time.Second, fwKick)
+	run(func() { tracker.Run(ctx, 15*time.Second) })
+	run(func() { screen.Run(ctx) })
+	run(func() { fw.Run(ctx, 30*time.Second, fwKick) })
 	if !*noUpdate {
 		go func() {
-			<-listsReady
-			cat.Run(ctx, 24*time.Hour)
+			select {
+			case <-listsReady:
+				cat.Run(ctx, 24*time.Hour)
+			case <-ctx.Done():
+			}
 		}()
 	}
-	go maintain(ctx, cfgStore, qlog, alrt, auditDB, dns)
+	run(func() { maintain(ctx, cfgStore, qlog, alrt, auditDB, dns) })
 
-	go func() {
+	run(func() {
 		log.Printf("DNS listening on %s", *dnsAddr)
 		if err := dns.ListenAndServe(ctx, split(*dnsAddr)...); err != nil {
 			log.Fatalf("DNS: %v", err)
 		}
-	}()
+	})
 
 	cpu := &sysinfo.Sampler{}
-	go cpu.Run(5*time.Second, ctx.Done())
+	run(func() { cpu.Run(5*time.Second, ctx.Done()) })
+
+	updater := &update.Updater{
+		API: *updateURL, Current: version, Client: cat.HTTPClient(),
+		Auto: func() bool { return cfgStore.Get().Settings.AutoUpdate },
+		Loc:  func() *time.Location { return location(cfgStore.Get().Settings.Timezone) },
+		OnNotice: func(kind, title, detail string) {
+			sev := alerts.Info
+			if kind == "update_failed" {
+				sev = alerts.Warning
+			}
+			alrt.Raise(kind+":"+title, 0, alerts.Alert{Kind: kind, Severity: sev, Title: title, Detail: detail})
+		},
+	}
+	updater.Status()
+	if *updateURL != "" {
+		run(func() { updater.Run(ctx) })
+	}
 
 	authn := auth.New(users, keys)
 	authn.Issuer = "Fengard (" + cfgStore.Get().Settings.BoxName + ")"
 	webSrv := &web.Server{
-		CA: ca, Config: cfgStore, Catalog: cat, Policy: engine, Log: qlog,
+		Context: ctx,
+		CA:      ca, Config: cfgStore, Catalog: cat, Policy: engine, Log: qlog,
 		Devices: tracker, DNS: dns, Firewall: fw,
 		Auth: authn, Alerts: alrt, Audit: auditDB, Prefs: prefs, Notifier: notifier,
-		CPU: cpu, VPN: vpnMgr, Screen: screen, Version: version,
+		CPU: cpu, VPN: vpnMgr, Screen: screen, Version: version, Updater: updater,
 		DashboardHosts: split(*hosts), Started: time.Now(),
 		ProbeURL: probeURL(*blockIP, *httpsAddr, *fwOn),
 	}
@@ -329,12 +395,14 @@ func main() {
 
 	if *httpsAddr != "" {
 		srv := newHTTPServer(*httpsAddr, handler)
+		srv.BaseContext = func(net.Listener) context.Context { return ctx }
 		srv.TLSConfig = &tls.Config{GetCertificate: ca.GetCertificate, MinVersion: tls.VersionTLS12}
 		srv.ErrorLog = log.New(io.Discard, "", 0) // refused handshakes are normal here
 		servers = append(servers, srv)
 		go serve(srv, true)
 	}
 	srv := newHTTPServer(*httpAddr, handler)
+	srv.BaseContext = func(net.Listener) context.Context { return ctx }
 	servers = append(servers, srv)
 	go serve(srv, false)
 
@@ -344,17 +412,53 @@ func main() {
 
 	<-ctx.Done()
 	log.Printf("shutting down")
-	qlog.Flush()
-	shutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	// procd kills us 5s after asking so the important stuff goes first
+	shutdown, cancel := context.WithTimeout(context.Background(), 4*time.Second)
 	defer cancel()
+	httpCtx, httpCancel := context.WithTimeout(shutdown, time.Second)
 	for _, s := range servers {
-		s.Shutdown(shutdown)
+		if err := s.Shutdown(httpCtx); err != nil {
+			s.Close()
+		}
+	}
+	httpCancel()
+	persisted := make(chan struct{})
+	go func() {
+		defer close(persisted)
+		if err := screen.Flush(); err != nil {
+			log.Printf("final screen time persistence: %v", err)
+		}
+		if err := qlog.Close(shutdown); err != nil {
+			log.Printf("query log shutdown: %v", err)
+		}
+	}()
+	select {
+	case <-persisted:
+	case <-shutdown.Done():
+		closeDB = false
+		log.Printf("shutdown deadline reached during final persistence: %v", shutdown.Err())
 	}
 	// no daemon means no dns so hand the network back to the routers firewall
 	if err := fw.Remove(); err != nil {
 		log.Printf("firewall cleanup: %v", err)
 	}
 	vpnMgr.Down()
+	if err := webSrv.CloseWorkers(shutdown); err != nil {
+		log.Printf("dashboard background shutdown: %v", err)
+		closeDB = false
+	}
+	joined := make(chan struct{})
+	go func() { workers.Wait(); close(joined) }()
+	select {
+	case <-joined:
+		// catches notes made while dns was still winding down
+		if err := screen.Flush(); err != nil {
+			log.Printf("final screen time persistence: %v", err)
+		}
+	case <-shutdown.Done():
+		closeDB = false
+		log.Printf("shutdown deadline reached before workers stopped: %v", shutdown.Err())
+	}
 }
 
 func location(name string) *time.Location {
@@ -577,4 +681,14 @@ func lanIPv4() string {
 	}
 	defer c.Close()
 	return c.LocalAddr().(*net.UDPAddr).IP.String()
+}
+
+func customSources(c *config.Config) []catalog.CustomSource {
+	var sources []catalog.CustomSource
+	for _, list := range c.Lists {
+		if list.Enabled {
+			sources = append(sources, catalog.CustomSource{ID: list.ID, Name: list.Name, URL: list.URL})
+		}
+	}
+	return sources
 }

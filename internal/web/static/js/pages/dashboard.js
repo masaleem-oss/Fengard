@@ -4,6 +4,7 @@ import { stackedBars, bucketize, barList } from '../charts.js';
 import { CATEGORY_ICONS } from '../meta.js';
 import { platformTiles, wirePlatformTiles, trustStatus, trustBadge } from '../cert.js';
 import { state, isAdmin, refreshShell, alertIcon } from '../main.js';
+import { startUpdate, updateBanner } from '../update.js';
 
 const RANGES = [[1, '24h'], [7, '7 days'], [30, '30 days']];
 
@@ -74,6 +75,10 @@ export async function render(el, ctx) {
 
     // banners
     const banners = [];
+    if (st.droppedWrites) banners.push(`<div class="banner warn">${icon('info')}<div class="banner-text"><b>Some activity was not saved</b><p>${fmt(st.droppedWrites)} query records were dropped because logging capacity or storage was unavailable. Filtering continues, but activity history may be incomplete.</p></div></div>`);
+    if (o.alertDrops) banners.push(`<div class="banner warn">${icon('bell')}<div class="banner-text"><b>Some alerts were dropped</b><p>${fmt(o.alertDrops)} alerts exceeded capacity or could not be saved. Check available storage and network request volume.</p></div><a class="btn btn-sm" href="#alerts">Alerts</a></div>`);
+    const up = await get('/api/update').catch(() => null);
+    const upBanner = updateBanner(up, isAdmin(), esc, icon);
     if (o.firewall.error) banners.push(`<div class="banner danger">${icon('octagon-x')}<div class="banner-text"><b>Firewall rules were not applied</b><p>${esc(o.firewall.error)}</p></div><a class="btn btn-sm" href="#firewall">Details</a></div>`);
     if (o.protection?.paused) banners.push(`<div class="banner warn">${icon('pause')}<div class="banner-text"><b>Protection is paused until ${until(o.protection.pausedUntil)}</b><p>Nothing is being filtered. Device and profile pauses still apply.</p></div>
       ${isAdmin() ? `<button class="btn btn-sm" data-resume>Resume now</button>` : ''}</div>`);
@@ -82,7 +87,9 @@ export async function render(el, ctx) {
       <p>${o.pendingDevices.map((d) => esc(d.hostname || d.vendor || d.mac)).join(', ')}</p></div>
       ${isAdmin() && o.pendingDevices.length === 1 ? `<button class="btn btn-sm btn-primary" data-approve="${esc(o.pendingDevices[0].mac)}">Approve</button>` : ''}
       <a class="btn btn-sm" href="#devices?filter=pending">Review</a></div>`);
+    if (upBanner) banners.push(upBanner);
     $('#d-banners', el).innerHTML = banners.join('');
+    $('[data-update]', el)?.addEventListener('click', () => startUpdate(up, draw));
     $('#d-banners', el).hidden = !banners.length;
 
     const stat = (label, ic, value, sub) => `<div class="stat"><div class="stat-label">${icon(ic, 'icon-sm')}${label}</div><div class="stat-value">${value}</div><div class="stat-sub">${sub}</div></div>`;
@@ -99,6 +106,7 @@ export async function render(el, ctx) {
     const rows = [
       o.protection?.paused ? ['warn', 'Filtering', 'Paused'] : ['ok', 'Filtering', `${compact(o.blocklist)} domains`],
       o.firewall.error ? ['bad', 'Firewall', 'Error'] : o.firewall.enabled ? ['ok', 'Firewall', `Applied ${ago(o.firewall.applied)}`] : ['off', 'Firewall', 'Off (DNS-only mode)'],
+      ['ok', 'Activity history', st.evictedRecords ? 'Oldest records roll off to keep storage small' : 'Within storage limits'],
       newest ? ['ok', 'Blocklists', `Updated ${ago(newest)}`] : ['warn', 'Blocklists', 'Not downloaded yet'],
       o.dns.upstreamErrors && o.dns.servedStale ? ['warn', 'Upstream DNS', `${fmt(o.dns.upstreamErrors)} errors, serving cache`] : ['ok', 'Upstream DNS', 'Reachable'],
       o.dns.rateLimited ? ['warn', 'Flood protection', `${compact(o.dns.rateLimited)} throttled`] : ['ok', 'Flood protection', 'Quiet'],

@@ -7,6 +7,7 @@ const SEVERITIES = [['all', 'All'], ['critical', 'Critical'], ['warning', 'Warni
 export async function render(el, ctx) {
   let data = { alerts: [], readAt: null }, devices = [], groups = [], sev = 'all';
   el.innerHTML = `
+    <div id="alert-drops" class="banner warn" hidden></div>
     <div class="panel">
       <div class="toolbar"><div class="seg" id="sev">${SEVERITIES.map(([id, l]) => `<button data-s="${id}" class="${id === sev ? 'on' : ''}">${l}</button>`).join('')}</div>
         <span class="spacer"></span><button class="btn btn-sm" id="read">${icon('check', 'icon-sm')}Mark all as read</button></div>
@@ -23,6 +24,9 @@ export async function render(el, ctx) {
   const groupOf = (mac) => { const d = devices.find((x) => x.mac === mac); return groups.find((g) => g.id === d?.group); };
 
   const draw = () => {
+    const dropped = $('#alert-drops', el);
+    dropped.hidden = !data.dropped;
+    dropped.innerHTML = data.dropped ? `${icon('info')}<div class="banner-text"><b>Some alerts were dropped</b><p>${Number(data.dropped).toLocaleString()} alerts exceeded capacity or could not be saved. Check available storage and network request volume.</p></div>` : '';
     const list = data.alerts.filter((a) => sev === 'all' || a.severity === sev);
     if (!list.length) {
       $('#list', el).innerHTML = empty({ icon: 'bell', title: 'No alerts', text: sev === 'all' ? 'New devices, access requests, floods and outages show up here.' : 'Nothing at this severity.' });

@@ -23,11 +23,9 @@ func TestLocalZoneAndPTR(t *testing.T) {
 	tr := devices.NewTracker(leases)
 	local := localdns.New(tr)
 
-	s, addr := startServer(t, up, func(c *config.Config) {
+	_, addr := startServer(t, up, func(c *config.Config) {
 		c.Records = []config.DNSRecord{{Name: "nas", Type: "A", Value: "192.168.8.40"}}
-	})
-	s.Devices = tr
-	s.Local = local
+	}, func(s *Server) { s.Devices = tr; s.Local = local })
 	cfg := config.Default()
 	cfg.Records = []config.DNSRecord{{Name: "nas", Type: "A", Value: "192.168.8.40"}}
 	cfg.Validate()
@@ -77,8 +75,9 @@ func TestDoHUpstream(t *testing.T) {
 	defer doh.Close()
 
 	up := startUpstream(t)
-	s, addr := startServer(t, up, func(c *config.Config) { c.Settings.Upstreams = []string{doh.URL + "/dns-query"} })
-	s.doh.Transport = doh.Client().Transport // trust the test server cert
+	_, addr := startServer(t, up, func(c *config.Config) { c.Settings.Upstreams = []string{doh.URL + "/dns-query"} }, func(s *Server) {
+		s.doh.Transport = doh.Client().Transport // trust the test server cert
+	})
 	r, err := query(addr, "doh.example", dns.TypeA)
 	if err != nil || firstA(r) != "198.51.100.9" {
 		t.Fatalf("DoH answer = %v %v", r, err)

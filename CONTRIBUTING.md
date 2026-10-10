@@ -31,4 +31,29 @@ go vet ./...
 - Changes to the router installer should be tried on both firewall types: OpenWrt 22+ (fw4, nftables) and
   OpenWrt 21 (fw3, iptables). OpenWrt x86 images run well in QEMU for this.
 
+## Router lab
+
+`dev/routerlab/run.sh` installs Fengard on emulated OpenWrt routers of every CPU type Fengard ships for,
+across firmware versions from 19.07 to 25.12. It also runs the situations that would hurt a household:
+low memory, a full flash, no internet, another DNS server on port 53, a power cut mid-install, a firmware
+upgrade, and Fengard crashing or going missing. At the end it prints the tables used in the README.
+
+```sh
+sudo dev/routerlab/run.sh            # everything, about an hour
+sudo dev/routerlab/run.sh routers    # just the routers
+sudo dev/routerlab/run.sh edge       # just the edge cases
+```
+
+It needs Linux or WSL2 with KVM, plus `qemu-system-x86`, `qemu-system-mips`, `qemu-system-arm`, `curl` and
+`ssh`. The images are downloaded from downloads.openwrt.org on the first run. To add a router type, add a
+line to the list at the top of `run.sh`.
+
+## Releasing
+
+1. Run the router lab and paste its tables into the README's
+   [Supported routers](README.md#supported-routers) section. Try to add at least one new router type or
+   firmware version each release so the list keeps growing.
+2. Add rows for any router reports from real hardware.
+3. `go run ./tools/release -version X.Y.Z`, then attach everything in `dist/assets/` to a GitHub release.
+
 By contributing you agree your work is licensed under the Apache License 2.0.

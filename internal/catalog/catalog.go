@@ -115,9 +115,10 @@ type Catalog struct {
 	mu     sync.Mutex
 	status []Status
 	update sync.Mutex
+	loadMu sync.Mutex
 }
 
-func New(dir string) *Catalog {
+func New(dir string, initial ...CustomSource) *Catalog {
 	resolver := &net.Resolver{PreferGo: true, Dial: func(ctx context.Context, network, _ string) (net.Conn, error) {
 		var last error
 		for _, addr := range listResolvers {
@@ -137,7 +138,11 @@ func New(dir string) *Catalog {
 	c.dohIPs.Store(&[]string{})
 	tor := mergeTor(nil)
 	c.torIPs.Store(&tor)
-	c.custom.Store(&[]CustomSource{})
+	if len(initial) > MaxCustomLists {
+		initial = initial[:MaxCustomLists]
+	}
+	custom := append([]CustomSource{}, initial...)
+	c.custom.Store(&custom)
 	c.status = make([]Status, len(Categories))
 	for i, cat := range Categories {
 		c.status[i] = Status{ID: cat.ID, Name: cat.Name, Desc: cat.Desc}
@@ -146,6 +151,9 @@ func New(dir string) *Catalog {
 }
 
 func (c *Catalog) Set() *DomainSet { return c.set.Load() }
+
+// client that resolves through public dns so it works even while fengard is the one answering
+func (c *Catalog) HTTPClient() *http.Client { return c.client }
 
 func (c *Catalog) DoHIPs() []string { return *c.dohIPs.Load() }
 
@@ -158,17 +166,23 @@ func (c *Catalog) Status() []Status {
 }
 
 func (c *Catalog) SetCustom(src []CustomSource) {
+	c.loadMu.Lock()
+	defer c.loadMu.Unlock()
 	if len(src) > MaxCustomLists {
 		src = src[:MaxCustomLists]
 	}
 	cp := append([]CustomSource{}, src...)
 	c.custom.Store(&cp)
-	c.Load()
+	if err := c.load(); err != nil {
+		log.Printf("loading custom blocklists: %v", err)
+	}
 }
 
 func (c *Catalog) Custom() []CustomSource { return *c.custom.Load() }
 
 func (c *Catalog) UpdateCustom(ctx context.Context, url string) error {
+	c.update.Lock()
+	defer c.update.Unlock()
 	if err := c.download(ctx, url); err != nil {
 		return err
 	}
@@ -181,6 +195,12 @@ func cacheName(url string) string {
 }
 
 func (c *Catalog) Load() error {
+	c.loadMu.Lock()
+	defer c.loadMu.Unlock()
+	return c.load()
+}
+
+func (c *Catalog) load() error {
 	if err := os.MkdirAll(c.dir, 0o755); err != nil {
 		return err
 	}

@@ -63,7 +63,7 @@ export async function openGuide(id) {
         <div class="fingerprint">${esc(certInfo.fingerprint)}</div>
         <p class="t-xs t-3" style="margin-top:8px">Check this matches the certificate details on the device before trusting it.</p></div>` : ''}
       <div class="banner info" style="margin-top:18px">${icon('shield-check')}<div class="banner-text">
-        <p>This certificate can only be used for sites your network blocks. It never sees or decrypts your other traffic.</p></div></div>`,
+        <p>Fengard restricts signing to blocked sites and its dashboard. A trusted root can authenticate any website if its private key is compromised. Verify the fingerprint through SSH or the router console before installing it.</p></div></div>`,
     foot: `<button class="btn" data-close>Done</button>`,
   });
   $('[data-copy]', m.el)?.addEventListener('click', () => copyText(certInfo.fingerprint));

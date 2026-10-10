@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"crypto/sha256"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
@@ -160,6 +161,18 @@ func main() {
 	writeFile(filepath.Join(assets, name+".zip"), read(dist, name+".zip"), 0o644)
 	writeFile(filepath.Join(assets, "router-install.sh"), routerInstall, 0o644)
 	writeFile(filepath.Join(assets, "router-uninstall.sh"), routerUninstall, 0o644)
+	// routers read this before offering an update so a release can drop a cpu or old firmware safely
+	var routerTargets []string
+	for _, t := range build {
+		if t.router {
+			routerTargets = append(routerTargets, t.name())
+		}
+	}
+	manifest, err := json.MarshalIndent(map[string]any{
+		"version": *version, "targets": routerTargets, "minOpenWrt": "19.07", "minRamMB": 100,
+	}, "", "  ")
+	must(err)
+	writeFile(filepath.Join(assets, "fengard-release.json"), append(manifest, '\n'), 0o644)
 	writeSums(assets)
 	log.Printf("kit:    %s", kit)
 	log.Printf("zip:    %s", zipPath)

@@ -24,14 +24,15 @@ const (
 )
 
 type User struct {
-	Username   string    `json:"username"`
-	Hash       []byte    `json:"hash,omitempty"`
-	Role       Role      `json:"role"`
-	Created    time.Time `json:"created"`
-	TOTPSecret []byte    `json:"totp,omitempty"`
-	Recovery   [][]byte  `json:"recovery,omitempty"` // sha256 of unused recovery codes
-	TOTPSince  time.Time `json:"totpSince,omitzero"`
-	TwoFactor  bool      `json:"twoFactor"` // derived for listings
+	Username        string    `json:"username"`
+	Hash            []byte    `json:"hash,omitempty"`
+	Role            Role      `json:"role"`
+	Created         time.Time `json:"created"`
+	TOTPSecret      []byte    `json:"totp,omitempty"`
+	Recovery        [][]byte  `json:"recovery,omitempty"` // sha256 of unused recovery codes
+	TOTPSince       time.Time `json:"totpSince,omitzero"`
+	SecurityVersion uint64    `json:"securityVersion,omitempty"`
+	TwoFactor       bool      `json:"twoFactor"` // derived for listings
 }
 
 type Session struct {
@@ -61,6 +62,8 @@ type Auth struct {
 	keys   *store.KV
 	Issuer string // shown in authenticator apps
 
+	keyMu    sync.Mutex
+	security sync.Mutex
 	mu       sync.Mutex
 	sessions map[string]*Session
 	pendings map[string]pending    // sign ins waiting on a second factor
@@ -82,6 +85,8 @@ func (a *Auth) NeedsSetup() bool { return a.users.Len() == 0 }
 
 // only works once
 func (a *Auth) Setup(username, password string) error {
+	a.security.Lock()
+	defer a.security.Unlock()
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if !a.NeedsSetup() {
@@ -91,6 +96,8 @@ func (a *Auth) Setup(username, password string) error {
 }
 
 func (a *Auth) CreateUser(username, password string, role Role) error {
+	a.security.Lock()
+	defer a.security.Unlock()
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	var existing User
@@ -128,6 +135,21 @@ func checkPassword(p string) error {
 }
 
 func (a *Auth) SetPassword(username, password string) error {
+	a.security.Lock()
+	defer a.security.Unlock()
+	return a.setPassword(username, password)
+}
+
+func (a *Auth) ChangePassword(username, current, password string) error {
+	a.security.Lock()
+	defer a.security.Unlock()
+	if _, err := a.authenticate(username, current); err != nil {
+		return errors.New("current password is wrong")
+	}
+	return a.setPassword(username, password)
+}
+
+func (a *Auth) setPassword(username, password string) error {
 	if err := checkPassword(password); err != nil {
 		return err
 	}
@@ -140,6 +162,7 @@ func (a *Auth) SetPassword(username, password string) error {
 		return err
 	}
 	u.Hash = hash
+	u.SecurityVersion++
 	if err := a.users.Put(username, u); err != nil {
 		return err
 	}
@@ -148,6 +171,8 @@ func (a *Auth) SetPassword(username, password string) error {
 }
 
 func (a *Auth) DeleteUser(username string) error {
+	a.security.Lock()
+	defer a.security.Unlock()
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	var u User
@@ -160,11 +185,8 @@ func (a *Auth) DeleteUser(username string) error {
 	if err := a.users.Delete(username); err != nil {
 		return err
 	}
-	for t, s := range a.sessions {
-		if s.Username == username {
-			delete(a.sessions, t)
-		}
-	}
+	a.revokeUserLocked(username)
+	delete(a.lastStep, username)
 	return nil
 }
 
@@ -197,6 +219,12 @@ func (a *Auth) Users() []User {
 
 // returns the user with secrets
 func (a *Auth) Authenticate(username, password string) (*User, error) {
+	a.security.Lock()
+	defer a.security.Unlock()
+	return a.authenticate(username, password)
+}
+
+func (a *Auth) authenticate(username, password string) (*User, error) {
 	var u User
 	ok, err := a.users.Get(username, &u)
 	if err != nil {
@@ -215,17 +243,44 @@ func (a *Auth) Authenticate(username, password string) (*User, error) {
 
 // 2fa accounts get ErrTwoFactor then go through Pending and CompleteLogin
 func (a *Auth) Login(username, password string) (*Session, error) {
-	u, err := a.Authenticate(username, password)
+	a.security.Lock()
+	defer a.security.Unlock()
+	u, err := a.authenticate(username, password)
 	if err != nil {
 		return nil, err
 	}
 	if len(u.TOTPSecret) > 0 {
 		return nil, ErrTwoFactor
 	}
-	return a.StartSession(u)
+	return a.startSession(u)
+}
+
+func (a *Auth) BeginLogin(username, password string) (*Session, string, error) {
+	a.security.Lock()
+	defer a.security.Unlock()
+	u, err := a.authenticate(username, password)
+	if err != nil {
+		return nil, "", err
+	}
+	if len(u.TOTPSecret) > 0 {
+		token, err := a.pendingFor(u)
+		return nil, token, err
+	}
+	sess, err := a.startSession(u)
+	return sess, "", err
 }
 
 func (a *Auth) StartSession(u *User) (*Session, error) {
+	a.security.Lock()
+	defer a.security.Unlock()
+	var current User
+	if ok, err := a.users.Get(u.Username, &current); err != nil || !ok || current.SecurityVersion != u.SecurityVersion || subtle.ConstantTimeCompare(current.Hash, u.Hash) != 1 {
+		return nil, ErrBadLogin
+	}
+	return a.startSession(&current)
+}
+
+func (a *Auth) startSession(u *User) (*Session, error) {
 	tok := make([]byte, 32)
 	if _, err := rand.Read(tok); err != nil {
 		return nil, err
@@ -240,7 +295,8 @@ func (a *Auth) StartSession(u *User) (*Session, error) {
 	a.prune()
 	a.sessions[s.Token] = s
 	a.mu.Unlock()
-	return s, nil
+	copy := *s
+	return &copy, nil
 }
 
 // drops expired sessions then the oldest if still over the cap
@@ -277,7 +333,8 @@ func (a *Auth) Session(token string) *Session {
 			if limit := s.Created.Add(sessionTTL); s.Expires.After(limit) {
 				s.Expires = limit
 			}
-			return s
+			copy := *s
+			return &copy
 		}
 	}
 	return nil
@@ -291,10 +348,31 @@ func (a *Auth) Logout(token string) {
 
 func (a *Auth) revokeUser(username string) {
 	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.revokeUserLocked(username)
+}
+
+func (a *Auth) revokeUserLocked(username string) {
 	for t, s := range a.sessions {
 		if s.Username == username {
 			delete(a.sessions, t)
 		}
 	}
-	a.mu.Unlock()
+	for token, p := range a.pendings {
+		if p.user == username {
+			delete(a.pendings, token)
+		}
+	}
+	delete(a.enroll, username)
+}
+
+// the person who just changed their own 2fa stays signed in, everyone else is out
+func (a *Auth) RenewSession(username string) (*Session, error) {
+	a.security.Lock()
+	defer a.security.Unlock()
+	var u User
+	if ok, err := a.users.Get(username, &u); err != nil || !ok {
+		return nil, ErrBadLogin
+	}
+	return a.startSession(&u)
 }

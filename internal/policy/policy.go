@@ -3,6 +3,7 @@ package policy
 import (
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -41,6 +42,7 @@ type Usage interface {
 }
 
 type Engine struct {
+	mu    sync.Mutex
 	cur   atomic.Pointer[compiled]
 	usage Usage
 }
@@ -149,6 +151,8 @@ func New() *Engine {
 }
 
 func (e *Engine) Rebuild(cfg *config.Config, ds *catalog.DomainSet) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
 	loc, err := time.LoadLocation(cfg.Settings.Timezone)
 	if err != nil {
 		loc = time.Local
@@ -270,6 +274,8 @@ func (e *Engine) Targets(domain string) []string {
 }
 
 func (e *Engine) SetDomains(ds *catalog.DomainSet) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
 	old := e.cur.Load()
 	n := *old
 	n.set = ds

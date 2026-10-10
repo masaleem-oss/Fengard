@@ -3,8 +3,10 @@ package screentime
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"hash/fnv"
+	"log"
 	"math/bits"
 	"strings"
 	"sync"
@@ -54,6 +56,7 @@ type Tracker struct {
 	// distinct names a minute needs to count default 3
 	ActiveThreshold int
 
+	flushMu sync.Mutex
 	mu      sync.Mutex
 	loc     *time.Location
 	day     string
@@ -267,17 +270,18 @@ func (t *Tracker) restore() {
 		return
 	}
 	prefix := "d:" + t.day + ":"
-	t.kv.Each(func(key string, _ []byte) error {
+	t.kv.Each(func(key string, data []byte) error {
 		switch {
 		case strings.HasPrefix(key, prefix):
 			var sd savedDevice
-			if ok, _ := t.kv.Get(key, &sd); ok {
+			if json.Unmarshal(data, &sd) == nil {
 				d := &device{Group: sd.Group, Total: sd.Total, Targets: map[string]*minuteSet{}, minute: -1}
 				for k, v := range sd.Targets {
 					ms := v
 					d.Targets[k] = &ms
 				}
-				t.devices[strings.TrimPrefix(key, prefix)] = d
+				id := strings.TrimPrefix(key, prefix)
+				t.devices[id] = d
 				if t.groups[sd.Group] == nil {
 					t.groups[sd.Group] = &group{used: map[string]int{}}
 				}
@@ -285,7 +289,7 @@ func (t *Tracker) restore() {
 			}
 		case strings.HasPrefix(key, "b:"+t.day+":"):
 			var n int
-			if ok, _ := t.kv.Get(key, &n); ok {
+			if json.Unmarshal(data, &n) == nil {
 				id := strings.TrimPrefix(key, "b:"+t.day+":")
 				if t.groups[id] == nil {
 					t.groups[id] = &group{used: map[string]int{}}
@@ -301,48 +305,31 @@ func (t *Tracker) Flush() error {
 	if t.kv == nil {
 		return nil
 	}
+	t.flushMu.Lock()
+	defer t.flushMu.Unlock()
 	t.mu.Lock()
 	if !t.changed {
 		t.mu.Unlock()
 		return nil
 	}
 	t.changed = false
-	day := t.day
-	devs := make(map[string]savedDevice, len(t.devices))
+	values := make(map[string]any, len(t.devices)+len(t.groups))
 	for id, d := range t.devices {
 		sd := savedDevice{Group: d.Group, Total: d.Total, Targets: map[string]minuteSet{}}
-		for k, v := range d.Targets {
-			sd.Targets[k] = *v
+		for target, minutes := range d.Targets {
+			sd.Targets[target] = *minutes
 		}
-		devs[id] = sd
+		values[fmt.Sprintf("d:%s:%s", t.day, id)] = sd
 	}
-	bonus := map[string]int{}
 	for id, g := range t.groups {
-		if g.bonus > 0 {
-			bonus[id] = g.bonus
-		}
+		values[fmt.Sprintf("b:%s:%s", t.day, id)] = g.bonus
 	}
 	t.mu.Unlock()
-
-	var stale []string
-	t.kv.Each(func(key string, _ []byte) error {
-		if (strings.HasPrefix(key, "d:") || strings.HasPrefix(key, "b:")) && !strings.Contains(key, ":"+day+":") {
-			stale = append(stale, key)
-		}
-		return nil
-	})
-	for _, k := range stale {
-		t.kv.Delete(k)
-	}
-	for id, sd := range devs {
-		if err := t.kv.Put(fmt.Sprintf("d:%s:%s", day, id), sd); err != nil {
-			return err
-		}
-	}
-	for id, n := range bonus {
-		if err := t.kv.Put(fmt.Sprintf("b:%s:%s", day, id), n); err != nil {
-			return err
-		}
+	if err := t.kv.ReplacePrefix("", values); err != nil {
+		t.mu.Lock()
+		t.changed = true
+		t.mu.Unlock()
+		return err
 	}
 	return nil
 }
@@ -353,10 +340,14 @@ func (t *Tracker) Run(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
-			t.Flush()
+			if err := t.Flush(); err != nil {
+				log.Printf("screen time persistence: %v", err)
+			}
 			return
 		case <-tk.C:
-			t.Flush()
+			if err := t.Flush(); err != nil {
+				log.Printf("screen time persistence: %v", err)
+			}
 		}
 	}
 }

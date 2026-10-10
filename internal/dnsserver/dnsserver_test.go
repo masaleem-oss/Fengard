@@ -22,7 +22,7 @@ import (
 type fakeUpstream struct {
 	addr  string
 	hits  atomic.Int64
-	delay time.Duration
+	delay atomic.Int64
 	srv   *dns.Server
 	down  atomic.Bool
 }
@@ -40,7 +40,7 @@ func startUpstream(t *testing.T) *fakeUpstream {
 			return // fake an unreachable upstream
 		}
 		u.hits.Add(1)
-		time.Sleep(u.delay)
+		time.Sleep(time.Duration(u.delay.Load()))
 		m := new(dns.Msg)
 		m.SetReply(r)
 		q := r.Question[0]
@@ -60,7 +60,7 @@ func startUpstream(t *testing.T) *fakeUpstream {
 	return u
 }
 
-func startServer(t *testing.T, up *fakeUpstream, mod func(*config.Config)) (*Server, string) {
+func startServer(t *testing.T, up *fakeUpstream, mod func(*config.Config), beforeStart ...func(*Server)) (*Server, string) {
 	t.Helper()
 	cfg := config.Default()
 	cfg.Settings.Upstreams = []string{up.addr}
@@ -83,6 +83,9 @@ func startServer(t *testing.T, up *fakeUpstream, mod func(*config.Config)) (*Ser
 	}
 	s.Init()
 	s.Configure(cfg.Settings)
+	for _, prepare := range beforeStart {
+		prepare(s)
+	}
 
 	pc, err := net.ListenPacket("udp", "127.0.0.1:0")
 	if err != nil {
@@ -179,7 +182,7 @@ func TestSafeSearchRewrite(t *testing.T) {
 
 func TestDuplicateLookupsMerged(t *testing.T) {
 	up := startUpstream(t)
-	up.delay = 150 * time.Millisecond
+	up.delay.Store(int64(150 * time.Millisecond))
 	_, addr := startServer(t, up, nil)
 	before := up.hits.Load()
 	var wg sync.WaitGroup

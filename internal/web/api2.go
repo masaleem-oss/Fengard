@@ -76,6 +76,7 @@ func (s *Server) twoFactorEnable(w http.ResponseWriter, r *http.Request) {
 		httpError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	s.renewSession(w, r)
 	s.audit(r, "Enabled two-factor authentication", "")
 	writeJSON(w, map[string]any{"recoveryCodes": codes})
 }
@@ -91,6 +92,7 @@ func (s *Server) twoFactorDisable(w http.ResponseWriter, r *http.Request) {
 		httpError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	s.renewSession(w, r)
 	s.audit(r, "Disabled two-factor authentication", "")
 	writeJSON(w, map[string]bool{"ok": true})
 }
@@ -321,11 +323,11 @@ func (s *Server) saveList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if id == "" {
-		go func() {
-			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		s.startWorker(func(parent context.Context) {
+			ctx, cancel := context.WithTimeout(parent, 2*time.Minute)
 			defer cancel()
 			s.Catalog.UpdateCustom(ctx, l.URL)
-		}()
+		})
 	}
 	writeJSON(w, l)
 }
@@ -546,4 +548,13 @@ func (s *Server) wakeDevice(w http.ResponseWriter, r *http.Request) {
 
 func decisionJSON(d policy.Decision) map[string]any {
 	return map[string]any{"action": d.Action.String(), "reason": d.Reason, "category": d.Category, "group": d.Group}
+}
+
+func (s *Server) renewSession(w http.ResponseWriter, r *http.Request) {
+	if _, err := r.Cookie(sessionCookie); err != nil {
+		return
+	}
+	if sess, err := s.Auth.RenewSession(sessionFrom(r).Username); err == nil {
+		s.setSessionCookie(w, r, sess)
+	}
 }

@@ -1,7 +1,9 @@
 package querylog
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"log"
 	"sort"
 	"strconv"
@@ -52,6 +54,7 @@ type Stats struct {
 	AvgMs      float64 `json:"avgMs"`
 	Hours      []Hour  `json:"hours"` // last 24h oldest first
 	Dropped    uint64  `json:"droppedWrites"`
+	Evicted    uint64  `json:"evictedRecords"`
 }
 
 const (
@@ -60,19 +63,25 @@ const (
 )
 
 type Log struct {
-	mu      sync.Mutex
-	ring    []Entry
-	next    int
-	full    bool
-	total   int
-	blocked int
-	cached  int
-	byBlk   map[string]int
-	byDom   map[string]int
-	byDev   map[string]int
-	byCat   map[string]int
-	msSum   float64
-	hours   [hours]Hour
+	life      sync.Mutex
+	flushMu   sync.Mutex
+	closed    bool
+	done      chan struct{}
+	flush     chan chan error
+	writerErr error
+	mu        sync.Mutex
+	ring      []Entry
+	next      int
+	full      bool
+	total     int
+	blocked   int
+	cached    int
+	byBlk     map[string]int
+	byDom     map[string]int
+	byDev     map[string]int
+	byCat     map[string]int
+	msSum     float64
+	hours     [hours]Hour
 
 	db      *store.Log
 	hourly  *store.KV
@@ -85,7 +94,9 @@ const keepHourlyDays = 31
 
 func New(recent int, db *store.Log, hourly *store.KV) *Log {
 	l := &Log{
-		ring:   make([]Entry, recent),
+		ring:   make([]Entry, max(1, recent)),
+		done:   make(chan struct{}),
+		flush:  make(chan chan error),
 		byBlk:  map[string]int{},
 		byDom:  map[string]int{},
 		byDev:  map[string]int{},
@@ -98,6 +109,8 @@ func New(recent int, db *store.Log, hourly *store.KV) *Log {
 		l.restore()
 		l.ch = make(chan Entry, 8192)
 		go l.writer()
+	} else {
+		close(l.done)
 	}
 	return l
 }
@@ -135,9 +148,11 @@ func (l *Log) Series(days int) []Hour {
 	return out
 }
 
-func (l *Log) flushHours() {
+func (l *Log) flushHours() error {
+	l.flushMu.Lock()
+	defer l.flushMu.Unlock()
 	if l.hourly == nil {
-		return
+		return nil
 	}
 	l.mu.Lock()
 	var changed []Hour
@@ -148,13 +163,53 @@ func (l *Log) flushHours() {
 	}
 	l.dirty = map[int64]bool{}
 	l.mu.Unlock()
+	var result error
 	for _, h := range changed {
-		l.hourly.Put(hourKey(h.Time), h)
+		if err := l.hourly.Put(hourKey(h.Time), h); err != nil {
+			l.mu.Lock()
+			l.dirty[h.Time.Unix()] = true
+			l.mu.Unlock()
+			result = errors.Join(result, err)
+		}
 	}
+	return result
 }
 
 // call on shutdown
-func (l *Log) Flush() { l.flushHours() }
+func (l *Log) Flush() error {
+	l.life.Lock()
+	defer l.life.Unlock()
+	if l.ch == nil {
+		return l.flushHours()
+	}
+	if l.closed {
+		<-l.done
+		return l.writerErr
+	}
+	reply := make(chan error, 1)
+	l.flush <- reply
+	return <-reply
+}
+
+func (l *Log) Close(ctx context.Context) error {
+	l.life.Lock()
+	if !l.closed {
+		l.closed = true
+		if l.ch != nil {
+			close(l.ch)
+		}
+	}
+	l.life.Unlock()
+	select {
+	case <-l.done:
+		if l.ch == nil {
+			return l.flushHours()
+		}
+		return l.writerErr
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
 
 // reload the last 24h from disk so a restart doesnt wipe the dashboard
 func (l *Log) restore() {
@@ -190,6 +245,12 @@ func (l *Log) restore() {
 }
 
 func (l *Log) Add(e Entry) {
+	l.life.Lock()
+	defer l.life.Unlock()
+	if l.closed {
+		l.dropped.Add(1)
+		return
+	}
 	l.add(e)
 	if l.ch != nil {
 		select {
@@ -247,32 +308,64 @@ func (l *Log) add(e Entry) {
 }
 
 func (l *Log) writer() {
+	defer close(l.done)
 	batch := make([]store.Record, 0, 512)
 	tick := time.NewTicker(time.Second)
 	defer tick.Stop()
 	hourTick := time.NewTicker(time.Minute)
 	defer hourTick.Stop()
-	flush := func() {
+	var lastWarning time.Time
+	flush := func() error {
 		if len(batch) == 0 {
-			return
+			return nil
 		}
-		if err := l.db.Append(batch...); err != nil {
-			log.Printf("query log write: %v", err)
+		err := l.db.Append(batch...)
+		if err != nil {
+			if time.Since(lastWarning) >= time.Minute {
+				log.Printf("query log write: %v", err)
+				lastWarning = time.Now()
+			}
 			l.dropped.Add(uint64(len(batch)))
 		}
 		batch = batch[:0]
+		return err
+	}
+	appendEntry := func(e Entry) {
+		batch = append(batch, store.Record{Time: e.Time, Value: e})
+		if len(batch) == cap(batch) {
+			if err := flush(); err != nil {
+				l.writerErr = err
+			}
+		}
 	}
 	for {
 		select {
-		case e := <-l.ch:
-			batch = append(batch, store.Record{Time: e.Time, Value: e})
-			if len(batch) == cap(batch) {
-				flush()
+		case e, ok := <-l.ch:
+			if !ok {
+				l.writerErr = errors.Join(flush(), l.flushHours())
+				return
 			}
+			appendEntry(e)
+		case reply := <-l.flush:
+		drain:
+			for {
+				select {
+				case e := <-l.ch:
+					appendEntry(e)
+				default:
+					break drain
+				}
+			}
+			l.writerErr = errors.Join(flush(), l.flushHours())
+			reply <- l.writerErr
 		case <-tick.C:
-			flush()
+			if err := flush(); err != nil {
+				l.writerErr = err
+			}
 		case <-hourTick.C:
-			l.flushHours()
+			if err := l.flushHours(); err != nil {
+				l.writerErr = err
+			}
 		}
 	}
 }
@@ -313,6 +406,7 @@ func (l *Log) Stats() Stats {
 		AvgMs:      l.msSum / float64(max(1, l.total)),
 		Hours:      hs,
 		Dropped:    l.dropped.Load(),
+		Evicted:    l.evicted(),
 	}
 }
 
@@ -386,4 +480,11 @@ func top(m map[string]int, n int) []Count {
 		return out[i].Name < out[j].Name
 	})
 	return out[:min(n, len(out))]
+}
+
+func (l *Log) evicted() uint64 {
+	if l.db == nil {
+		return 0
+	}
+	return l.db.Evicted()
 }
