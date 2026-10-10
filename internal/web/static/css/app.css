@@ -166,6 +166,7 @@ code, .mono { font-family: var(--mono); font-size: .93em; }
 .status-pill.bad { background: var(--danger-soft); color: var(--danger); }
 .status-pill.off { background: var(--surface-2); color: var(--text-2); border-color: var(--border); }
 .status-pill .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+a.status-pill { text-decoration: none; }
 .icon-btn { position: relative; display: inline-grid; place-items: center; width: 32px; height: 32px; border-radius: var(--r); color: var(--text-2); flex: none; }
 .icon-btn:hover { background: var(--surface-2); color: var(--text); }
 .icon-btn .dot { position: absolute; top: 4px; right: 4px; min-width: 15px; height: 15px; padding: 0 4px; border-radius: 99px; background: var(--danger); color: #fff; font-size: 10px; font-weight: 600; display: grid; place-items: center; border: 2px solid var(--bg); }
@@ -201,15 +202,13 @@ code, .mono { font-family: var(--mono); font-size: .93em; }
 
 /* stat strip one panel with cells split by rules */
 .stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.stats.stats-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .stat { padding: 12px 16px; border-right: 1px solid var(--border); min-width: 0; }
 .stat:last-child { border-right: 0; }
 .stat-label { font-size: 12px; color: var(--text-3); display: flex; align-items: center; gap: 6px; }
 .stat-value { font-size: 22px; font-weight: 600; letter-spacing: -.02em; font-variant-numeric: tabular-nums; line-height: 1.3; margin-top: 2px; }
 .stat-sub { font-size: 12px; color: var(--text-3); display: flex; align-items: center; gap: 6px; }
-.delta { font-weight: 500; }
-.delta.up { color: var(--danger); }
-.delta.down { color: var(--success); }
-.delta.flat { color: var(--text-3); }
+.delta { font-weight: 500; color: var(--text-2); }
 
 /* buttons and inputs */
 
@@ -356,6 +355,43 @@ code, .mono { font-family: var(--mono); font-size: .93em; }
 .status-row .off { background: var(--text-3); opacity: .5; }
 .status-row b { font-weight: 500; }
 .status-row small { color: var(--text-3); text-align: right; }
+
+/* speed test card, numbers and two bars like a router app */
+.speed { display: grid; gap: 14px; }
+.speed-nums { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.speed-nums small { display: flex; align-items: center; gap: 4px; color: var(--text-2); font-size: 12.5px; }
+.speed-nums b { display: block; font-size: 24px; font-weight: 600; letter-spacing: -.02em; font-variant-numeric: tabular-nums; margin-top: 2px; }
+.speed-nums b span { font-size: 13px; font-weight: 500; color: var(--text-2); margin-left: 5px; letter-spacing: 0; }
+.speed-nums.small b { font-size: 15px; font-weight: 600; }
+.speed .dl { color: var(--accent); }
+.speed .ul { color: var(--text-3); }
+.speed-bars { position: relative; display: grid; gap: 8px; padding-right: 70px; }
+.speed-bars i { display: block; height: 12px; border-radius: 3px; min-width: 2px; transition: width .6s ease; }
+.speed-bars i.dl { background: var(--accent); }
+.speed-bars i.ul { background: var(--chart-base); }
+.speed-bars span { position: absolute; right: 0; top: 0; bottom: 0; display: flex; align-items: flex-end; padding-left: 8px; border-left: 1px dashed var(--border-strong); font-size: 11px; color: var(--text-3); }
+.speed-live { display: grid; gap: 8px; padding: 12px 14px; border-radius: 8px; background: var(--surface-2); border: 1px solid var(--border); }
+.speed-live > small { color: var(--text-2); font-size: 12.5px; }
+.speed-note { font-size: 12.5px; color: var(--warning); }
+
+/* device check */
+.scan { display: grid; gap: 10px; }
+.scan-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.scan-sum { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 500; color: var(--text-2); }
+.scan-sum.ok { color: var(--success); }
+.scan-sum.warn { color: var(--warning); }
+.scan-sum .spin { display: inline-flex; animation: spin 1s linear infinite; }
+.findings { display: grid; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.finding + .finding { border-top: 1px solid var(--border); }
+.finding summary { display: grid; grid-template-columns: 10px auto minmax(0, 1fr); align-items: center; gap: 10px; padding: 9px 12px; cursor: pointer; list-style: none; font-size: 12.5px; }
+.finding summary::-webkit-details-marker { display: none; }
+.finding summary i { width: 7px; height: 7px; border-radius: 50%; }
+.finding summary i.bad { background: var(--danger); }
+.finding summary i.warn { background: var(--warning); }
+.finding summary i.off { background: var(--text-3); opacity: .5; }
+.finding summary b { font-weight: 500; }
+.finding summary small { color: var(--text-3); text-align: right; }
+.finding p { padding: 0 12px 11px 29px; color: var(--text-2); font-size: 12.5px; line-height: 1.5; }
 
 .kv { display: grid; grid-template-columns: max-content 1fr; gap: 8px 20px; font-size: 13px; }
 .kv dt { color: var(--text-3); }

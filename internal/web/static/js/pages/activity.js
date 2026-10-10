@@ -2,6 +2,7 @@ import { get, post } from '../api.js';
 import { $, $$, esc, icon, timeOf, dateShort, attempt, menu, empty, statusBadge, copyText, download, switchInput } from '../ui.js';
 import { deviceName } from '../meta.js';
 import { isAdmin } from '../main.js';
+import { mbps, bytes } from '../home.js';
 
 export async function render(el, ctx) {
   const devices = await get('/api/devices').catch(() => []);
@@ -11,6 +12,7 @@ export async function render(el, ctx) {
   let rows = [], stopLive = () => {}, loadingMore = false;
 
   el.innerHTML = `
+    <section class="panel stats stats-3" id="bw" hidden></section>
     <div class="panel">
       <div class="toolbar">
         <div class="input-wrap">${icon('search')}<input class="input input-sm" id="search" placeholder="Filter by domain" value="${esc(f.search)}" spellcheck="false" aria-label="Filter by domain"></div>
@@ -118,6 +120,23 @@ export async function render(el, ctx) {
     const csv = ['time,device,client,mac,domain,type,status,reason,ms', ...list.map((r) => [r.time, r.device, r.client, r.mac, r.domain, r.type, r.action, r.reason, r.ms].map(q).join(','))].join('\n');
     download(`fengard-activity-${new Date().toISOString().slice(0, 10)}.csv`, csv, 'text/csv');
   });
+
+  // bandwidth for the whole house, or the picked device
+  const bandwidth = async () => {
+    const t = await get('/api/traffic').catch(() => null);
+    const bw = $('#bw', el);
+    if (!bw || !t?.available) return;
+    const d = f.mac ? t.devices.find((x) => x.mac === f.mac) || { downRate: 0, upRate: 0, today: { down: 0, up: 0 } } : t;
+    const stat = (label, ic, value, sub) => `<div class="stat"><div class="stat-label">${icon(ic, 'icon-sm')}${label}</div><div class="stat-value">${value}</div><div class="stat-sub">${sub}</div></div>`;
+    bw.innerHTML = [
+      stat('Download now', 'arrow-down', mbps(d.downRate), f.mac ? 'this device' : 'whole network'),
+      stat('Upload now', 'arrow-up', mbps(d.upRate), f.mac ? 'this device' : 'whole network'),
+      stat('Used today', 'chart-column', bytes(d.today.down + d.today.up), `${bytes(d.today.down)} down · ${bytes(d.today.up)} up`),
+    ].join('');
+    bw.hidden = false;
+  };
+  bandwidth();
+  ctx.every(3000, bandwidth);
 
   restart();
 }

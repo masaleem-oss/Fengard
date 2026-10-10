@@ -283,6 +283,7 @@ func (s *Server) updateDevice(w http.ResponseWriter, r *http.Request) {
 		Name     *string `json:"name"`
 		Group    *string `json:"group"`
 		Approved *bool   `json:"approved"`
+		Presence *bool   `json:"presence"`
 	}
 	if !decode(w, r, &body) {
 		return
@@ -300,6 +301,9 @@ func (s *Server) updateDevice(w http.ResponseWriter, r *http.Request) {
 		}
 		if body.Approved != nil {
 			d.Approved = *body.Approved
+		}
+		if body.Presence != nil {
+			d.Presence = *body.Presence
 		}
 		return nil
 	})
@@ -614,10 +618,20 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &set) {
 		return
 	}
+	if len(set.PortalHTML) > 32<<10 {
+		httpError(w, http.StatusBadRequest, "the captive portal page can be up to 32 KB")
+		return
+	}
 	// turning it on from plain http would lock this browser out straight away
 	if set.RequireHTTPS && !s.Config.Get().Settings.RequireHTTPS && r.TLS == nil && !loopbackClient(r) {
 		httpError(w, http.StatusBadRequest, "open the dashboard over HTTPS first, then turn this on")
 		return
+	}
+	// only phones that show up after its switched on get the welcome page
+	if was := s.Config.Get().Settings; set.WelcomePage && !was.WelcomePage {
+		set.WelcomeSince = time.Now()
+	} else if set.WelcomePage {
+		set.WelcomeSince = was.WelcomeSince
 	}
 	before := strings.Join(s.Config.Get().Settings.Upstreams, ",")
 	if s.update(w, r, "Changed settings", func(c *config.Config) error {

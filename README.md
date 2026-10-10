@@ -159,22 +159,22 @@ answering, LAN devices resolving and reaching the dashboard, SSH still working, 
 internet names resolving, and an uninstall that gives DNS back with no Fengard firewall rules left. The x86
 ones get rebooted too.
 
-Results for 1.1.0:
+Results for 1.1.1:
 
 | Router type | Firmware | CPU build | Result | Memory |
 |---|---|---|---|---|
-| ARM64 (Filogic, MT7622, IPQ807x: GL-MT3000, Flint 2, Linksys E8450) | OpenWrt 22.03.7 | linux-arm64 | ✅ all 8 checks | 31 MB |
+| ARM64 (Filogic, MT7622, IPQ807x: GL-MT3000, Flint 2, Linksys E8450) | OpenWrt 22.03.7 | linux-arm64 | ✅ all 8 checks | 34 MB |
 | ARM64 (Filogic, MT7622, IPQ807x: GL-MT3000, Flint 2, Linksys E8450) | OpenWrt 25.12.5 | linux-arm64 | ✅ all 8 checks | 34 MB |
-| ARMv7 (IPQ40xx, mvebu: Linksys WRT, GL-B1300) | OpenWrt 21.02.7 | linux-arm | ✅ all 8 checks | 28 MB |
-| ARMv7 (IPQ40xx, mvebu: Linksys WRT, GL-B1300) | OpenWrt 23.05.6 | linux-arm | ✅ all 8 checks | 30 MB |
-| MIPS big-endian (ath79: TP-Link Archer C7, GL-AR750S) | OpenWrt 22.03.7 | linux-mips | ✅ all 8 checks | 31 MB |
-| MIPS little-endian (MT7621: Xiaomi 4A, Netgear R6220, GL-MT1300) | OpenWrt 24.10.8 | linux-mipsle | ✅ all 8 checks | 31 MB |
-| MIPS64 big-endian (Octeon: EdgeRouter Lite) | OpenWrt 24.10.8 | linux-mips64 | ✅ all 8 checks | 33 MB |
-| MIPS64 little-endian (Loongson) | OpenWrt 25.12.5 | linux-mips64le | ✅ all 6 checks (no internet in the VM) | 17 MB |
-| x86 32-bit | OpenWrt 23.05.6 | linux-386 | ✅ all 9 checks | 30 MB |
-| x86-64 mini PC | OpenWrt 19.07.10 | linux-amd64 | ✅ all 9 checks | 30 MB |
+| ARMv7 (IPQ40xx, mvebu: Linksys WRT, GL-B1300) | OpenWrt 21.02.7 | linux-arm | ✅ all 8 checks | 29 MB |
+| ARMv7 (IPQ40xx, mvebu: Linksys WRT, GL-B1300) | OpenWrt 23.05.6 | linux-arm | ✅ all 8 checks | 31 MB |
+| MIPS big-endian (ath79: TP-Link Archer C7, GL-AR750S) | OpenWrt 22.03.7 | linux-mips | ✅ all 8 checks | 32 MB |
+| MIPS little-endian (MT7621: Xiaomi 4A, Netgear R6220, GL-MT1300) | OpenWrt 24.10.8 | linux-mipsle | ✅ all 8 checks | 33 MB |
+| MIPS64 big-endian (Octeon: EdgeRouter Lite) | OpenWrt 24.10.8 | linux-mips64 | ✅ all 8 checks | 36 MB |
+| MIPS64 little-endian (Loongson) | OpenWrt 25.12.5 | linux-mips64le | ✅ all 6 checks (no internet in the VM) | 18 MB |
+| x86 32-bit | OpenWrt 23.05.6 | linux-386 | ✅ all 9 checks | 31 MB |
+| x86-64 mini PC | OpenWrt 19.07.10 | linux-amd64 | ✅ all 9 checks | 32 MB |
 | x86-64 mini PC | OpenWrt 22.03.7 | linux-amd64 | ✅ all 9 checks | 34 MB |
-| x86-64, squashfs like router flash | OpenWrt 24.10.8 | linux-amd64 | ✅ all 9 checks | 34 MB |
+| x86-64, squashfs like router flash | OpenWrt 24.10.8 | linux-amd64 | ✅ all 9 checks | 37 MB |
 
 On real hardware:
 
@@ -450,6 +450,11 @@ Design choices:
 | Admin | Audit log, config history with rollback, backup and restore |
 | Updates | Checks GitHub for new releases, makes sure a release still supports this router's CPU, firmware and memory, then updates from the dashboard in about a minute or overnight on its own. A new version is test-run before it replaces the old one, and the old one comes back if it doesn't start |
 | Monitoring | Live and historical activity per device, 24 h, 7 d and 30 d charts with comparison, top lists, alerts |
+| Internet | A green bar with the line's speed, a speed test every night around 4 am (or any time from the dashboard), and an alert like "Internet was down 14 min" after an outage |
+| Live activity | Live speed and today's data for each device, read from the router's own connection table with no extra firewall rules |
+| Who's home | Turn on arrival alerts for a phone and Fengard shows whether it's home and messages you when it arrives or leaves |
+| Device check | Every week Fengard checks the devices on your network for risky open doors like Telnet, Android debugging on TV boxes, or a camera stream with no password, and for ports a device opened to the internet with UPnP, and explains each one in plain words |
+| Captive portal | Optional. The first time a new iPhone or iPad joins, it shows a sign-in page saying the network is protected by Fengard, with a Join network button. You can swap in your own HTML and CSS (scripts never run). Computers and smart devices never see it, and anything that doesn't tap Join gets through after 10 minutes |
 
 ## Performance
 
@@ -488,6 +493,7 @@ The installers set everything up, so these are only needed to run `fengardd` by 
 | `-mem-limit` | `96` | soft memory limit in MB |
 | `-no-list-updates` | off | don't download blocklists, use cached copies only |
 | `-update-url` | the GitHub releases API | where to check for new Fengard releases, empty turns checks off |
+| `-speedtest-url` | fast.com, then LibreSpeed | your own speed test server instead, anything with `/__down?bytes=N` and `/__up` |
 
 `SIGUSR1` makes Fengard re-apply its firewall rules; the router installer wires this to firewall reloads.
 

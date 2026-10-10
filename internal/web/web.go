@@ -25,15 +25,20 @@ import (
 	"github.com/masaleem-oss/Fengard/internal/devices"
 	"github.com/masaleem-oss/Fengard/internal/dnsserver"
 	"github.com/masaleem-oss/Fengard/internal/firewall"
+	"github.com/masaleem-oss/Fengard/internal/internet"
+	"github.com/masaleem-oss/Fengard/internal/netscan"
 	"github.com/masaleem-oss/Fengard/internal/notify"
 	"github.com/masaleem-oss/Fengard/internal/policy"
+	"github.com/masaleem-oss/Fengard/internal/presence"
 	"github.com/masaleem-oss/Fengard/internal/querylog"
 	"github.com/masaleem-oss/Fengard/internal/ratelimit"
 	"github.com/masaleem-oss/Fengard/internal/screentime"
 	"github.com/masaleem-oss/Fengard/internal/store"
 	"github.com/masaleem-oss/Fengard/internal/sysinfo"
+	"github.com/masaleem-oss/Fengard/internal/traffic"
 	"github.com/masaleem-oss/Fengard/internal/update"
 	"github.com/masaleem-oss/Fengard/internal/vpn"
+	"github.com/masaleem-oss/Fengard/internal/welcome"
 )
 
 //go:embed static
@@ -68,6 +73,7 @@ type Server struct {
 	Alerts       *alerts.Alerts
 	Audit        *store.Log
 	Prefs        *store.KV // per user dashboard state like alerts read up to
+	Welcome      *welcome.Gate
 	Notifier     *notify.Notifier
 	CPU          *sysinfo.Sampler
 	VPN          *vpn.Manager
@@ -80,6 +86,11 @@ type Server struct {
 
 	DashboardHosts []string // hostnames that reach the dashboard eg fengard.lan
 	Started        time.Time
+
+	Internet *internet.Monitor
+	Traffic  *traffic.Meter
+	Presence *presence.Watcher
+	Scanner  *netscan.Scanner
 
 	loginLimit   *ratelimit.Limiter
 	requestLimit *ratelimit.Limiter
@@ -110,6 +121,12 @@ func (s *Server) Handler() http.Handler {
 	view("GET /api/overview", s.overview)
 	view("GET /api/queries", s.queries)
 	view("GET /api/devices", s.listDevices)
+	view("GET /api/internet", s.internetStatus)
+	view("GET /api/traffic", s.trafficNow)
+	view("GET /api/traffic/{mac}", s.trafficHistory)
+	view("GET /api/presence", s.presenceNow)
+	view("GET /api/scan", s.scanReport)
+	view("GET /api/portal/preview", s.portalPreview)
 	view("GET /api/devices/{mac}/summary", s.deviceSummary)
 	view("GET /api/certificate", s.certificateInfo)
 	view("GET /api/vpn", s.vpnInfo)
@@ -152,6 +169,8 @@ func (s *Server) Handler() http.Handler {
 	admin("PUT /api/settings", s.putSettings)
 	admin("POST /api/update/check", s.updateCheck)
 	admin("POST /api/update/install", s.updateInstall)
+	admin("POST /api/internet/speedtest", s.speedTest)
+	admin("POST /api/scan", s.scanNow)
 	admin("POST /api/rules/temp", s.addTempAllow)
 	admin("DELETE /api/rules/temp", s.deleteTempAllow)
 	admin("POST /api/protection/pause", s.pauseProtection)
@@ -212,6 +231,15 @@ func (s *Server) Handler() http.Handler {
 
 		if r.URL.Path == "/__fengard/request" && r.Method == http.MethodPost {
 			s.mutating(s.accessRequest)(w, r)
+			return
+		}
+		// a plain form post from the iphone login sheet which cant send our header
+		if r.URL.Path == "/__fengard/welcome" && r.Method == http.MethodPost {
+			s.welcomeJoin(w, r)
+			return
+		}
+		if host, _, _ := strings.Cut(r.Host, ":"); strings.EqualFold(host, welcome.ProbeHost) {
+			s.captiveCheck(w, r)
 			return
 		}
 		switch r.URL.Path {

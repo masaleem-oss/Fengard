@@ -296,6 +296,7 @@ async function startApp() {
         <button class="icon-btn tb-menu" id="mobile-menu" aria-label="Open menu">${icon('list')}</button>
         <div class="tb-title"><div class="tb-crumb" id="crumb"></div><h1 id="title"></h1></div>
         <button class="tb-search" id="search-btn">${icon('search')}<span>Search</span><span class="kbd">Ctrl K</span></button>
+        <a class="status-pill bad" id="net-status" href="#dashboard" hidden><span class="dot"></span><span class="label"></span></a>
         <button class="status-pill ok" id="status" data-menu-anchor><span class="dot"></span><span class="label">Protected</span></button>
         <button class="icon-btn" id="alerts-btn" aria-label="Alerts" data-menu-anchor>${icon('bell')}<span class="dot" id="alerts-dot" hidden></span></button>
         <button class="icon-btn" id="theme-btn" aria-label="Toggle theme">${icon(document.documentElement.dataset.theme === 'light' ? 'moon' : 'sun')}</button>
@@ -345,10 +346,10 @@ function toggleTheme() {
 export async function refreshShell() {
   if (!state.me) return;
   try {
-    const [o, a] = await Promise.all([get('/api/overview'), get('/api/alerts')]);
+    const [o, a, net] = await Promise.all([get('/api/overview'), get('/api/alerts'), get('/api/internet').catch(() => null)]);
     state.shell = {
       pending: o.devices.pending, unread: a.unread, firewallError: o.firewall.error, online: true, overview: o,
-      paused: o.protection?.paused, pausedUntil: o.protection?.pausedUntil,
+      paused: o.protection?.paused, pausedUntil: o.protection?.pausedUntil, net,
     };
     if (o.system.boxName && o.system.boxName !== state.boxName) {
       state.boxName = o.system.boxName;
@@ -373,6 +374,17 @@ export async function refreshShell() {
     : ['ok', 'Protected'];
   st.className = `status-pill ${cls}`;
   st.querySelector('.label').textContent = label;
+
+  // only shows up when something is wrong with the internet
+  const net = state.shell.net, pill = $('#net-status');
+  const down = net?.available && !net.online, slow = net?.available && net.online && net.slow && !net.testing;
+  pill.hidden = !(state.shell.online && (down || slow));
+  if (!pill.hidden) {
+    pill.className = `status-pill ${down ? 'bad' : 'warn'}`;
+    pill.querySelector('.label').textContent = down ? 'Internet down' : 'Internet slow';
+    pill.title = down ? `No internet since ${new Date(net.since).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`
+      : `The last speed test got ${Math.round(net.latest.downMbps)} Mb/s, usually it's about ${Math.round(net.typicalMbps)}`;
+  }
 }
 
 function protectionMenu(anchor) {

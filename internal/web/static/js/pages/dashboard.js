@@ -5,6 +5,7 @@ import { CATEGORY_ICONS } from '../meta.js';
 import { platformTiles, wirePlatformTiles, trustStatus, trustBadge } from '../cert.js';
 import { state, isAdmin, refreshShell, alertIcon } from '../main.js';
 import { startUpdate, updateBanner } from '../update.js';
+import { speedCard, testedAt, homeCard, scanCard } from '../home.js';
 
 const RANGES = [[1, '24h'], [7, '7 days'], [30, '30 days']];
 
@@ -13,6 +14,13 @@ export async function render(el, ctx) {
   el.innerHTML = `
     <div id="d-banners" class="stack" hidden></div>
     <section class="panel stats" id="d-stats">${'<div class="stat"><div class="skeleton" style="height:48px"></div></div>'.repeat(4)}</section>
+    <section class="grid g-3">
+      <div class="panel"><div class="panel-head"><h3>Speed test</h3><span class="sub" id="d-net-when"></span>
+        ${isAdmin() ? `<div class="actions"><button class="btn btn-ghost btn-sm" data-speedtest>Run test</button></div>` : ''}</div>
+        <div id="d-net"><div class="panel-body"><div class="skeleton" style="height:150px"></div></div></div></div>
+      <div class="panel"><div class="panel-head"><h3>Who's home</h3></div><div id="d-home"></div></div>
+      <div class="panel"><div class="panel-head"><h3>Device check</h3></div><div id="d-scan"></div></div>
+    </section>
     <section class="grid g-main">
       <div class="panel">
         <div class="panel-head"><h3>DNS traffic</h3>
@@ -65,11 +73,12 @@ export async function render(el, ctx) {
     const sum = (a, k) => a.reduce((s, h) => s + h[k], 0);
     const total = sum(cur, 'total'), blocked = sum(cur, 'blocked');
     const pTotal = sum(prev, 'total'), pBlocked = sum(prev, 'blocked');
+    // comparing against a period fengard wasnt running for most of gives silly numbers
+    const fullPrev = prev.length && prev.filter((h) => h.total > 0).length >= prev.length * 0.75;
     const delta = (a, b) => {
-      if (!b) return '<span class="delta flat">no earlier data</span>';
+      if (!b || !fullPrev) return '<span class="delta">no earlier data</span>';
       const d = ((a - b) / b) * 100;
-      const cls = Math.abs(d) < 1 ? 'flat' : d > 0 ? 'up' : 'down';
-      return `<span class="delta ${cls}">${d > 0 ? '+' : ''}${d.toFixed(0)}%</span> vs. previous`;
+      return `<span class="delta">${d > 0 ? '+' : ''}${d.toFixed(0)}%</span> vs. previous`;
     };
     const rangeLabel = RANGES.find(([d]) => d === range)[1];
 
@@ -146,7 +155,43 @@ export async function render(el, ctx) {
     await loadSeries();
     draw();
   });
+  const showSpeed = (net) => {
+    $('#d-net', el).innerHTML = speedCard(net);
+    $('#d-net-when', el).textContent = testedAt(net);
+    const run = $('[data-speedtest]', el);
+    if (run) run.disabled = !net?.available || net.testing || !net.online;
+  };
+  // a running test refreshes quickly so ping and speed tick along live
+  let following = false;
+  const followTest = async () => {
+    if (following) return;
+    following = true;
+    while (ctx.alive()) {
+      await new Promise((r) => setTimeout(r, 700));
+      const net = await get('/api/internet').catch(() => null);
+      if (!ctx.alive()) break;
+      showSpeed(net);
+      if (!net?.testing) break;
+    }
+    following = false;
+  };
+
+  // the new cards refresh on their own so a slow call doesnt hold up the rest
+  const drawHome = async () => {
+    const [net, who, scan] = await Promise.all(['/api/internet', '/api/presence', '/api/scan'].map((p) => get(p).catch(() => null)));
+    if (!ctx.alive()) return;
+    showSpeed(net);
+    if (net?.testing) followTest();
+    $('#d-home', el).innerHTML = homeCard(who);
+    // keep any finding the user opened open across refreshes
+    const open = $$('#d-scan details[open] summary b', el).map((b) => b.textContent);
+    $('#d-scan', el).innerHTML = scanCard(scan, isAdmin());
+    $$('#d-scan details', el).forEach((d) => { if (open.includes($('summary b', d).textContent)) d.open = true; });
+  };
+
   el.addEventListener('click', async (e) => {
+    if (e.target.closest('[data-speedtest]') && await attempt(() => post('/api/internet/speedtest'), 'Speed test started')) drawHome();
+    if (e.target.closest('[data-scan]') && await attempt(() => post('/api/scan'), 'Checking your devices')) setTimeout(drawHome, 500);
     const a = e.target.closest('[data-approve]');
     if (a && await attempt(() => patch(`/api/devices/${encodeURIComponent(a.dataset.approve)}`, { approved: true }), 'Device approved')) { refreshShell(); draw(); }
     if (e.target.closest('[data-resume]') && await attempt(() => post('/api/protection/pause', { minutes: 0 }), 'Protection resumed')) { refreshShell(); draw(); }
@@ -155,9 +200,11 @@ export async function render(el, ctx) {
   if (!Object.keys(appNames).length) {
     try { appNames = Object.fromEntries((await get('/api/apps')).apps.map((a) => [a.id, a.name])); } catch (e) {}
   }
+  drawHome();
   await loadSeries();
   await draw();
   ctx.every(5000, draw);
+  ctx.every(3000, drawHome);
   ctx.every(60000, loadSeries);
 }
 

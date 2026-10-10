@@ -1,6 +1,13 @@
 import { post } from './api.js';
 import { confirmDialog, attempt } from './ui.js';
 
+// each big version line gets a name, add the next one when it ships
+const NAMES = { 1: 'Midgard' };
+
+export function codename(version) {
+  return NAMES[parseInt(version, 10)] || '';
+}
+
 // shared by the dashboard banner and settings
 export async function startUpdate(u, after) {
   const ok = await confirmDialog({

@@ -45,6 +45,10 @@ type Settings struct {
 	Timezone        string    `json:"timezone"`
 	AutoUpdate      bool      `json:"autoUpdate"`   // install new releases overnight
 	RequireHTTPS    bool      `json:"requireHttps"` // off means plain http still works from the lan
+	WelcomePage     bool      `json:"welcomePage"`  // new iphones see a page when they join
+	WelcomeSince    time.Time `json:"welcomeSince,omitzero"`
+	SpeedTestOff    bool      `json:"speedTestOff,omitempty"` // skips the nightly speed test
+	PortalHTML      string    `json:"portalHtml,omitempty"`   // shown on the captive portal instead of the default
 	PausedTill      time.Time `json:"protectionPausedUntil,omitzero"`
 }
 
@@ -105,6 +109,7 @@ type Device struct {
 	Approved   bool      `json:"approved"`
 	FirstSeen  time.Time `json:"firstSeen"`
 	PausedTill time.Time `json:"pausedUntil,omitzero"`
+	Presence   bool      `json:"presence,omitempty"` // alerts when it arrives or leaves
 }
 
 type TempAllow struct {

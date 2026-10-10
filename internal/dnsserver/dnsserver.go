@@ -36,6 +36,7 @@ type Server struct {
 	LocalNames []string       // eg fengard.lan
 	Allowed    []netip.Prefix // empty means private ranges
 	Screen     ScreenTime
+	Welcome    func(mac, hostname string) bool // true sends this phones captive check to us
 
 	upstreams atomic.Pointer[[]config.Upstream]
 	ipv4Only  atomic.Pointer[[]netip.Prefix] // no aaaa for these since vpn tunnels only carry ipv4
@@ -225,6 +226,11 @@ func (s *Server) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 	}
 
 	info, _ := s.Devices.Lookup(client)
+	// a short ttl so the phone checks again right after it joins
+	if domain == "captive.apple.com" && s.Welcome != nil && s.Welcome(info.MAC, info.Hostname) {
+		w.WriteMsg(s.pointAtUs(r, q, 1))
+		return
+	}
 	if resp := s.local(r, q, domain); resp != nil {
 		if isUDP {
 			resp.Truncate(udpSize(r))

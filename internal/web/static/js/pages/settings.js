@@ -2,7 +2,7 @@ import { api, get, post, put, del } from '../api.js';
 import { $, $$, esc, icon, dateTime, ago, isSet, attempt, busy, modal, confirmDialog, empty, copyText, toast, switchInput } from '../ui.js';
 import { platformTiles, wirePlatformTiles, trustStatus, trustBadge } from '../cert.js';
 import { state, isAdmin, refreshShell } from '../main.js';
-import { startUpdate } from '../update.js';
+import { startUpdate, codename } from '../update.js';
 
 const TABS = [
   ['general', 'settings', 'General', true],
@@ -48,8 +48,8 @@ async function updates(box) {
     else if (isSet(u.checkedAt) && u.latest) line = 'You have the latest version.';
     box.innerHTML = `<div class="section-title">Updates</div>
       <dl class="kv" style="margin-bottom:10px">
-        <dt>This router</dt><dd>Fengard ${esc(u.current)} <span class="t-3 mono t-xs">${esc(u.target || '')}</span></dd>
-        <dt>Latest</dt><dd>${u.latest ? esc(u.latest) : '<span class="t-3">unknown</span>'}${u.url ? ` · <a href="${esc(u.url)}" target="_blank" rel="noopener">what's new</a>` : ''}${isSet(u.checkedAt) ? ` <span class="t-3 t-xs">checked ${ago(u.checkedAt).toLowerCase()}</span>` : ''}</dd>
+        <dt>This router</dt><dd>Fengard ${esc(u.current)}${codename(u.current) ? ` <span class="t-2">· ${codename(u.current)}</span>` : ''} <span class="t-3 mono t-xs">${esc(u.target || '')}</span></dd>
+        <dt>Latest</dt><dd>${u.latest ? esc(u.latest) + (codename(u.latest) ? ` · ${codename(u.latest)}` : '') : '<span class="t-3">unknown</span>'}${u.url ? ` · <a href="${esc(u.url)}" target="_blank" rel="noopener">what's new</a>` : ''}${isSet(u.checkedAt) ? ` <span class="t-3 t-xs">checked ${ago(u.checkedAt).toLowerCase()}</span>` : ''}</dd>
       </dl>
       <p class="t-2 t-sm">${line}</p>
       ${u.error ? `<p class="t-sm" style="color:var(--danger)">${esc(u.error)}</p>` : ''}
@@ -82,8 +82,27 @@ async function general(body) {
     <label class="field"><span>Per-device DNS limit</span><div class="row"><input class="input" name="clientRateQps" type="number" min="5" max="10000" value="${s.clientRateQps}" style="width:110px"><span class="t-2">queries per second</span></div>
       <span class="help">Normal devices use under 20. Raise it only for servers that make many lookups.</span></label>
     <div><button class="btn btn-primary" type="submit">Save changes</button></div></form>
+    <div class="panel-body" style="border-top:1px solid var(--border)">
+      <div class="setting" style="padding-left:0;padding-right:0"><div class="setting-text"><b>Captive portal</b><small>The first time a new iPhone or iPad joins, it shows a sign-in page saying the network is protected by Fengard, with a Join network button. Computers and smart devices never see it, and anything that doesn't tap Join gets through after 10 minutes.</small></div>
+        ${switchInput('id="welcome"', s.welcomePage, 'Captive portal')}</div>
+      <label class="field" style="margin:4px 0 16px"><span>Custom portal page</span>
+        <textarea class="textarea" id="portal-html" rows="6" spellcheck="false" placeholder="&lt;h1&gt;Welcome to our home&lt;/h1&gt;&#10;&lt;p&gt;The Wi-Fi is filtered, please be nice.&lt;/p&gt;">${esc(s.portalHtml || '')}</textarea>
+        <span class="help">Your own HTML and CSS in place of the default page. The Join network button is always added underneath. Scripts don't run, and the phone isn't online yet, so use inline or data: images. Leave it empty for the default.</span>
+        <div class="row" style="margin-top:8px">
+          <button class="btn btn-sm" type="button" id="portal-save">${icon('save', 'icon-sm')}Save page</button>
+          <a class="btn btn-sm btn-ghost" href="/api/portal/preview" target="_blank" rel="noopener">${icon('external-link', 'icon-sm')}Preview</a>
+          ${s.portalHtml ? `<button class="btn btn-sm btn-ghost" type="button" id="portal-reset">Use default</button>` : ''}
+        </div></label>
+      <div class="setting" style="padding-left:0;padding-right:0"><div class="setting-text"><b>Nightly speed test</b><small>Tests the internet speed once a night around 4 am and shows it on the dashboard. On a fast line a test uses up to about 1 GB of data.</small></div>
+        ${switchInput('id="speedtest"', !s.speedTestOff, 'Nightly speed test')}</div></div>
     <div class="panel-body" id="upd" style="border-top:1px solid var(--border)"></div>`;
   updates($('#upd', body));
+  $('#welcome', body).addEventListener('change', (e) => attempt(() => saveSettings({ welcomePage: e.target.checked },
+    e.target.checked ? 'New iPhones will see the captive portal' : 'Captive portal turned off')));
+  $('#portal-save', body).addEventListener('click', (e) => busy(e.currentTarget, () => attempt(() => saveSettings({ portalHtml: $('#portal-html', body).value.trim() }, 'Portal page saved')).then(() => general(body))));
+  $('#portal-reset', body)?.addEventListener('click', () => attempt(() => saveSettings({ portalHtml: '' }, 'Back to the default portal page')).then(() => general(body)));
+  $('#speedtest', body).addEventListener('change', (e) => attempt(() => saveSettings({ speedTestOff: !e.target.checked },
+    e.target.checked ? 'Speed test runs every night' : 'Nightly speed test turned off')));
   const f = $('#f', body);
   f.addEventListener('submit', async (e) => {
     e.preventDefault();

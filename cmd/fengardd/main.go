@@ -39,16 +39,21 @@ import (
 	"github.com/masaleem-oss/Fengard/internal/devices"
 	"github.com/masaleem-oss/Fengard/internal/dnsserver"
 	"github.com/masaleem-oss/Fengard/internal/firewall"
+	"github.com/masaleem-oss/Fengard/internal/internet"
 	"github.com/masaleem-oss/Fengard/internal/localdns"
+	"github.com/masaleem-oss/Fengard/internal/netscan"
 	"github.com/masaleem-oss/Fengard/internal/notify"
 	"github.com/masaleem-oss/Fengard/internal/policy"
+	"github.com/masaleem-oss/Fengard/internal/presence"
 	"github.com/masaleem-oss/Fengard/internal/querylog"
 	"github.com/masaleem-oss/Fengard/internal/screentime"
 	"github.com/masaleem-oss/Fengard/internal/store"
 	"github.com/masaleem-oss/Fengard/internal/sysinfo"
+	"github.com/masaleem-oss/Fengard/internal/traffic"
 	"github.com/masaleem-oss/Fengard/internal/update"
 	"github.com/masaleem-oss/Fengard/internal/vpn"
 	"github.com/masaleem-oss/Fengard/internal/web"
+	"github.com/masaleem-oss/Fengard/internal/welcome"
 )
 
 var version = "0.5.0-dev"
@@ -77,6 +82,7 @@ func main() {
 		memMB        = flag.Int("mem-limit", 96, "soft memory limit in MB")
 		noUpdate     = flag.Bool("no-list-updates", false, "don't download blocklists (use cached copies only)")
 		updateURL    = flag.String("update-url", "https://api.github.com/repos/masaleem-oss/Fengard/releases/latest", "where to check for new Fengard releases (empty to turn checks off)")
+		speedURL     = flag.String("speedtest-url", "", "your own speed test server with /__down and /__up (default: fast.com, then LibreSpeed)")
 	)
 	flag.Parse()
 	if *logMB < 1 || *logRecords < 1 || *logFileMB < *logMB+4 || *logReserveMB < 1 {
@@ -139,6 +145,7 @@ func main() {
 	prefs := must(db.KV("prefs"))
 	hoursKV := must(db.KV("hours"))
 	screenKV := must(db.KV("screentime"))
+	welcomeKV := must(db.KV("welcome"))
 
 	cfgStore, err := config.Open(*dataDir)
 	if err != nil {
@@ -193,9 +200,11 @@ func main() {
 	}
 
 	local := localdns.New(tracker)
+	gate := welcome.New(cfgStore, welcomeKV)
 	dns := &dnsserver.Server{
 		Policy: engine, Devices: tracker, Log: qlog, Local: local,
 		BlockIP: ip, BlockIPv6: ip6, LocalNames: split(*hosts), Screen: screen,
+		Welcome: gate.Want,
 	}
 	dns.Init()
 
@@ -379,6 +388,74 @@ func main() {
 		run(func() { updater.Run(ctx) })
 	}
 
+	routerLoc := func() *time.Location { return location(cfgStore.Get().Settings.Timezone) }
+	named := func(mac string) string { return deviceName(cfgStore.Get(), tracker, mac) }
+	inet := &internet.Monitor{
+		Speeds:   must(db.Log("speedtests", store.LogLimits{MaxRecords: 200, MaxBytes: 64 << 10})),
+		Outages:  must(db.Log("outages", store.LogLimits{MaxRecords: 200, MaxBytes: 64 << 10})),
+		Daily:    func() bool { return !cfgStore.Get().Settings.SpeedTestOff },
+		Location: routerLoc, Server: *speedURL,
+		OnOutage: func(o internet.Outage) {
+			loc := routerLoc()
+			alrt.Raise("outage:"+o.Start.String(), 0, alerts.Alert{Kind: "internet_down", Severity: alerts.Warning,
+				Title:  "Internet was down " + roughly(o.End.Sub(o.Start)),
+				Detail: "From " + o.Start.In(loc).Format("3:04 pm") + " to " + o.End.In(loc).Format("3:04 pm") + ". Local names kept working the whole time."})
+		},
+	}
+	run(func() { inet.Run(ctx) })
+
+	meter := &traffic.Meter{
+		KV: must(db.KV("traffic")), Location: routerLoc,
+		Lookup: func(ip string) (string, bool) { info, ok := tracker.Lookup(ip); return info.MAC, ok && info.MAC != "" },
+	}
+	run(func() { meter.Run(ctx) })
+
+	home := &presence.Watcher{
+		Tracked: func() []string {
+			var macs []string
+			for _, d := range cfgStore.Get().Devices {
+				if d.Presence {
+					macs = append(macs, d.MAC)
+				}
+			}
+			return macs
+		},
+		OnChange: func(mac string, arrived bool, at time.Time) {
+			what, kind := "left home", "left_home"
+			if arrived {
+				what, kind = "got home", "arrived_home"
+			}
+			alrt.Raise(kind+":"+mac+at.String(), 0, alerts.Alert{Kind: kind, Severity: alerts.Info, MAC: mac,
+				Title: named(mac) + " " + what, Detail: "At " + at.In(routerLoc()).Format("3:04 pm") + "."})
+		},
+	}
+	run(func() { home.Run(ctx) })
+
+	scanner := &netscan.Scanner{
+		KV: must(db.KV("netscan")),
+		Targets: func() []netscan.Target {
+			var out []netscan.Target
+			lans := lanNets(split(*lan))
+			for mac, s := range tracker.Seen() {
+				if time.Since(s.LastSeen) > time.Hour || strings.HasPrefix(mac, "vpn:") || strings.HasPrefix(mac, "ts:") {
+					continue
+				}
+				for _, ip := range s.IPs {
+					if a, err := netip.ParseAddr(ip); err == nil && a.Is4() && inAny(lans, a) {
+						out = append(out, netscan.Target{MAC: mac, IP: ip})
+						break
+					}
+				}
+			}
+			return out
+		},
+		OnFinding: func(mac string, f netscan.Finding) {
+			alrt.Raise("risk:"+mac+":"+strconv.Itoa(f.Port), 0, alerts.Alert{Kind: "risky_device", Severity: alerts.Warning, MAC: mac,
+				Title: f.Title + " on " + named(mac), Detail: f.Detail})
+		},
+	}
+	run(func() { scanner.Run(ctx) })
+
 	authn := auth.New(users, keys)
 	authn.Issuer = "Fengard (" + cfgStore.Get().Settings.BoxName + ")"
 	webSrv := &web.Server{
@@ -388,6 +465,7 @@ func main() {
 		Auth: authn, Alerts: alrt, Audit: auditDB, Prefs: prefs, Notifier: notifier,
 		CPU: cpu, VPN: vpnMgr, Screen: screen, Version: version, Updater: updater,
 		DashboardHosts: split(*hosts), Started: time.Now(),
+		Welcome: gate, Internet: inet, Traffic: meter, Presence: home, Scanner: scanner,
 		ProbeURL: probeURL(*blockIP, *httpsAddr, *fwOn),
 	}
 	handler := webSrv.Handler()
@@ -691,4 +769,61 @@ func customSources(c *config.Config) []catalog.CustomSource {
 		}
 	}
 	return sources
+}
+
+// the name people gave a device, else what it calls itself
+func deviceName(c *config.Config, t *devices.Tracker, mac string) string {
+	if d := c.Device(mac); d != nil && d.Name != "" {
+		return d.Name
+	}
+	if s, ok := t.Seen()[mac]; ok && s.Hostname != "" {
+		return s.Hostname
+	}
+	if d := c.Device(mac); d != nil && d.Hostname != "" {
+		return d.Hostname
+	}
+	return mac
+}
+
+// 14 min or 2 h 5 min, good enough for an alert title
+func roughly(d time.Duration) string {
+	m := int(d.Round(time.Minute).Minutes())
+	if m < 60 {
+		return strconv.Itoa(max(m, 1)) + " min"
+	}
+	if m%60 == 0 {
+		return strconv.Itoa(m/60) + " h"
+	}
+	return strconv.Itoa(m/60) + " h " + strconv.Itoa(m%60) + " min"
+}
+
+// the subnets on our own lan side so a repeater doesnt scan the network upstream
+func lanNets(ifaces []string) []netip.Prefix {
+	var out []netip.Prefix
+	for _, name := range ifaces {
+		ifc, err := net.InterfaceByName(name)
+		if err != nil {
+			continue
+		}
+		addrs, _ := ifc.Addrs()
+		for _, a := range addrs {
+			if p, err := netip.ParsePrefix(a.String()); err == nil && p.Addr().Is4() {
+				out = append(out, p.Masked())
+			}
+		}
+	}
+	return out
+}
+
+// no lan interfaces found means a computer install so any private address will do
+func inAny(nets []netip.Prefix, a netip.Addr) bool {
+	if len(nets) == 0 {
+		return a.IsPrivate()
+	}
+	for _, p := range nets {
+		if p.Contains(a) {
+			return true
+		}
+	}
+	return false
 }

@@ -1,8 +1,9 @@
 import { get, patch, post, del } from '../api.js';
-import { $, $$, esc, icon, fmt, ago, until, dateTime, timeOf, inFuture, isSet, attempt, menu, drawer, confirmDialog, empty, statusBadge } from '../ui.js';
+import { $, $$, esc, icon, fmt, ago, until, dateTime, timeOf, inFuture, isSet, attempt, menu, drawer, confirmDialog, empty, statusBadge, switchInput } from '../ui.js';
 import { barList } from '../charts.js';
 import { deviceType, deviceName } from '../meta.js';
 import { isAdmin, refreshShell } from '../main.js';
+import { bytes, mbps, findingsFor } from '../home.js';
 
 const FILTERS = [['all', 'All'], ['online', 'Online'], ['pending', 'Pending'], ['restricted', 'Paused / blocked']];
 
@@ -182,6 +183,8 @@ export async function openDevice(mac, { onChange } = {}) {
         <h4>Details</h4>
         <dl class="kv">
           <dt>Profile</dt><dd>${admin ? `<select class="select select-sm" id="dv-group" style="width:auto">${groups.map((g) => `<option value="${g.id}" ${g.id === d.group ? 'selected' : ''}>${esc(g.name)}</option>`).join('')}</select>` : esc(groups.find((g) => g.id === d.group)?.name || d.group)}</dd>
+          <dt>Arrival alerts</dt><dd>${admin ? switchInput('id="dv-presence"', d.presence, 'Arrival alerts') : d.presence ? 'On' : 'Off'}</dd>
+          <dt>Data today</dt><dd id="dv-data" class="t-3">–</dd>
           <dt>IP address</dt><dd class="mono">${esc((d.ips || []).join(', ') || '–')}</dd>
           <dt>MAC address</dt><dd class="mono">${esc(d.mac)}${d.randomized ? ' <span class="tag">Private address</span>' : ''}</dd>
           <dt>Manufacturer</dt><dd>${esc(d.vendor || (d.randomized ? 'Hidden (private address)' : 'Unknown'))}</dd>
@@ -189,6 +192,7 @@ export async function openDevice(mac, { onChange } = {}) {
           <dt>First seen</dt><dd>${isSet(d.firstSeen) ? dateTime(d.firstSeen) : '–'}</dd>
         </dl>
       </div>
+      <div id="dv-risks"></div>
       <div id="dv-summary"><div class="section"><h4>Last 24 hours</h4><div class="skeleton" style="height:100px"></div></div></div>
     </div>`, { label: deviceName(d) });
 
@@ -199,6 +203,19 @@ export async function openDevice(mac, { onChange } = {}) {
   });
   $('#dv-group', el)?.addEventListener('change', async (e) => {
     if (await attempt(() => patch(path, { group: e.target.value }), 'Profile changed')) changed();
+  });
+  $('#dv-presence', el)?.addEventListener('change', async (e) => {
+    const on = e.target.checked;
+    if (await attempt(() => patch(path, { presence: on }), on ? 'You\'ll get a message when it arrives or leaves' : 'Arrival alerts off')) changed();
+    else e.target.checked = !on;
+  });
+  Promise.all([get('/api/traffic').catch(() => null), get('/api/scan').catch(() => null)]).then(([t, s]) => {
+    if (!el.isConnected) return;
+    const use = t?.devices?.find((x) => x.mac === mac);
+    if (t?.available) $('#dv-data', el).innerHTML = use ? `${bytes(use.today.down)} down · ${bytes(use.today.up)} up${use.downRate + use.upRate > 0 ? ` <span class="t-3">· ${mbps(use.downRate)} now</span>` : ''}` : 'None yet';
+    const risks = findingsFor(s, mac);
+    if (risks.length) $('#dv-risks', el).innerHTML = `<div class="section"><h4>Risky settings</h4><div class="findings">${risks.map((f) => `
+      <details class="finding" open><summary><i class="${f.severity === 'high' ? 'bad' : f.severity === 'medium' ? 'warn' : 'off'}"></i><b>${esc(f.title)}</b><small>port ${f.port}</small></summary><p>${esc(f.detail)}</p></details>`).join('')}</div></div>`;
   });
   $('#dv-more', el)?.addEventListener('click', (e) => menu(e.currentTarget, deviceActions(d, groups, () => { changed(); dr.close(); })));
   el.addEventListener('click', async (e) => {
