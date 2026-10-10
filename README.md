@@ -121,6 +121,8 @@ Choose **1**. The installer finds your router, asks for its root password (on mo
 page password), and does everything else. When it finishes it prints the dashboard address, usually
 **http://fengard.lan**. Open it and create the admin account.
 
+<a href="docs/videos/install-script.mp4"><img src="docs/videos/install-script.png" width="640" alt="Video: installing with install.sh, from the menu to the dashboard's setup screen"></a>
+
 > Windows may warn about a downloaded file. Choose **More info → Run anyway**, or right-click the zip,
 > open **Properties** and tick **Unblock** before unzipping.
 
@@ -129,6 +131,35 @@ page password), and does everything else. When it finishes it prints the dashboa
 ```sh
 wget -O- https://github.com/masaleem-oss/Fengard/releases/latest/download/router-install.sh | sh
 ```
+
+**From the router's web page (LuCI).** Every release has a package for each CPU type:
+`fengard_<version>_<cpu>.ipk` for OpenWrt up to 24.10 (and GL.iNet), `.apk` for OpenWrt 25.12 and later.
+The CPU names match the [Supported routers](#supported-routers) table, for example `arm64` for a GL-MT3000 or
+`mipsle` for an MT7621 router.
+
+1. In LuCI open **System → Software**, choose **Upload Package…** and pick the `.ipk`.
+2. It sets itself up in about a minute, the same way the installer does. Log out of LuCI and back in, then open
+   **Services → Fengard** to see how it went, start or stop it, and open the dashboard.
+
+<a href="docs/videos/install-luci.mp4"><img src="docs/videos/install-luci.png" width="640" alt="Video: installing the package from LuCI, from upload to the dashboard's setup screen"></a>
+
+On GL.iNet firmware, LuCI is under **System → Advanced Settings** in the GL admin panel. If you pick the
+package for the wrong CPU, it says so and leaves the router as it was.
+
+> **OpenWrt 25.12 and later: the LuCI upload doesn't work.** 25.12 moved to the `apk` package manager, which
+> only installs packages signed by a key the router already trusts. LuCI's upload page has no way to allow
+> anything else, and there's no way to add a trusted key from LuCI either, so it refuses every package that
+> isn't from OpenWrt itself, Fengard included. Signing Fengard's packages wouldn't change that, because the
+> router would still need Fengard's key put on it over SSH first. On 25.12 use the one-line install above, or
+> install the `.apk` over SSH:
+
+Copy it to the router (`scp -O fengard_<version>_<cpu>.apk root@192.168.1.1:/tmp/`), then run:
+
+```sh
+apk add --allow-untrusted /tmp/fengard_<version>_<cpu>.apk
+```
+
+The Services → Fengard page works the same after that.
 
 ### Which routers work
 
@@ -159,22 +190,22 @@ answering, LAN devices resolving and reaching the dashboard, SSH still working, 
 internet names resolving, and an uninstall that gives DNS back with no Fengard firewall rules left. The x86
 ones get rebooted too.
 
-Results for 1.1.1:
+Results for 1.2.0:
 
 | Router type | Firmware | CPU build | Result | Memory |
 |---|---|---|---|---|
-| ARM64 (Filogic, MT7622, IPQ807x: GL-MT3000, Flint 2, Linksys E8450) | OpenWrt 22.03.7 | linux-arm64 | ✅ all 8 checks | 34 MB |
-| ARM64 (Filogic, MT7622, IPQ807x: GL-MT3000, Flint 2, Linksys E8450) | OpenWrt 25.12.5 | linux-arm64 | ✅ all 8 checks | 34 MB |
+| ARM64 (Filogic, MT7622, IPQ807x: GL-MT3000, Flint 2, Linksys E8450) | OpenWrt 22.03.7 | linux-arm64 | ✅ all 8 checks | 31 MB |
+| ARM64 (Filogic, MT7622, IPQ807x: GL-MT3000, Flint 2, Linksys E8450) | OpenWrt 25.12.5 | linux-arm64 | ✅ all 8 checks | 32 MB |
 | ARMv7 (IPQ40xx, mvebu: Linksys WRT, GL-B1300) | OpenWrt 21.02.7 | linux-arm | ✅ all 8 checks | 29 MB |
-| ARMv7 (IPQ40xx, mvebu: Linksys WRT, GL-B1300) | OpenWrt 23.05.6 | linux-arm | ✅ all 8 checks | 31 MB |
-| MIPS big-endian (ath79: TP-Link Archer C7, GL-AR750S) | OpenWrt 22.03.7 | linux-mips | ✅ all 8 checks | 32 MB |
-| MIPS little-endian (MT7621: Xiaomi 4A, Netgear R6220, GL-MT1300) | OpenWrt 24.10.8 | linux-mipsle | ✅ all 8 checks | 33 MB |
-| MIPS64 big-endian (Octeon: EdgeRouter Lite) | OpenWrt 24.10.8 | linux-mips64 | ✅ all 8 checks | 36 MB |
+| ARMv7 (IPQ40xx, mvebu: Linksys WRT, GL-B1300) | OpenWrt 23.05.6 | linux-arm | ✅ all 8 checks | 30 MB |
+| MIPS big-endian (ath79: TP-Link Archer C7, GL-AR750S) | OpenWrt 22.03.7 | linux-mips | ✅ all 8 checks | 31 MB |
+| MIPS little-endian (MT7621: Xiaomi 4A, Netgear R6220, GL-MT1300) | OpenWrt 24.10.8 | linux-mipsle | ✅ all 8 checks | 31 MB |
+| MIPS64 big-endian (Octeon: EdgeRouter Lite) | OpenWrt 24.10.8 | linux-mips64 | ✅ all 8 checks | 34 MB |
 | MIPS64 little-endian (Loongson) | OpenWrt 25.12.5 | linux-mips64le | ✅ all 6 checks (no internet in the VM) | 18 MB |
-| x86 32-bit | OpenWrt 23.05.6 | linux-386 | ✅ all 9 checks | 31 MB |
-| x86-64 mini PC | OpenWrt 19.07.10 | linux-amd64 | ✅ all 9 checks | 32 MB |
+| x86 32-bit | OpenWrt 23.05.6 | linux-386 | ✅ all 9 checks | 30 MB |
+| x86-64 mini PC | OpenWrt 19.07.10 | linux-amd64 | ✅ all 9 checks | 31 MB |
 | x86-64 mini PC | OpenWrt 22.03.7 | linux-amd64 | ✅ all 9 checks | 34 MB |
-| x86-64, squashfs like router flash | OpenWrt 24.10.8 | linux-amd64 | ✅ all 9 checks | 37 MB |
+| x86-64, squashfs like router flash | OpenWrt 24.10.8 | linux-amd64 | ✅ all 9 checks | 35 MB |
 
 On real hardware:
 
@@ -187,7 +218,8 @@ and it'll go in this table.
 
 #### When things go wrong
 
-These run in the lab on OpenWrt 24.10 x86 squashfs, which has the same flash layout as a real router:
+These run in the lab on OpenWrt 24.10 x86 squashfs, which has the same flash layout as a real router (the package
+rows also on 21.02 and 25.12):
 
 | Situation | Result |
 |---|---|
@@ -205,6 +237,12 @@ These run in the lab on OpenWrt 24.10 x86 squashfs, which has the same flash lay
 | Program missing at boot: the house keeps DNS | ✅ |
 | Program crash-looping: the house keeps DNS | ✅ |
 | Recovers by itself once the program works again | ✅ |
+| Installed from the ipk on OpenWrt 21.02 (fw3, like stock GL.iNet): works like the installer | ✅ |
+| Removed with the ipk on OpenWrt 21.02 (fw3, like stock GL.iNet): router back to stock | ✅ |
+| Installed from the ipk on OpenWrt 24.10: works like the installer | ✅ |
+| Removed with the ipk on OpenWrt 24.10: router back to stock | ✅ |
+| Installed from the apk on OpenWrt 25.12: works like the installer | ✅ |
+| Removed with the apk on OpenWrt 25.12: router back to stock | ✅ |
 
 ### What the installer changes
 
@@ -277,7 +315,8 @@ Computer mode filters every device by DNS but has limits:
 ### Uninstall
 
 - **Router:** option 3 in the menu, or `sh /etc/fengard/uninstall.sh` on the router. Add `--purge` to also delete
-  settings and history.
+  settings and history. If you installed the package, removing `fengard` in **System → Software** (or
+  `opkg remove fengard`, `apk del fengard`) does the same, keeping settings for a reinstall.
 - **Computer:** option 4 in the menu. Then set your router's DHCP DNS server back to automatic.
 
 ## Screenshots

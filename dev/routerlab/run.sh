@@ -31,7 +31,7 @@ mipsle-2410  mipsle   24.10.8  malta/le    openwrt-24.10.8-malta-le-vmlinux-init
 mips64-2410  mips64be 24.10.8  malta/be64  openwrt-24.10.8-malta-be64-vmlinux-initramfs.elf                512 no  MIPS64 big-endian (Octeon: EdgeRouter Lite)
 mips64le-2512 mips64le 25.12.5 malta/le64  openwrt-25.12.5-malta-le64-vmlinux-initramfs.elf                512 no  MIPS64 little-endian (Loongson)
 '
-EDGE='lowram ram128 subnet nonet port53 power-dns power-start sysupgrade stopped missing crash lowflash'
+EDGE='lowram ram128 subnet nonet port53 power-dns power-start sysupgrade stopped missing crash lowflash pkg-fw3 pkg-opkg pkg-apk'
 
 fetch() { # version target image
 	[ -s "$WORK/${3%.gz}" ] && { [ "${3%.gz}" = "$3" ] || [ -s "$WORK/$3" ]; } && return
@@ -58,6 +58,8 @@ rm -f "$WORK/kit.ok" "$WORK/kit.fail"
 	chmod +x "$WORK/dnsq.new" && mv "$WORK/dnsq.new" "$WORK/dnsq"
 	# every vm reads the bundle at once and /mnt/c on wsl is slow so it goes on the linux disk first
 	rm -rf "$WORK/kit" && cp -r "$KIT" "$WORK/kit" || { touch "$WORK/kit.fail"; exit 1; }
+	# the packages for the pkg cases sit next to the kit in the release assets
+	mkdir -p "$WORK/kit/pkg" && cp "$KIT"/../assets/fengard_*_amd64.* "$WORK/kit/pkg/" 2>/dev/null
 	echo "$WORK/kit" >"$WORK/kit.ok"
 	echo "kit ready after $(($(date +%s) - t0))s"
 ) &
@@ -65,6 +67,9 @@ rm -f "$WORK/kit.ok" "$WORK/kit.fail"
 if [ "$what" != routers ]; then
 	# the sysupgrade test needs the compressed image as well
 	fetch 24.10.8 x86/64 openwrt-24.10.8-x86-64-generic-squashfs-combined.img.gz
+	# and the package cases run on these too
+	fetch 21.02.7 x86/64 openwrt-21.02.7-x86-64-generic-ext4-combined.img.gz
+	fetch 25.12.5 x86/64 openwrt-25.12.5-x86-64-generic-ext4-combined.img.gz
 	for t in $EDGE; do
 		case "$t" in *"$only"*) ;; *) continue ;; esac
 		echo "testing $t"

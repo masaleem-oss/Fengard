@@ -1,0 +1,25 @@
+#!/bin/sh
+# runs the normal router installer once opkg or apk has put fengard in place
+[ -n "$IPKG_INSTROOT" ] && exit 0
+rm -rf /tmp/luci-indexcache* /tmp/luci-modulecache
+
+# a program for another cpu gets run as a shell script by ash so look for the usage text not the exit code
+if ! /usr/bin/fengardd -h 2>&1 | grep -q -- "-block-ip"; then
+	echo "This Fengard package is for a different CPU than this router has. Remove it and install the one for $(. /etc/openwrt_release; echo "$DISTRIB_ARCH")." >&2
+	exit 1
+fi
+
+log=/tmp/fengard-install.log
+setup() {
+	FG_BIN=/usr/bin/fengardd sh /usr/share/fengard/router-install.sh
+	# picks up the luci page permissions
+	/etc/init.d/rpcd reload
+}
+if [ -t 1 ]; then
+	setup 2>&1 | tee "$log"
+else
+	# luci waits on this so it carries on by itself, services > fengard shows how it went
+	(setup >"$log" 2>&1 </dev/null &)
+	echo "Fengard is setting itself up, this takes about a minute. Log out and back in, then open Services > Fengard to see how it went."
+fi
+exit 0

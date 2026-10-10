@@ -149,6 +149,22 @@ func main() {
 		}
 		if t.router {
 			gzs.Go(func() { writeFile(filepath.Join(assets, "fengardd-"+t.name()+".gz"), gzipBytes(data), 0o644) })
+			// opkg and apk packages for installing from luci
+			p := pkgInfo{
+				name: "fengard", version: pkgVersion(*version), license: "Apache-2.0",
+				url:      "https://github.com/" + *repo,
+				desc:     "DNS filtering, firewall and dashboard for the whole network",
+				files:    pkgFiles(root, data, routerInstall, routerUninstall, *version),
+				postinst: string(lf(read(root, "install/package/postinst"))),
+				prerm:    string(lf(read(root, "install/package/prerm"))),
+				postrm:   string(lf(read(root, "install/package/postrm"))),
+			}
+			gzs.Go(func() {
+				writeFile(filepath.Join(assets, pkgName(p.name, p.version, t.name(), "ipk")), buildIPK(p), 0o644)
+			})
+			gzs.Go(func() {
+				writeFile(filepath.Join(assets, pkgName(p.name, p.version, t.name(), "apk")), buildAPK(p), 0o644)
+			})
 		}
 	}
 	must(tw.Close())

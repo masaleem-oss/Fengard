@@ -47,7 +47,7 @@ if [ "$wan" = yes ]; then
 	# emulated cpus parse the lists slowly
 	until_ok 600 "r 'logread -e fengardd | grep -q \"blocklists updated\"'"
 	check "full blocklists loaded" "r 'logread -e fengardd | grep -q \"blocklists updated: [0-9][0-9][0-9][0-9][0-9]\"'"
-	check "lan device resolves internet names" "$WORK/dnsq 127.0.0.1:$((15300 + slot)) example.com | grep -q NOERROR"
+	check "lan device resolves internet names" "until_ok 30 '$WORK/dnsq 127.0.0.1:$((15300 + slot)) example.com | grep -q NOERROR'"
 fi
 rss=$(r 'grep VmRSS /proc/$(pidof fengardd)/status' | awk '{ printf "%d MB", $2 / 1024 }')
 build=$(r '. /etc/fengard/install.env; echo linux-$ARCH')

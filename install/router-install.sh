@@ -43,7 +43,8 @@ ARCH=$(router_arch)
 case "$ARCH" in unknown-*) die "unsupported CPU type '${ARCH#unknown-}'" ;; esac
 
 BIN_SRC=
-for f in "$SRC/bin/linux-$ARCH/fengardd" "$SRC/fengardd"; do
+# FG_BIN is set by the ipk and apk packages which already put the program in place
+for f in "$SRC/bin/linux-$ARCH/fengardd" "$SRC/fengardd" $FG_BIN; do
 	[ -f "$f" ] && { BIN_SRC=$f; break; }
 done
 if [ -z "$BIN_SRC" ] && [ "${RELEASE_URL#@}" = "$RELEASE_URL" ]; then
@@ -59,9 +60,9 @@ UNINSTALL_SRC=$SRC/router-uninstall.sh
 [ -f "$UNINSTALL_SRC" ] || UNINSTALL_SRC=$WORK/router-uninstall.sh
 [ -f "$UNINSTALL_SRC" ] || die "router-uninstall.sh is missing next to the installer"
 chmod 755 "$BIN_SRC"
-"$BIN_SRC" -h >/dev/null 2>&1
-rc=$?
-[ "$rc" -le 2 ] || die "the Fengard program doesn't run on this router's CPU ($ARCH, exit code $rc)"
+# ash runs a program for another cpu as a shell script so the exit code alone can pass, check the usage text
+"$BIN_SRC" -h 2>&1 | grep -q -- "-block-ip" ||
+	die "the Fengard program doesn't run on this router's CPU ($ARCH)"
 
 FG_DIR=${FG_DIR:-$(getstate FG_DIR "$STATE")}
 FG_DIR=${FG_DIR:-/etc/fengard}
@@ -297,7 +298,9 @@ rm -f "$STATE.prev"
 TOUCHED=1
 
 say "installing Fengard for $ARCH"
-cp "$BIN_SRC" "$BIN.new" && chmod 755 "$BIN.new" && mv "$BIN.new" "$BIN" || die "can't write $BIN"
+if [ "$BIN_SRC" != "$BIN" ]; then
+	cp "$BIN_SRC" "$BIN.new" && chmod 755 "$BIN.new" && mv "$BIN.new" "$BIN" || die "can't write $BIN"
+fi
 cp "$UNINSTALL_SRC" /etc/fengard/uninstall.sh && chmod 755 /etc/fengard/uninstall.sh
 rm -f /etc/fengard/router-uninstall.sh
 if [ -d "$SRC/lists" ] && [ "$FG_DIR" != "$SRC" ]; then

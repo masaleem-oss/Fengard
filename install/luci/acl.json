@@ -1,0 +1,17 @@
+{
+	"luci-app-fengard": {
+		"description": "Grant access to Fengard",
+		"read": {
+			"file": {
+				"/usr/libexec/fengard-luci status": [ "exec" ]
+			}
+		},
+		"write": {
+			"file": {
+				"/usr/libexec/fengard-luci start": [ "exec" ],
+				"/usr/libexec/fengard-luci stop": [ "exec" ],
+				"/usr/libexec/fengard-luci restart": [ "exec" ]
+			}
+		}
+	}
+}

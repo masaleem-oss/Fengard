@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -91,5 +92,14 @@ func TestCheckOffline(t *testing.T) {
 	st := u.Check(context.Background())
 	if st.Error == "" || st.Available() {
 		t.Fatalf("offline check = %+v", st)
+	}
+}
+
+func TestOddVersion(t *testing.T) {
+	u := &Updater{Current: "1.2.0"}
+	for _, v := range []string{"1.3.0$(reboot)", "1.3.0;rm", "1.3.0 x", ""} {
+		if err := u.install(context.Background(), &release{}, v); err == nil || !strings.Contains(err.Error(), "odd version") {
+			t.Errorf("%q: %v", v, err)
+		}
 	}
 }

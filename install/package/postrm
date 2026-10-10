@@ -1,0 +1,5 @@
+#!/bin/sh
+# luci caches its menu so the fengard entry goes away
+[ -n "$IPKG_INSTROOT" ] && exit 0
+rm -rf /tmp/luci-indexcache* /tmp/luci-modulecache
+exit 0

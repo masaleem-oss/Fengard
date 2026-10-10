@@ -1,6 +1,6 @@
 #!/bin/bash
 # the situations that would hurt a household on openwrt 24.10 x86 squashfs which has the same layout as router flash
-#   edge.sh [test...]   tests lowram ram128 subnet nonet port53 power-dns power-start sysupgrade stopped missing crash lowflash
+#   edge.sh [test...]   tests lowram ram128 subnet nonet port53 power-dns power-start sysupgrade stopped missing crash lowflash pkg-fw3 pkg-opkg pkg-apk
 # prints EDGE rows for the readme table
 # each test has its own vm slot so they can all run at once
 WORK=${WORK:-/var/tmp/routerlab}
@@ -35,7 +35,7 @@ until_ok() { n=$1; shift; for _ in $(seq "$n"); do eval "$*" && return 0; sleep 
 # the guard checks every 20 s and waits 10 min before trying fengard again, this makes it 2 s and 1 min
 fast_guard() { r "$1" "echo \"GUARD_TICK='2'\" >>/etc/fengard/install.env; /etc/init.d/fengard restart"; until_ok 60 fg_ok "$1"; }
 
-[ $# -gt 0 ] || set -- lowram ram128 subnet nonet port53 power-dns power-start sysupgrade stopped missing crash lowflash
+[ $# -gt 0 ] || set -- lowram ram128 subnet nonet port53 power-dns power-start sysupgrade stopped missing crash lowflash pkg-fw3 pkg-opkg pkg-apk
 for t in "$@"; do
 	case $t in
 	lowram)
@@ -47,17 +47,19 @@ for t in "$@"; do
 		V start ram128 x86 "$IMG" 128 21 >/dev/null
 		kit; inst 21 >/dev/null
 		until_ok 600 "r 21 'logread -e fengardd | grep -q \"blocklists updated\"'"
-		row "128 MB of RAM: full blocklists, no out of memory" "fg_ok 21 && landns 21 example.com && ! r 21 'dmesg | grep -qi \"out of memory\|oom-kill\"'"
+		row "128 MB of RAM: full blocklists, no out of memory" "until_ok 30 'fg_ok 21 && landns 21 example.com' && ! r 21 'dmesg | grep -qi \"out of memory\|oom-kill\"'"
 		uninst 21 >/dev/null
 		V stop ram128 ;;
 	subnet)
 		V start subnet x86 "$IMG" 256 22 >/dev/null
 		# early in boot dropbear can restart under us so keep at it until the change reads back
 		until_ok 30 "r 22 'uci set network.lan.ipaddr=10.0.0.1; uci set network.lan.netmask=255.255.0.0; uci commit network; sync; uci get network.lan.ipaddr | grep -qx 10.0.0.1'"
+		echo "  before power off: overlay state $(r 22 'readlink /overlay/.fs_state') lan $(r 22 'uci get network.lan.ipaddr')"
 		r 22 poweroff
 		until_ok 30 "! pgrep -f 'name vm-subnet ' >/dev/null"
-		V stop subnet; sleep 1
-		LANNET=10.0.0.0/16 RIP=10.0.0.1 SHOST=10.0.0.2 FGIP=10.0.0.4 V start subnet x86 "$IMG" 256 22 keep >/dev/null
+		V stop subnet
+		LANNET=10.0.0.0/16 RIP=10.0.0.1 SHOST=10.0.0.2 FGIP=10.0.0.4 V start subnet x86 "$IMG" 256 22 keep ||
+			echo "  second boot: $(grep -a 'mount_root\|hostfwd\|Could not' "$WORK/serial-subnet.log" | tr '\n' ' ')"
 		kit; inst 22 >/dev/null
 		until_ok 60 landns 22 fengard.lan
 		row "LAN on 10.0.0.1/16: picks a spare address in the subnet" "fg_ok 22 && landns 22 fengard.lan && r 22 '. /etc/fengard/install.env; wget -q -O /dev/null http://\$FG_IP/'"
@@ -126,6 +128,22 @@ for t in "$@"; do
 		row "Recovers by itself once the program works again" "until_ok 240 fg_ok 31 && landns 31"
 		uninst 31 >/dev/null
 		V stop crash ;;
+	pkg-fw3 | pkg-opkg | pkg-apk)
+		# the ipk and apk packages, the same thing luci's upload page does
+		case $t in
+		pkg-fw3) img=$WORK/openwrt-21.02.7-x86-64-generic-ext4-combined.img slot=34 ext=ipk add='opkg install' del='opkg remove fengard' what="ipk on OpenWrt 21.02 (fw3, like stock GL.iNet)" ;;
+		pkg-opkg) img=$IMG slot=32 ext=ipk add='opkg install' del='opkg remove fengard' what="ipk on OpenWrt 24.10" ;;
+		pkg-apk) img=$WORK/openwrt-25.12.5-x86-64-generic-ext4-combined.img slot=33 ext=apk add='apk add --allow-untrusted' del='apk del fengard' what="apk on OpenWrt 25.12" ;;
+		esac
+		V start "$t" x86 "$img" 256 $slot >/dev/null
+		kit
+		r $slot "cat >/tmp/fengard.$ext" <"$(ls "$KIT"/pkg/fengard_*_amd64.$ext | head -1)"
+		r $slot "$add /tmp/fengard.$ext" >/dev/null
+		until_ok 120 fg_ok $slot
+		row "Installed from the $what: works like the installer" "fg_ok $slot && landns $slot fengard.lan && r $slot '/usr/libexec/fengard-luci status' | grep -q '\"answering\": true'"
+		r $slot "$del" >/dev/null
+		row "Removed with the $what: router back to stock" "until_ok 30 'untouched $slot && landns $slot' && r $slot '! [ -e /usr/bin/fengardd ] && ! [ -e /www/luci-static/resources/view/fengard.js ]'"
+		V stop "$t" ;;
 	lowflash)
 		V start lowflash x86 "$IMG" 256 28 >/dev/null
 		r 28 'free=$(df -k /overlay | awk "NR==2{print \$4}"); dd if=/dev/zero of=/overlay/filler bs=1024 count=$((free - 12000)) 2>/dev/null'

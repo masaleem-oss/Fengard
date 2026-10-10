@@ -17,6 +17,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -314,7 +315,13 @@ func (u *Updater) Install(ctx context.Context) error {
 	return err
 }
 
+// the version ends up in a shell script so only plain ones get through
+var plainVersion = regexp.MustCompile(`^[0-9A-Za-z.-]{1,32}$`)
+
 func (u *Updater) install(ctx context.Context, rel *release, version string) error {
+	if !plainVersion.MatchString(version) || !plainVersion.MatchString(u.Current) {
+		return errors.New("the release has an odd version number, not installing it")
+	}
 	name := "fengardd-" + Target() + ".gz"
 	bin, sums := rel.find(name), rel.find("SHA256SUMS")
 	if bin == nil || sums == nil {
@@ -440,6 +447,9 @@ cp "$BIN" "$NEW.prev" && cp "$NEW" "$BIN.new" && chmod 755 "$BIN.new" && mv "$BI
 	exit 1
 }
 sync
+# package installs show this version on the luci page
+V=/usr/share/fengard/version
+[ -f "$V" ] && echo %[5]s >"$V"
 "$INIT" restart
 for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18; do
 	sleep 5
@@ -447,6 +457,7 @@ for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18; do
 done
 logger -t fengard "%[5]s didn't answer dns, going back to %[6]s"
 cp "$NEW.prev" "$BIN.new" && mv "$BIN.new" "$BIN"
+[ -f "$V" ] && echo %[6]s >"$V"
 sync
 echo "failed %[5]s didn't start, went back to %[6]s" >"$STATE/update-result"
 "$INIT" restart

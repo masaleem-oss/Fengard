@@ -1,0 +1,36 @@
+#!/bin/sh
+# backs the services > fengard page in luci
+#   fengard-luci status              json for the page
+#   fengard-luci start|stop|restart
+. /usr/share/libubox/jshn.sh
+STATE=/etc/fengard/install.env
+INIT=/etc/init.d/fengard
+
+case "$1" in
+start | stop | restart)
+	[ -x "$INIT" ] || exit 1
+	"$INIT" "$1" >/dev/null 2>&1
+	exit 0 ;;
+status) ;;
+*) echo "usage: $0 status|start|stop|restart" >&2; exit 2 ;;
+esac
+
+yes() { if "$@"; then echo 1; else echo 0; fi; }
+FG_IP='' HTTP_PORT=''
+[ -f "$STATE" ] && . "$STATE"
+running=$(yes eval 'pidof fengardd >/dev/null')
+answering=0
+[ "$running" = 1 ] && [ -n "$FG_IP" ] && answering=$(yes eval 'nslookup fengard.lan 127.0.0.1 2>/dev/null | grep -q "$FG_IP"')
+
+json_init
+json_add_string version "$(cat /usr/share/fengard/version 2>/dev/null)"
+json_add_boolean installed "$(yes [ -x "$INIT" -a -f "$STATE" ])"
+json_add_boolean installing "$(yes eval 'ps w | grep -q "[r]outer-install.sh"')"
+json_add_boolean running "$running"
+json_add_boolean answering "$answering"
+json_add_boolean standin "$(yes eval '[ -f /var/run/fengard-rescue.pid ] && kill -0 "$(cat /var/run/fengard-rescue.pid)" 2>/dev/null')"
+json_add_boolean stopped "$(yes [ -f /var/run/fengard-stopped ])"
+json_add_boolean enabled "$(yes eval 'ls /etc/rc.d/S*fengard >/dev/null 2>&1')"
+json_add_string ip "$FG_IP"
+json_add_string log "$(tail -n 12 /tmp/fengard-install.log 2>/dev/null)"
+json_dump

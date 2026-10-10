@@ -16,6 +16,12 @@ SSHOPT=(-q -o HostKeyAlgorithms=+ssh-rsa -o PubkeyAcceptedAlgorithms=+ssh-rsa -o
 lan() { echo "user,id=lan,net=$LANNET,host=$SHOST,dhcpstart=${RIP%.*}.240,hostfwd=tcp:0.0.0.0:$((2300 + $1))-$RIP:22,hostfwd=tcp:0.0.0.0:$((18300 + $1))-$FGIP:80,hostfwd=udp:0.0.0.0:$((15300 + $1))-$RIP:53"; }
 r() { ssh "${SSHOPT[@]}" -o ConnectTimeout=3 -p $((2300 + slot)) root@127.0.0.1 "$@" 2>/dev/null; }
 mon() { echo "$1" | socat - "UNIX-CONNECT:$WORK/mon-$name.sock" 2>/dev/null; }
+# waits until qemu is really gone, a new vm on the same slot cant get its ports till then
+kill_vm() {
+	pkill -f "name vm-$1 " 2>/dev/null || return 0
+	for _ in $(seq 30); do pgrep -f "name vm-$1 " >/dev/null || return 0; sleep 0.5; done
+	pkill -9 -f "name vm-$1 "; sleep 1
+}
 up() {
 	for _ in $(seq "$1"); do r true && return 0; sleep 1; done
 	return 1
@@ -24,7 +30,7 @@ up() {
 case "$1" in
 start)
 	name=$2 kind=$3 file=$4 ram=$5 slot=$6
-	pkill -f "name vm-$name " 2>/dev/null && sleep 1
+	kill_vm "$name"
 	common=(-name "vm-$name " -m "$ram" -display none -serial "file:$WORK/serial-$name.log" -daemonize
 		-monitor "unix:$WORK/mon-$name.sock,server,nowait"
 		-netdev "$(lan "$slot")" -netdev "user,id=wan${WANOPT:+,$WANOPT}")
@@ -34,8 +40,14 @@ start)
 		[ "$7" = keep ] && [ -f "ovl-$name.qcow2" ] || { rm -f "ovl-$name.qcow2"; qemu-img create -q -f qcow2 -F raw -b "$file" "ovl-$name.qcow2"; }
 		nice -n 10 qemu-system-x86_64 "${common[@]}" -enable-kvm -cpu host -smp 2 -drive file="ovl-$name.qcow2",if=virtio \
 			-device virtio-net-pci,netdev=lan -device virtio-net-pci,netdev=wan
-		up 150 && exit 0
-		echo "vm-$name did not come up"
+		up 90 || { echo "vm-$name did not come up"; exit 1; }
+		# on a first boot squashfs writes go to ram while the flash overlay is formatted, and a power off
+		# before the overlay is marked ready makes the next boot throw it away, ssh is up long before that
+		for _ in $(seq 90); do
+			r 'if grep -q "^overlayfs:/overlay / " /proc/mounts; then [ "$(readlink /overlay/.fs_state)" = 2 ]; else ! grep -q "^overlayfs:/tmp/root / " /proc/mounts; fi' && exit 0
+			sleep 1
+		done
+		echo "vm-$name never finished booting"
 		exit 1 ;;
 	mipsbe | mipsle | mips64be | mips64le)
 		bin=qemu-system-mips cpu=24Kc
@@ -62,7 +74,7 @@ start)
 		# the saved clock is from when it was saved
 		up 30 && r "date -u -s '$(date -u '+%Y-%m-%d %H:%M:%S')' >/dev/null" && exit 0
 		echo "vm-$name did not carry on from its saved boot, booting it again"
-		pkill -f "name vm-$name "; sleep 1
+		kill_vm "$name"
 	fi
 	rm -f "$snap.state" "$snap.key"
 	"${cmd[@]}" "${common[@]}"
@@ -80,7 +92,7 @@ start)
 	up 30 && exit 0
 	echo "vm-$name stopped answering after saving its boot"
 	exit 1 ;;
-stop) pkill -f "name vm-$2 " ;;
+stop) kill_vm "$2" ;;
 ssh)
 	s=$2
 	shift 2

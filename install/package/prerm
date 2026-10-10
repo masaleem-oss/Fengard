@@ -1,0 +1,6 @@
+#!/bin/sh
+# puts the router back the way the uninstaller does, settings stay for a reinstall
+[ -n "$IPKG_INSTROOT" ] && exit 0
+[ "$1" = upgrade ] && exit 0
+[ -f /etc/fengard/uninstall.sh ] && sh /etc/fengard/uninstall.sh
+exit 0
