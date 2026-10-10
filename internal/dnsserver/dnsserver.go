@@ -96,7 +96,9 @@ func (s *Server) Init() {
 	s.global = ratelimit.New(globalQPS, globalQPS*2, 1)
 	s.doh = &http.Client{Timeout: 5 * time.Second, Transport: &http.Transport{
 		MaxIdleConns: 8, IdleConnTimeout: 90 * time.Second, TLSHandshakeTimeout: 5 * time.Second,
-		TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS12},
+		// a custom tls config turns http/2 off and quad9 refuses doh over http/1.1
+		ForceAttemptHTTP2: true,
+		TLSClientConfig:   &tls.Config{MinVersion: tls.VersionTLS12},
 	}}
 	if len(s.Allowed) == 0 {
 		s.Allowed = defaultAllowed
