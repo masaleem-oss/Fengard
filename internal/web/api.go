@@ -656,12 +656,28 @@ func (s *Server) rollback(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &body) {
 		return
 	}
-	if _, err := s.Config.Rollback(s.actor(r), body.Version); err != nil {
+	old, err := s.Config.At(body.Version)
+	if err != nil {
 		httpError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	s.audit(r, fmt.Sprintf("Rolled back to version %d", body.Version), "")
-	writeJSON(w, map[string]bool{"ok": true})
+	note := s.keepHTTPOpen(r, old)
+	if _, err := s.Config.Replace(s.actor(r), fmt.Sprintf("Rolled back to version %d", body.Version), old); err != nil {
+		httpError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	s.audit(r, fmt.Sprintf("Rolled back to version %d", body.Version), note)
+	writeJSON(w, map[string]any{"ok": true, "note": note})
+}
+
+// a restore over plain http that turns on require https would lock this browser out
+// so it stays off until they come back over https
+func (s *Server) keepHTTPOpen(r *http.Request, c *config.Config) string {
+	if !c.Settings.RequireHTTPS || s.Config.Get().Settings.RequireHTTPS || r.TLS != nil || loopbackClient(r) {
+		return ""
+	}
+	c.Settings.RequireHTTPS = false
+	return "Require HTTPS was left off because this was done over plain HTTP. Open the dashboard over HTTPS to turn it on."
 }
 
 // config plus the ca so a restore on a new box keeps the trust already on devices
@@ -682,6 +698,7 @@ func (s *Server) importConfig(w http.ResponseWriter, r *http.Request) {
 		httpError(w, http.StatusBadRequest, "not a Fengard backup: "+err.Error())
 		return
 	}
+	https := s.keepHTTPOpen(r, b.Config)
 	if _, err := s.Config.Replace(s.actor(r), "Restored configuration from backup", b.Config); err != nil {
 		httpError(w, http.StatusBadRequest, err.Error())
 		return
@@ -693,6 +710,11 @@ func (s *Server) importConfig(w http.ResponseWriter, r *http.Request) {
 		} else {
 			note = "certificate restored too"
 		}
+	}
+	if https != "" && note != "" {
+		note += ". " + https
+	} else if https != "" {
+		note = https
 	}
 	s.audit(r, "Restored configuration from backup", note)
 	writeJSON(w, map[string]any{"ok": true, "note": note})

@@ -418,13 +418,21 @@ async function backup(body) {
     e.target.value = '';
     if (!file) return;
     const ok = await confirmDialog({ title: 'Restore this backup?', confirm: 'Restore', message: `The current configuration is replaced with <b>${esc(file.name)}</b>. It stays in history, so you can undo.` });
-    if (ok && await attempt(async () => api('/api/config/import', { method: 'POST', raw: await file.text() }), 'Configuration restored')) { refreshShell(); backup(body); }
+    let res;
+    if (ok && await attempt(async () => { res = await api('/api/config/import', { method: 'POST', raw: await file.text() }); })) {
+      toast(res?.note ? `Configuration restored. ${res.note[0].toUpperCase()}${res.note.slice(1)}` : 'Configuration restored');
+      refreshShell(); backup(body);
+    }
   });
   body.onclick = async (e) => {
     const b = e.target.closest('[data-v]');
     if (!b) return;
     const ok = await confirmDialog({ title: `Restore version ${b.dataset.v}?`, confirm: 'Restore', message: 'This becomes a new version, so you can always go back.' });
-    if (ok && await attempt(() => post('/api/config/rollback', { version: +b.dataset.v }), `Restored version ${b.dataset.v}`)) { refreshShell(); backup(body); }
+    let res;
+    if (ok && await attempt(async () => { res = await post('/api/config/rollback', { version: +b.dataset.v }); })) {
+      toast(res?.note ? `Restored version ${b.dataset.v}. ${res.note}` : `Restored version ${b.dataset.v}`);
+      refreshShell(); backup(body);
+    }
   };
 }
 

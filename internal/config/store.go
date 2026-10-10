@@ -187,6 +187,15 @@ func (s *Store) History() []Version {
 }
 
 func (s *Store) Rollback(actor string, version int) (*Config, error) {
+	old, err := s.At(version)
+	if err != nil {
+		return nil, err
+	}
+	return s.Replace(actor, fmt.Sprintf("Rolled back to version %d", version), old)
+}
+
+// At reads an old version from history without applying it
+func (s *Store) At(version int) (*Config, error) {
 	if version < 1 || version > s.Get().Version {
 		return nil, fmt.Errorf("version %d not found", version)
 	}
@@ -198,7 +207,7 @@ func (s *Store) Rollback(actor string, version int) (*Config, error) {
 	if err := json.Unmarshal(data, old); err != nil {
 		return nil, err
 	}
-	return s.Replace(actor, fmt.Sprintf("Rolled back to version %d", version), old)
+	return old, nil
 }
 
 func writeAtomic(path string, data []byte) error {

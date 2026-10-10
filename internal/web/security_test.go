@@ -2,6 +2,7 @@ package web
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/cookiejar"
@@ -181,5 +182,68 @@ func TestLANHTTPUnlessRequireHTTPS(t *testing.T) {
 	}
 	if code, _ := c.do("GET", "/api/settings", "", false); code != http.StatusUpgradeRequired {
 		t.Fatalf("LAN HTTP after require https gave %d", code)
+	}
+}
+
+func TestRestoreOverHTTPKeepsLANHTTP(t *testing.T) {
+	local := newTestServer(t)
+	h := local.Config.Handler
+	lan := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { r.RemoteAddr = "192.168.8.155:1234"; h.ServeHTTP(w, r) }))
+	defer lan.Close()
+	tlsServer := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { r.RemoteAddr = "192.168.8.155:1234"; h.ServeHTTP(w, r) }))
+	defer tlsServer.Close()
+	c := newClient(t, lan)
+	if code, body := c.do("POST", "/api/setup", `{"username":"admin","password":"correct horse battery"}`, true); code != 200 {
+		t.Fatalf("LAN HTTP setup %d %v", code, body)
+	}
+	secure := newClient(t, tlsServer)
+	secure.c = tlsServer.Client()
+	secure.c.Jar, _ = cookiejar.New(nil)
+	if code, _ := secure.do("POST", "/api/login", `{"username":"admin","password":"correct horse battery"}`, true); code != 200 {
+		t.Fatalf("HTTPS login %d", code)
+	}
+	httpStillWorks := func(what string) {
+		t.Helper()
+		code, set := c.do("GET", "/api/settings", "", false)
+		if code != 200 || set["requireHttps"] != false {
+			t.Fatalf("after %s over HTTP: settings gave %d requireHttps=%v", what, code, set["requireHttps"])
+		}
+	}
+
+	// a backup taken with require https on restored from a plain http browser
+	_, backup := c.do("GET", "/api/config/export", "", false)
+	backup["settings"].(map[string]any)["requireHttps"] = true
+	b, _ := json.Marshal(backup)
+	code, res := c.do("POST", "/api/config/import", string(b), true)
+	if code != 200 || res["note"] == nil || res["note"] == "" {
+		t.Fatalf("restore over HTTP gave %d %v", code, res)
+	}
+	httpStillWorks("a restore")
+
+	// a version from when it was on, rolled back to from plain http
+	_, set := secure.do("GET", "/api/settings", "", false)
+	set["requireHttps"] = true
+	b, _ = json.Marshal(set)
+	if code, body := secure.do("PUT", "/api/settings", string(b), true); code != 200 {
+		t.Fatalf("require https over HTTPS %d %v", code, body)
+	}
+	_, cur := secure.do("GET", "/api/config/export", "", false)
+	on := int(cur["version"].(float64))
+	set["requireHttps"] = false
+	b, _ = json.Marshal(set)
+	if code, body := secure.do("PUT", "/api/settings", string(b), true); code != 200 {
+		t.Fatalf("require https off over HTTPS %d %v", code, body)
+	}
+	if code, res := c.do("POST", "/api/config/rollback", fmt.Sprintf(`{"version":%d}`, on), true); code != 200 || res["note"] == nil || res["note"] == "" {
+		t.Fatalf("rollback over HTTP gave %d %v", code, res)
+	}
+	httpStillWorks("a rollback")
+
+	// over https the same rollback really turns it on
+	if code, _ := secure.do("POST", "/api/config/rollback", fmt.Sprintf(`{"version":%d}`, on), true); code != 200 {
+		t.Fatalf("rollback over HTTPS gave %d", code)
+	}
+	if code, _ := c.do("GET", "/api/settings", "", false); code != http.StatusUpgradeRequired {
+		t.Fatalf("LAN HTTP after an HTTPS rollback gave %d", code)
 	}
 }
