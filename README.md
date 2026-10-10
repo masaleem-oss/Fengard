@@ -621,7 +621,7 @@ sudo FENGARD_ROOT=. bash dev/netlab.sh
 
 **Router lab.** [`dev/routerlab/run.sh`](dev/routerlab) installs Fengard on emulated OpenWrt routers of every
 CPU type and firmware generation, runs the edge cases, and prints the tables in
-[Supported routers](#supported-routers). It needs root on Linux or WSL2 with KVM and QEMU. See
+[Supported routers](#supported-routers), in a few minutes. It needs root on Linux or WSL2 with KVM and QEMU. See
 [CONTRIBUTING](CONTRIBUTING.md#router-lab) for details.
 
 **Releasing.** Run the router lab first and update the [Supported routers](#supported-routers) tables,

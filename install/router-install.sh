@@ -398,6 +398,8 @@ cat >/etc/fengard/guard.sh <<'EOF'
 # guard.sh off   stop it so fengard can have port 53
 PID=/var/run/fengard-rescue.pid
 . /etc/fengard/install.env
+# seconds between checks, the router lab turns it down
+T=${GUARD_TICK:-20}
 
 answering() { nslookup fengard.lan 127.0.0.1 2>/dev/null | grep -q "$FG_IP"; }
 rescuing() { [ -f $PID ] && kill -0 "$(cat $PID)" 2>/dev/null; }
@@ -425,7 +427,7 @@ on) rescue_on; exit 0 ;;
 off) rescue_off; exit 0 ;;
 esac
 
-sleep 30
+sleep $((T * 3 / 2))
 bad=0 n=0
 while :; do
 	if rescuing; then
@@ -444,7 +446,7 @@ while :; do
 		bad=$((bad + 1))
 		[ $bad -ge 3 ] && { rescue_on; bad=0 n=0; }
 	fi
-	sleep 20
+	sleep $T
 done
 EOF
 chmod 755 /etc/fengard/guard.sh

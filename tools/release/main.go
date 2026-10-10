@@ -138,6 +138,8 @@ func main() {
 	tw := tar.NewWriter(gz)
 	addTar(tw, "router-install.sh", routerInstall, 0o755)
 	addTar(tw, "router-uninstall.sh", routerUninstall, 0o755)
+	// best compression is slow so the router downloads get gzipped side by side
+	var gzs sync.WaitGroup
 	for _, t := range build {
 		data := read(tmp, filepath.Join(t.name(), t.exe()))
 		if t.os == "linux" {
@@ -146,11 +148,12 @@ func main() {
 			files = append(files, kitFile{"bin/" + t.name() + "/" + t.exe(), data, 0o755})
 		}
 		if t.router {
-			writeFile(filepath.Join(assets, "fengardd-"+t.name()+".gz"), gzipBytes(data), 0o644)
+			gzs.Go(func() { writeFile(filepath.Join(assets, "fengardd-"+t.name()+".gz"), gzipBytes(data), 0o644) })
 		}
 	}
 	must(tw.Close())
 	must(gz.Close())
+	gzs.Wait()
 	files = append(files, kitFile{"install/linux-bundle.tar.gz", bundle.Bytes(), 0o644})
 
 	for _, f := range files {
@@ -251,6 +254,9 @@ func writeZip(path, top string, files []kitFile) {
 	zw := zip.NewWriter(f)
 	for _, kf := range files {
 		h := &zip.FileHeader{Name: top + "/" + kf.path, Method: zip.Deflate, Modified: time.Now()}
+		if strings.HasSuffix(kf.path, ".gz") {
+			h.Method = zip.Store // already compressed
+		}
 		h.SetMode(kf.mode) // keeps exec bit on mac and linux
 		w, err := zw.CreateHeader(h)
 		must(err)

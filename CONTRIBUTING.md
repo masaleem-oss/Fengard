@@ -39,14 +39,21 @@ low memory, a full flash, no internet, another DNS server on port 53, a power cu
 upgrade, and Fengard crashing or going missing. At the end it prints the tables used in the README.
 
 ```sh
-sudo dev/routerlab/run.sh            # everything, about an hour
-sudo dev/routerlab/run.sh routers    # just the routers
-sudo dev/routerlab/run.sh edge       # just the edge cases
+sudo dev/routerlab/run.sh              # everything, a few minutes
+sudo dev/routerlab/run.sh routers      # just the routers
+sudo dev/routerlab/run.sh routers mips # just the routers with mips in the name
+sudo dev/routerlab/run.sh edge crash   # just one edge case
 ```
 
-It needs Linux or WSL2 with KVM, plus `qemu-system-x86`, `qemu-system-mips`, `qemu-system-arm`, `curl` and
-`ssh`. The images are downloaded from downloads.openwrt.org on the first run. To add a router type, add a
-line to the list at the top of `run.sh`.
+It needs Linux or WSL2 with KVM, plus `qemu-system-x86`, `qemu-system-mips`, `qemu-system-arm`, `socat`,
+`curl` and `ssh`. The images are downloaded from downloads.openwrt.org on the first run. To add a router
+type, add a line to the list at the top of `run.sh`.
+
+Everything runs at once and the kit builds while the VMs boot. The ARM and MIPS routers are emulated and
+slow to boot, so the first run saves them once they're up and later runs start from there (`SNAP=no` boots
+them fresh). The first run takes a bit longer because of that. The crash tests set `GUARD_TICK=2` so the
+guard checks every 2 seconds instead of 20, otherwise the recovery test alone takes over 10 minutes. The
+logs in `results/` show the time at each step.
 
 ## Releasing
 

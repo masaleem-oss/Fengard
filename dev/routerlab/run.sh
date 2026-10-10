@@ -1,18 +1,20 @@
 #!/bin/bash
 # router lab installs fengard on emulated openwrt routers of every cpu type plus the edge cases
 # then prints the rows for the readme tables
-# needs linux or wsl2 with kvm plus qemu-system-x86 mips arm misc curl and ssh and runs as root
+# needs linux or wsl2 with kvm plus qemu-system-x86 mips arm misc socat curl and ssh and runs as root
 #   dev/routerlab/run.sh            routers and edge cases
 #   dev/routerlab/run.sh routers    just the routers
 #   dev/routerlab/run.sh routers mips   just the routers whose name has mips in it
 #   dev/routerlab/run.sh edge       just the edge cases
+#   dev/routerlab/run.sh edge crash just the edge cases whose name has crash in it
 # KIT=path/to/unzipped/kit tests a built kit instead of building one and DNSQ=path/to/linux/dnsq skips building dnsq
+# everything runs at once, the kit builds while the vms boot
 LAB=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$LAB/../.." && pwd)
 export WORK=${WORK:-/var/tmp/routerlab}
 mkdir -p "$WORK/results"
 B=https://downloads.openwrt.org/releases
-JOBS=${JOBS:-5}
+t0=$(date +%s)
 
 # name kind version target image ram reboot label
 ROUTERS='
@@ -29,53 +31,61 @@ mipsle-2410  mipsle   24.10.8  malta/le    openwrt-24.10.8-malta-le-vmlinux-init
 mips64-2410  mips64be 24.10.8  malta/be64  openwrt-24.10.8-malta-be64-vmlinux-initramfs.elf                512 no  MIPS64 big-endian (Octeon: EdgeRouter Lite)
 mips64le-2512 mips64le 25.12.5 malta/le64  openwrt-25.12.5-malta-le64-vmlinux-initramfs.elf                512 no  MIPS64 little-endian (Loongson)
 '
+EDGE='lowram ram128 subnet nonet port53 power-dns power-start sysupgrade stopped missing crash lowflash'
 
 fetch() { # version target image
-	[ -s "$WORK/${3%.gz}" ] && return
+	[ -s "$WORK/${3%.gz}" ] && { [ "${3%.gz}" = "$3" ] || [ -s "$WORK/$3" ]; } && return
 	curl -sfL -o "$WORK/$3" "$B/$1/targets/$2/$3" || { echo "download failed: $3"; return 1; }
 	# openwrt images carry padding gunzip warns about
 	case "$3" in *.gz) gunzip -c "$WORK/$3" >"$WORK/${3%.gz}" 2>/dev/null ;; esac
 	true
 }
 
-if [ -z "$KIT" ]; then
-	(cd "$ROOT" && go run ./tools/release -version lab -out dist \
-		-only linux-amd64,linux-386,linux-arm,linux-arm64,linux-mips,linux-mipsle,linux-mips64,linux-mips64le,linux-riscv64,linux-loong64) || exit 1
-	KIT=$ROOT/dist/fengard-lab
-fi
-export KIT
-if [ -n "$DNSQ" ]; then cp "$DNSQ" "$WORK/dnsq"; else (cd "$ROOT" && GOOS=linux go build -o "$WORK/dnsq" ./tools/dnsq) || exit 1; fi
-chmod +x "$WORK/dnsq"
-
 what=${1:-all}
 only=${2:-}
 # a filtered run keeps the other results so the tables stay whole
-[ -n "$only" ] || rm -f "$WORK/results/"*.log
+[ -n "$only" ] || rm -f "$WORK/results/"*.log "$WORK/results/"edge-*.out
+rm -f "$WORK/kit.ok" "$WORK/kit.fail"
+
+# the routers and edge cases wait for kit.ok before installing
+(
+	if [ -z "$KIT" ]; then
+		(cd "$ROOT" && go run ./tools/release -version lab -out dist \
+			-only linux-amd64,linux-386,linux-arm,linux-arm64,linux-mips,linux-mipsle,linux-mips64,linux-mips64le,linux-riscv64,linux-loong64) >"$WORK/build.log" 2>&1 || { touch "$WORK/kit.fail"; exit 1; }
+		KIT=$ROOT/dist/fengard-lab
+	fi
+	if [ -n "$DNSQ" ]; then cp "$DNSQ" "$WORK/dnsq.new"; else (cd "$ROOT" && GOOS=linux go build -o "$WORK/dnsq.new" ./tools/dnsq) >>"$WORK/build.log" 2>&1 || { touch "$WORK/kit.fail"; exit 1; }; fi
+	chmod +x "$WORK/dnsq.new" && mv "$WORK/dnsq.new" "$WORK/dnsq"
+	# every vm reads the bundle at once and /mnt/c on wsl is slow so it goes on the linux disk first
+	rm -rf "$WORK/kit" && cp -r "$KIT" "$WORK/kit" || { touch "$WORK/kit.fail"; exit 1; }
+	echo "$WORK/kit" >"$WORK/kit.ok"
+	echo "kit ready after $(($(date +%s) - t0))s"
+) &
+
+if [ "$what" != routers ]; then
+	# the sysupgrade test needs the compressed image as well
+	fetch 24.10.8 x86/64 openwrt-24.10.8-x86-64-generic-squashfs-combined.img.gz
+	for t in $EDGE; do
+		case "$t" in *"$only"*) ;; *) continue ;; esac
+		echo "testing $t"
+		bash "$LAB/edge.sh" "$t" >"$WORK/results/edge-$t.out" 2>&1 </dev/null &
+	done
+fi
 if [ "$what" != edge ]; then
 	slot=1
 	while read -r name kind ver target image ram reboot label; do
 		[ -n "$name" ] || continue
+		s=$slot
+		slot=$((slot + 1))
 		case "$name" in *"$only"*) ;; *) continue ;; esac
 		fetch "$ver" "$target" "$image" || continue
-		while [ "$(jobs -r | wc -l)" -ge "$JOBS" ]; do sleep 5; done
 		echo "testing $name"
-		bash "$LAB/router.sh" "$name" "$kind" "${image%.gz}" "$ram" "$slot" "$reboot" "$label" "OpenWrt $ver" </dev/null &
-		slot=$((slot + 1))
-		sleep 2
+		bash "$LAB/router.sh" "$name" "$kind" "${image%.gz}" "$ram" "$s" "$reboot" "$label" "OpenWrt $ver" </dev/null &
 	done <<<"$ROUTERS"
-	wait
 fi
-if [ "$what" != routers ]; then
-	# the sysupgrade test needs the compressed image as well
-	fetch 24.10.8 x86/64 openwrt-24.10.8-x86-64-generic-squashfs-combined.img.gz
-	echo "testing edge cases"
-	# each case has its own vm slot so they all run at once
-	for t in lowram ram128 subnet nonet port53 power sysupgrade resilience lowflash; do
-		bash "$LAB/edge.sh" "$t" >"$WORK/results/edge-$t.out" 2>&1 </dev/null &
-	done
-	wait
-	cat "$WORK"/results/edge-*.out >"$WORK/results/edge.out"
-fi
+wait
+[ -f "$WORK/kit.fail" ] && { echo "kit build failed:"; tail -20 "$WORK/build.log"; }
+for t in $EDGE; do cat "$WORK/results/edge-$t.out" 2>/dev/null; done >"$WORK/results/edge.out"
 
 echo
 echo "| Router type | Firmware | CPU build | Result | Memory |"
@@ -85,3 +95,5 @@ echo
 echo "| Situation | Result |"
 echo "|---|---|"
 grep -ah "^EDGE|" "$WORK/results/edge.out" 2>/dev/null | awk -F'|' '{ printf "| %s | %s |\n", $2, $3 }'
+echo
+echo "took $(($(date +%s) - t0))s"
