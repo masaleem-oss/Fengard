@@ -121,6 +121,9 @@ Choose **1**. The installer finds your router, asks for its root password (on mo
 page password), and does everything else. When it finishes it prints the dashboard address, usually
 **http://fengard.lan**. Open it and create the admin account.
 
+If AdGuard Home is using DNS port 53, the installer asks whether to turn it off so Fengard can take over.
+Removing Fengard turns it back on.
+
 <a href="docs/videos/install-script.mp4"><img src="docs/videos/install-script.png" width="640" alt="Video: installing with install.sh, from the menu to the dashboard's setup screen"></a>
 
 > Windows may warn about a downloaded file. Choose **More info → Run anyway**, or right-click the zip,
@@ -190,21 +193,21 @@ answering, LAN devices resolving and reaching the dashboard, SSH still working, 
 internet names resolving, and an uninstall that gives DNS back with no Fengard firewall rules left. The x86
 ones get rebooted too.
 
-Results for 1.2.0:
+Results for 1.2.1:
 
 | Router type | Firmware | CPU build | Result | Memory |
 |---|---|---|---|---|
-| ARM64 (Filogic, MT7622, IPQ807x: GL-MT3000, Flint 2, Linksys E8450) | OpenWrt 22.03.7 | linux-arm64 | ✅ all 8 checks | 31 MB |
-| ARM64 (Filogic, MT7622, IPQ807x: GL-MT3000, Flint 2, Linksys E8450) | OpenWrt 25.12.5 | linux-arm64 | ✅ all 8 checks | 32 MB |
+| ARM64 (Filogic, MT7622, IPQ807x: GL-MT3000, Flint 2, Linksys E8450) | OpenWrt 22.03.7 | linux-arm64 | ✅ all 8 checks | 32 MB |
+| ARM64 (Filogic, MT7622, IPQ807x: GL-MT3000, Flint 2, Linksys E8450) | OpenWrt 25.12.5 | linux-arm64 | ✅ all 8 checks | 33 MB |
 | ARMv7 (IPQ40xx, mvebu: Linksys WRT, GL-B1300) | OpenWrt 21.02.7 | linux-arm | ✅ all 8 checks | 29 MB |
 | ARMv7 (IPQ40xx, mvebu: Linksys WRT, GL-B1300) | OpenWrt 23.05.6 | linux-arm | ✅ all 8 checks | 30 MB |
-| MIPS big-endian (ath79: TP-Link Archer C7, GL-AR750S) | OpenWrt 22.03.7 | linux-mips | ✅ all 8 checks | 31 MB |
+| MIPS big-endian (ath79: TP-Link Archer C7, GL-AR750S) | OpenWrt 22.03.7 | linux-mips | ✅ all 8 checks | 32 MB |
 | MIPS little-endian (MT7621: Xiaomi 4A, Netgear R6220, GL-MT1300) | OpenWrt 24.10.8 | linux-mipsle | ✅ all 8 checks | 31 MB |
 | MIPS64 big-endian (Octeon: EdgeRouter Lite) | OpenWrt 24.10.8 | linux-mips64 | ✅ all 8 checks | 34 MB |
 | MIPS64 little-endian (Loongson) | OpenWrt 25.12.5 | linux-mips64le | ✅ all 6 checks (no internet in the VM) | 18 MB |
 | x86 32-bit | OpenWrt 23.05.6 | linux-386 | ✅ all 9 checks | 30 MB |
-| x86-64 mini PC | OpenWrt 19.07.10 | linux-amd64 | ✅ all 9 checks | 31 MB |
-| x86-64 mini PC | OpenWrt 22.03.7 | linux-amd64 | ✅ all 9 checks | 34 MB |
+| x86-64 mini PC | OpenWrt 19.07.10 | linux-amd64 | ✅ all 9 checks | 35 MB |
+| x86-64 mini PC | OpenWrt 22.03.7 | linux-amd64 | ✅ all 9 checks | 33 MB |
 | x86-64, squashfs like router flash | OpenWrt 24.10.8 | linux-amd64 | ✅ all 9 checks | 35 MB |
 
 On real hardware:
@@ -226,6 +229,9 @@ rows also on 21.02 and 25.12):
 | 96 MB of RAM (under the 100 MB minimum): refuses cleanly, router untouched | ✅ |
 | 128 MB of RAM: full blocklists, no out of memory | ✅ |
 | Nearly full flash: refuses cleanly, router untouched | ✅ |
+| AdGuard Home on port 53: asks first, left alone when the answer is no | ✅ |
+| AdGuard Home on port 53: turned off for Fengard and stays off after a reboot | ✅ |
+| Removing Fengard turns AdGuard Home back on | ✅ |
 | LAN on 10.0.0.1/16: picks a spare address in the subnet | ✅ |
 | No internet during install: installs and serves local names | ✅ |
 | No internet: uninstall gives DNS back | ✅ |
@@ -291,6 +297,7 @@ Optional settings for the router installer:
 | `LAN_NET=lan` | the main LAN network name in `/etc/config/network` |
 | `FG_DIR=/mnt/usb/fengard` | keep data and the program on USB storage |
 | `FORCE=1` | install even if the router looks too small |
+| `ADGUARD=off` | turn AdGuard Home off without asking if it's using port 53 (it comes back on when Fengard is removed) |
 
 ### Running on a computer instead
 
@@ -583,7 +590,8 @@ If you find a security issue, please report it privately through
 | "Can't reach SSH on the router" | Turn on SSH in the router's settings. OpenWrt: **System → Administration → SSH Access**. GL.iNet has it on by default |
 | "Router has a new identity" | The router was reset or replaced. Answer yes when the installer asks to forget the old one |
 | "Not enough free storage" | Use USB storage with `FG_DIR=/mnt/<usb>/fengard`, or a router with more flash |
-| "Another program uses DNS port 53" | Turn off AdGuard Home, unbound or similar in the router's settings and run the installer again |
+| "AdGuard Home is using DNS port 53" | Run the installer again and answer yes, or set `ADGUARD=off`. It comes back on when Fengard is removed |
+| "Another program uses DNS port 53" | Turn off unbound or similar in the router's settings and run the installer again |
 | Blocklists show only a few hundred domains | The router has no internet yet. Lists download as soon as it does |
 | VPN page says WireGuard isn't installed | Install the `kmod-wireguard` and `wireguard-tools` packages. Everything else works without them |
 | Phones show "no internet" on Wi-Fi | Check that devices get the router as their DNS server. The installer sets DHCP option 6 for every LAN network |

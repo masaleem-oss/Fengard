@@ -178,6 +178,31 @@ FG_IP=${FG_IP:-$(getstate FG_IP "$PREV")}
 HTTP_PORT=${HTTP_PORT:-$(getstate HTTP_PORT "$PREV")}
 HTTPS_PORT=${HTTPS_PORT:-$(getstate HTTPS_PORT "$PREV")}
 
+# adguard home holding port 53, ADGUARD=off lets fengard turn it off and uninstall turns it back on
+agh_on_53() {
+	pids=$(pidof AdGuardHome) || return 1
+	socks=$(awk '$4 == "07" && substr($2, length($2) - 4) == ":0035" { print $10 }' /proc/net/udp /proc/net/udp6 2>/dev/null)
+	for p in $pids; do
+		for i in $socks; do ls -l "/proc/$p/fd" 2>/dev/null | grep -qF "socket:[$i]" && return 0; done
+	done
+	return 1
+}
+AGH_INIT=$(getstate AGH_INIT "$STATE")
+if agh_on_53; then
+	AGH_INIT=$(grep -l AdGuardHome /etc/init.d/* 2>/dev/null | head -n 1)
+	[ -n "$AGH_INIT" ] || die "AdGuard Home is using DNS port 53 and has no service to turn it off with. Stop it yourself and run the installer again."
+	# the computer installers have no terminal here so they ask and rerun with ADGUARD=off
+	if [ "$ADGUARD" != off ] && ( : </dev/tty ) 2>/dev/null; then
+		printf '\nAdGuard Home is using DNS port 53. Turn it off so Fengard can take over?\nRemoving Fengard turns it back on. [y/N] ' >/dev/tty
+		read -r a </dev/tty
+		case "$a" in [yY]*) ADGUARD=off ;; esac
+	fi
+	if [ "$ADGUARD" != off ]; then
+		printf '\nERROR: AdGuard Home is using DNS port 53. Run the installer again and let it turn AdGuard Home off (ADGUARD=off), it comes back on when Fengard is removed. Nothing was changed.\n' >&2
+		exit 7
+	fi
+fi
+
 DONE='' TOUCHED=''
 rollback() {
 	[ -z "$DONE" ] && [ -n "$TOUCHED" ] || return
@@ -293,6 +318,7 @@ DNSMASQ=$(uci -X show dhcp 2>/dev/null | sed -n "s/^dhcp\.\([^.=]*\)=dnsmasq\$/\
 		if [ -n "$LEGACY" ] || ! uci -q get network.fgwg0 >/dev/null; then v=1; else v=0; fi
 	fi
 	echo "VPN_NET_CREATED='$v'"
+	echo "AGH_INIT='$AGH_INIT'"
 } >"$STATE.new" && mv "$STATE.new" "$STATE" || die "can't write $STATE"
 rm -f "$STATE.prev"
 TOUCHED=1
@@ -518,6 +544,12 @@ done
 sync
 
 say "DNS: Fengard answers on port 53, dnsmasq keeps doing DHCP"
+if [ -n "$AGH_INIT" ] && pidof AdGuardHome >/dev/null; then
+	"$AGH_INIT" disable
+	"$AGH_INIT" stop >/dev/null 2>&1
+	for _ in 1 2 3 4 5 6 7 8 9 10; do pidof AdGuardHome >/dev/null || break; sleep 1; done
+	note "turned AdGuard Home off, removing Fengard turns it back on"
+fi
 for s in $DNSMASQ; do uci set "dhcp.$s.port=0"; done
 for n in $LAN_NET $EXTRA_NETS; do
 	s=$(dhcp_section_of "$n")

@@ -97,6 +97,12 @@ uci commit dhcp
 /etc/init.d/dnsmasq restart >/dev/null 2>&1
 /etc/init.d/network reload >/dev/null 2>&1
 /etc/init.d/firewall reload >/dev/null 2>&1
+AGH_INIT=$(getstate AGH_INIT)
+if [ -n "$AGH_INIT" ] && [ -x "$AGH_INIT" ]; then
+	echo "== AdGuard Home back on"
+	"$AGH_INIT" enable
+	"$AGH_INIT" start >/dev/null 2>&1
+fi
 
 echo "== files"
 if [ -f /etc/sysupgrade.conf ]; then

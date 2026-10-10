@@ -1,12 +1,14 @@
 # fengard setup for windows Install Fengard.cmd runs this and no args shows a menu
 # actions are router computer remove-router remove-computer
 # .\fengard-setup.ps1 -Action router -Router 192.168.8.1
+# -AdGuardOff lets the router install turn AdGuard Home off when it holds port 53
 param(
     [ValidateSet('', 'router', 'computer', 'remove-router', 'remove-computer')]
     [string]$Action = '',
     [string]$Router = '',
     [int]$SshPort = 22,
     [switch]$Purge,
+    [switch]$AdGuardOff,
     [switch]$NoPause
 )
 
@@ -114,18 +116,28 @@ function Install-Router {
     Note 'Enter the router''s root password when asked (on most routers it is the admin page password).'
     Note 'The upload carries Fengard for every router CPU; only the one this router needs is unpacked.'
     # keep in sync with install.sh
-    $remote = 'rm -rf /tmp/fengard-install; mkdir -p /tmp/fengard-install && cd /tmp/fengard-install || exit 1; ' +
-        'if [ ! -f /etc/openwrt_release ]; then echo; echo This router does not run OpenWrt-based firmware, which Fengard needs.; cat >/dev/null; exit 3; fi; ' +
-        'a=$(. /etc/openwrt_release; echo $DISTRIB_ARCH); case $a in aarch64*) t=arm64;; arm*) t=arm;; x86_64*) t=amd64;; i?86*) t=386;; ' +
-        'mips64el*) t=mips64le;; mips64*) t=mips64;; mipsel*) t=mipsle;; mips*) t=mips;; riscv64*) t=riscv64;; loongarch64*) t=loong64;; ' +
-        '*) echo Unsupported router CPU: $a; cat >/dev/null; exit 4;; esac; ' +
-        'tar -xzf - router-install.sh router-uninstall.sh bin/linux-$t/fengardd || { echo The upload failed: not enough free memory on the router?; exit 5; }; ' +
-        'sh router-install.sh'
-    $code = Invoke-SshWithRetry $address $remote $Bundle
-    Write-Host ''
+    $agh = ''
+    if ($AdGuardOff) { $agh = 'ADGUARD=off ' }
+    while ($true) {
+        $remote = 'rm -rf /tmp/fengard-install; mkdir -p /tmp/fengard-install && cd /tmp/fengard-install || exit 1; ' +
+            'if [ ! -f /etc/openwrt_release ]; then echo; echo This router does not run OpenWrt-based firmware, which Fengard needs.; cat >/dev/null; exit 3; fi; ' +
+            'a=$(. /etc/openwrt_release; echo $DISTRIB_ARCH); case $a in aarch64*) t=arm64;; arm*) t=arm;; x86_64*) t=amd64;; i?86*) t=386;; ' +
+            'mips64el*) t=mips64le;; mips64*) t=mips64;; mipsel*) t=mipsle;; mips*) t=mips;; riscv64*) t=riscv64;; loongarch64*) t=loong64;; ' +
+            '*) echo Unsupported router CPU: $a; cat >/dev/null; exit 4;; esac; ' +
+            'tar -xzf - router-install.sh router-uninstall.sh bin/linux-$t/fengardd || { echo The upload failed: not enough free memory on the router?; exit 5; }; ' +
+            $agh + 'sh router-install.sh'
+        $code = Invoke-SshWithRetry $address $remote $Bundle
+        Write-Host ''
+        # 7 means adguard home has port 53, ask here since the router has no terminal
+        if ($code -ne 7 -or $agh) { break }
+        $answer = Read-Host 'Turn AdGuard Home off so Fengard can take over port 53? Removing Fengard turns it back on. [y/N]'
+        if ($answer -notmatch '^[yY]') { break }
+        $agh = 'ADGUARD=off '
+    }
     switch ($code) {
         0 { Say 'Done. Open the dashboard address shown above and create the admin account.' }
         255 { Fail 'Could not connect to the router over SSH.' }
+        7 { Fail 'AdGuard Home is still using port 53, so nothing was changed.' }
         default { Fail "The router install stopped (code $code); see the messages above. The router's own DNS setup was left working." }
     }
 }

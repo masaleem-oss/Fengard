@@ -31,7 +31,7 @@ mipsle-2410  mipsle   24.10.8  malta/le    openwrt-24.10.8-malta-le-vmlinux-init
 mips64-2410  mips64be 24.10.8  malta/be64  openwrt-24.10.8-malta-be64-vmlinux-initramfs.elf                512 no  MIPS64 big-endian (Octeon: EdgeRouter Lite)
 mips64le-2512 mips64le 25.12.5 malta/le64  openwrt-25.12.5-malta-le64-vmlinux-initramfs.elf                512 no  MIPS64 little-endian (Loongson)
 '
-EDGE='lowram ram128 subnet nonet port53 power-dns power-start sysupgrade stopped missing crash lowflash pkg-fw3 pkg-opkg pkg-apk'
+EDGE='lowram ram128 subnet nonet port53 power-dns power-start sysupgrade stopped missing crash lowflash adguard pkg-fw3 pkg-opkg pkg-apk'
 
 fetch() { # version target image
 	[ -s "$WORK/${3%.gz}" ] && { [ "${3%.gz}" = "$3" ] || [ -s "$WORK/$3" ]; } && return
