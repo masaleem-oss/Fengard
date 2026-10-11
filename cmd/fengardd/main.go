@@ -152,6 +152,15 @@ func main() {
 	if err != nil {
 		log.Fatalf("config: %v", err)
 	}
+	// "Local" hid which zone schedules really ran in so save the routers city instead
+	if z := sysinfo.RouterZone(); z != "" && cfgStore.Get().Settings.Timezone == "Local" {
+		if _, err := cfgStore.Update("system", "Time zone set to "+z+" from the router", func(c *config.Config) error {
+			c.Settings.Timezone = z
+			return nil
+		}); err != nil {
+			log.Printf("timezone: %v", err)
+		}
+	}
 	alrt := alerts.New(alertDB)
 	notifier := notify.New(cfgStore.Get().Settings.BoxName)
 	alrt.OnRaise = notifier.Notify

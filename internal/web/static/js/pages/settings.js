@@ -69,15 +69,37 @@ async function updates(box) {
 
 // general
 
+const BLOCK_STARTER = '<h1>Access not allowed</h1>\n<p>{site} isn\'t allowed on this network.</p>';
+const PLACEHOLDERS = [['{site}', 'the blocked site'], ['{reason}', 'why it was blocked'], ['{device}', 'device name'], ['{profile}', 'profile'], ['{time}', 'date and time'], ['{network}', 'network name'], ['{title}', 'heading Fengard would use'], ['{message}', 'sentence Fengard would use']];
+
+// the routers wall clock from the rfc3339 time it sent so the browsers own zone doesnt shift it
+function clockTime(iso) {
+  const [h, m] = iso.slice(11, 16).split(':').map(Number);
+  return `${h % 12 || 12}:${String(m).padStart(2, '0')} ${h < 12 ? 'am' : 'pm'}`;
+}
+
+function zoneHelp(clock, saved, shown) {
+  const here = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const diff = (-new Date().getTimezoneOffset()) - clock.offsetMinutes;
+  let out = `Schedules and daily totals use this zone. The router's clock reads ${clockTime(clock.now)}.`;
+  if (saved === 'Local') out += ` ${clock.routerZone ? 'Found on the router' : 'Taken from this browser'}, press Save to keep it.`;
+  if (diff && here !== shown) {
+    const h = Math.abs(diff) / 60;
+    out += ` This browser is in ${esc(here)}, ${Number.isInteger(h) ? h : h.toFixed(1)} hour${h === 1 ? '' : 's'} ${diff > 0 ? 'ahead' : 'behind'}. <a href="#" id="tz-here">Use ${esc(here)}</a>`;
+  }
+  return out;
+}
+
 async function general(body) {
-  const [s, groups] = await Promise.all([get('/api/settings'), get('/api/groups')]);
+  const [s, groups, clock] = await Promise.all([get('/api/settings'), get('/api/groups'), get('/api/clock')]);
   const zones = typeof Intl.supportedValuesOf === 'function' ? Intl.supportedValuesOf('timeZone') : [];
+  const zone = s.timezone === 'Local' ? (clock.routerZone || Intl.DateTimeFormat().resolvedOptions().timeZone) : s.timezone;
   body.innerHTML = `<form class="form-grid panel-body" id="f" novalidate>
     <label class="field"><span>Network name</span><input class="input" name="boxName" value="${esc(s.boxName)}" maxlength="40" required><span class="help">Shown in the sidebar, on sign-in and on the block page.</span></label>
     <label class="field"><span>Profile for new devices</span><select class="select" name="defaultGroup">${groups.map((g) => `<option value="${g.id}" ${g.id === s.defaultGroup ? 'selected' : ''}>${esc(g.name)}</option>`).join('')}</select></label>
-    <label class="field"><span>Time zone for schedules</span><input class="input" name="timezone" value="${esc(s.timezone)}" list="zones" spellcheck="false">
-      <datalist id="zones"><option value="Local">${zones.map((z) => `<option value="${esc(z)}">`).join('')}</datalist>
-      <span class="help">“Local” uses the gateway's clock. This browser is in ${esc(Intl.DateTimeFormat().resolvedOptions().timeZone)}.</span></label>
+    <label class="field"><span>Time zone for schedules</span><input class="input" name="timezone" value="${esc(zone)}" list="zones" spellcheck="false" placeholder="Asia/Karachi">
+      <datalist id="zones">${zones.map((z) => `<option value="${esc(z)}">`).join('')}</datalist>
+      <span class="help" id="tz-help">${zoneHelp(clock, s.timezone, zone)}</span></label>
     <label class="field"><span>Keep activity history</span><div class="row"><input class="input" name="logRetentionDays" type="number" min="1" max="365" value="${s.logRetentionDays}" style="width:110px"><span class="t-2">days</span></div></label>
     <label class="field"><span>Per-device DNS limit</span><div class="row"><input class="input" name="clientRateQps" type="number" min="5" max="10000" value="${s.clientRateQps}" style="width:110px"><span class="t-2">queries per second</span></div>
       <span class="help">Normal devices use under 20. Raise it only for servers that make many lookups.</span></label>
@@ -93,6 +115,18 @@ async function general(body) {
           <a class="btn btn-sm btn-ghost" href="/api/portal/preview" target="_blank" rel="noopener">${icon('external-link', 'icon-sm')}Preview</a>
           ${s.portalHtml ? `<button class="btn btn-sm btn-ghost" type="button" id="portal-reset">Use default</button>` : ''}
         </div></label>
+      <div class="setting" style="padding-left:0;padding-right:0"><div class="setting-text"><b>Block page</b><small>What someone sees when they open a blocked site. Turned off, they get an empty page with no details and no way to ask for access.</small></div>
+        ${switchInput('id="bp-on"', !s.blockPageOff, 'Block page')}</div>
+      <div class="setting" style="padding-left:0;padding-right:0"${s.blockPageOff ? ' hidden' : ''}><div class="setting-text"><b>Use my own block page</b><small>Your own HTML in place of the Fengard page.</small></div>
+        ${switchInput('id="bp-custom"', s.blockCustom, 'Use my own block page')}</div>
+      <div class="field" style="margin:4px 0 16px"${s.blockPageOff || !s.blockCustom ? ' hidden' : ''}><label for="bp-html" class="label">Block page HTML</label>
+        <textarea class="textarea mono" id="bp-html" rows="8" spellcheck="false">${esc(s.blockHtml || BLOCK_STARTER)}</textarea>
+        <div class="chips">${PLACEHOLDERS.map(([p, t]) => `<button class="tag" type="button" data-ph="${p}" title="${t}">${p}</button>`).join('')}</div>
+        <span class="help">Click a placeholder to put it where the cursor is. Fengard fills it in for each blocked site. Scripts don't run, and your page has no Request access button.</span>
+        <div class="row" style="margin-top:8px">
+          <button class="btn btn-sm" type="button" id="bp-save">${icon('save', 'icon-sm')}Save page</button>
+          <a class="btn btn-sm btn-ghost" href="/api/blockpage/preview" target="_blank" rel="noopener">${icon('external-link', 'icon-sm')}Preview</a>
+        </div></div>
       <div class="setting" style="padding-left:0;padding-right:0"><div class="setting-text"><b>Nightly speed test</b><small>Tests the internet speed once a night around 4 am and shows it on the dashboard. On a fast line a test uses up to about 1 GB of data.</small></div>
         ${switchInput('id="speedtest"', !s.speedTestOff, 'Nightly speed test')}</div></div>
     <div class="panel-body" id="upd" style="border-top:1px solid var(--border)"></div>`;
@@ -101,6 +135,18 @@ async function general(body) {
     e.target.checked ? 'New iPhones will see the captive portal' : 'Captive portal turned off')));
   $('#portal-save', body).addEventListener('click', (e) => busy(e.currentTarget, () => attempt(() => saveSettings({ portalHtml: $('#portal-html', body).value.trim() }, 'Portal page saved')).then(() => general(body))));
   $('#portal-reset', body)?.addEventListener('click', () => attempt(() => saveSettings({ portalHtml: '' }, 'Back to the default portal page')).then(() => general(body)));
+  $('#tz-here', body)?.addEventListener('click', (e) => { e.preventDefault(); $('[name=timezone]', body).value = Intl.DateTimeFormat().resolvedOptions().timeZone; e.currentTarget.remove(); });
+  $('#bp-on', body).addEventListener('change', (e) => attempt(() => saveSettings({ blockPageOff: !e.target.checked },
+    e.target.checked ? 'Block page turned on' : 'Blocked sites now show an empty page')).then(() => general(body)));
+  $('#bp-custom', body).addEventListener('change', (e) => attempt(() => saveSettings({ blockCustom: e.target.checked, ...(e.target.checked && !s.blockHtml ? { blockHtml: BLOCK_STARTER } : {}) },
+    e.target.checked ? 'Blocked sites now show your page' : 'Back to the Fengard block page')).then(() => general(body)));
+  const bp = $('#bp-html', body);
+  $$('[data-ph]', body).forEach((b) => b.addEventListener('click', () => {
+    const at = bp.selectionStart ?? bp.value.length;
+    bp.setRangeText(b.dataset.ph, at, bp.selectionEnd ?? at, 'end');
+    bp.focus();
+  }));
+  $('#bp-save', body).addEventListener('click', (e) => busy(e.currentTarget, () => attempt(() => saveSettings({ blockHtml: bp.value.trim() }, 'Block page saved'))));
   $('#speedtest', body).addEventListener('change', (e) => attempt(() => saveSettings({ speedTestOff: !e.target.checked },
     e.target.checked ? 'Speed test runs every night' : 'Nightly speed test turned off')));
   const f = $('#f', body);

@@ -130,6 +130,8 @@ func (s *Server) Handler() http.Handler {
 	view("GET /api/presence", s.presenceNow)
 	view("GET /api/scan", s.scanReport)
 	view("GET /api/portal/preview", s.portalPreview)
+	view("GET /api/blockpage/preview", s.blockPreview)
+	view("GET /api/clock", s.clock)
 	view("GET /api/devices/{mac}/summary", s.deviceSummary)
 	view("GET /api/certificate", s.certificateInfo)
 	view("GET /api/vpn", s.vpnInfo)
@@ -454,7 +456,7 @@ func (s *Server) blockPage(w http.ResponseWriter, r *http.Request) {
 		"Reason":  dec.Reason,
 		"Device":  firstNonEmpty(dec.Device, info.Hostname, client),
 		"Group":   dec.Group,
-		"Time":    time.Now().Format("2 Jan 2006, 15:04"),
+		"Time":    time.Now().In(s.loc(s.Config.Get())).Format("2 Jan 2006, 15:04"),
 		"Network": s.Config.Get().Settings.BoxName,
 		"CanAsk":  true,
 	}
@@ -482,8 +484,69 @@ func (s *Server) blockPage(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
-	w.WriteHeader(http.StatusForbidden)
-	blockTmpl.Execute(w, data)
+	s.renderBlock(w, s.Config.Get().Settings, data)
+}
+
+func (s *Server) renderBlock(w http.ResponseWriter, set config.Settings, data map[string]any) {
+	switch {
+	case set.BlockPageOff:
+		w.WriteHeader(http.StatusForbidden)
+	case set.BlockCustom && strings.TrimSpace(set.BlockHTML) != "":
+		w.Header().Set("Content-Security-Policy", portalCSP)
+		w.WriteHeader(http.StatusForbidden)
+		w.Write([]byte(customBlock(set.BlockHTML, data)))
+	default:
+		w.WriteHeader(http.StatusForbidden)
+		blockTmpl.Execute(w, data)
+	}
+}
+
+// fills {site} and friends in the admins page, values are escaped so a domain cant inject html
+func customBlock(page string, data map[string]any) string {
+	val := func(k string) string {
+		v, _ := data[k].(string)
+		return template.HTMLEscapeString(v)
+	}
+	out := strings.NewReplacer(
+		"{site}", val("Domain"), "{reason}", val("Reason"), "{device}", val("Device"),
+		"{profile}", val("Group"), "{time}", val("Time"), "{network}", val("Network"),
+		"{title}", val("Title"), "{message}", val("Message"),
+	).Replace(page)
+	if !strings.Contains(strings.ToLower(out), "<html") {
+		out = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex"><title>` +
+			val("Title") + `</title></head><body>` + out + `</body></html>`
+	}
+	return out
+}
+
+// shows the block page with made up details so the admin can check their html
+func (s *Server) blockPreview(w http.ResponseWriter, r *http.Request) {
+	c := s.Config.Get()
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	s.renderBlock(w, c.Settings, map[string]any{
+		"Kind": "blocked", "Title": "This site is blocked", "Message": "The network you're connected to doesn't allow this site.",
+		"Domain": "example.com", "Reason": "Social media", "Device": "Living room iPad", "Group": groupName(c, c.Settings.DefaultGroup),
+		"Time": time.Now().In(s.loc(c)).Format("2 Jan 2006, 15:04"), "Network": c.Settings.BoxName,
+	})
+}
+
+func groupName(c *config.Config, id string) string {
+	if g := c.Group(id); g != nil {
+		return g.Name
+	}
+	return ""
+}
+
+// the time and zone schedules run on so settings can show it
+func (s *Server) clock(w http.ResponseWriter, r *http.Request) {
+	c := s.Config.Get()
+	now := time.Now().In(s.loc(c))
+	_, off := now.Zone()
+	writeJSON(w, map[string]any{
+		"zone": now.Location().String(), "routerZone": sysinfo.RouterZone(),
+		"now": now.Format(time.RFC3339), "offsetMinutes": off / 60,
+	})
 }
 
 func firstNonEmpty(v ...string) string {

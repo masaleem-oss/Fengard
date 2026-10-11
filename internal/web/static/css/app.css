@@ -288,6 +288,8 @@ button.stat .stat-label::after { content: "Details ›"; margin-left: auto; colo
 .tag .icon-sm { width: 12px; height: 12px; margin-right: 4px; }
 .tag.ok { background: var(--success-soft); color: var(--success); }
 .tag.warn { background: var(--warning-soft); color: var(--warning); }
+button.tag { font-family: var(--mono); cursor: pointer; }
+button.tag:hover { background: var(--accent-soft); color: var(--accent-text); }
 .dot-on, .dot-off { display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-right: 7px; vertical-align: 1px; }
 .dot-on { background: var(--success); }
 .dot-off { background: var(--text-3); opacity: .5; }

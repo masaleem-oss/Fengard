@@ -637,6 +637,10 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 		httpError(w, http.StatusBadRequest, "the captive portal page can be up to 32 KB")
 		return
 	}
+	if len(set.BlockHTML) > 32<<10 {
+		httpError(w, http.StatusBadRequest, "the block page can be up to 32 KB")
+		return
+	}
 	// turning it on from plain http would lock this browser out straight away
 	if set.RequireHTTPS && !s.Config.Get().Settings.RequireHTTPS && r.TLS == nil && !loopbackClient(r) {
 		httpError(w, http.StatusBadRequest, "open the dashboard over HTTPS first, then turn this on")

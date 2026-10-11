@@ -6,6 +6,20 @@ import (
 	_ "time/tzdata"
 )
 
+func TestZoneFromPath(t *testing.T) {
+	cases := map[string]string{
+		"/usr/share/zoneinfo/Australia/Melbourne":  "Australia/Melbourne",
+		"../usr/share/zoneinfo/posix/Asia/Karachi": "Asia/Karachi",
+		"/tmp/localtime":                  "",
+		"/usr/share/zoneinfo/Not/A_Place": "",
+	}
+	for in, want := range cases {
+		if got := zoneFromPath(in); got != want {
+			t.Errorf("zoneFromPath(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
 func TestZoneName(t *testing.T) {
 	cases := map[string]string{
 		"config system\n\toption hostname 'GL-MT3000'\n\toption zonename 'Asia/Karachi'\n\toption timezone 'PKT-5'\n": "Asia/Karachi",

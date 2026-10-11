@@ -202,6 +202,67 @@ func TestBlockPageForOtherHosts(t *testing.T) {
 	}
 }
 
+func TestBlockPageCustomAndOff(t *testing.T) {
+	srv := newTestServer(t)
+	admin := newClient(t, srv)
+	admin.do("POST", "/api/setup", `{"username":"admin","password":"correct horse battery"}`, true)
+	admin.do("POST", "/api/rules", `{"kind":"block","domain":"blocked.example"}`, true)
+	page := func(host string) (int, string, string) {
+		req, _ := http.NewRequest("GET", srv.URL+"/", nil)
+		req.Host = host
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		b, _ := io.ReadAll(resp.Body)
+		return resp.StatusCode, string(b), resp.Header.Get("Content-Security-Policy")
+	}
+	set := func(patch map[string]any) {
+		_, cur := admin.do("GET", "/api/settings", "", false)
+		for k, v := range patch {
+			cur[k] = v
+		}
+		b, _ := json.Marshal(cur)
+		if code, out := admin.do("PUT", "/api/settings", string(b), true); code != 200 {
+			t.Fatalf("save settings = %d %v", code, out)
+		}
+	}
+
+	set(map[string]any{"blockCustom": true, "blockHtml": "<h1>No</h1><p>{site} · {reason}</p>"})
+	code, body, csp := page("blocked.example")
+	if code != http.StatusForbidden || !strings.Contains(body, "<h1>No</h1>") || !strings.Contains(body, "Block rule") {
+		t.Fatalf("custom page: %d %s", code, body)
+	}
+	if !strings.Contains(body, "blocked.example") || strings.Contains(body, "FENGARD") {
+		t.Fatalf("custom page missing the site or showed the default page: %s", body)
+	}
+	if out := customBlock("{site}", map[string]any{"Domain": "<b>x</b>"}); strings.Contains(out, "<b>x</b>") {
+		t.Fatalf("placeholder not escaped: %s", out)
+	}
+	if !strings.Contains(csp, "default-src 'none'") {
+		t.Fatalf("custom page csp = %q", csp)
+	}
+
+	// custom switched on with nothing in it falls back to the normal page
+	set(map[string]any{"blockHtml": ""})
+	if _, body, _ := page("blocked.example"); !strings.Contains(body, "Request access") {
+		t.Fatalf("empty custom page should fall back: %s", body)
+	}
+
+	set(map[string]any{"blockPageOff": true, "blockHtml": "<h1>No</h1>"})
+	if code, body, _ := page("blocked.example"); code != http.StatusForbidden || body != "" {
+		t.Fatalf("block page off: %d %q", code, body)
+	}
+
+	_, cur := admin.do("GET", "/api/settings", "", false)
+	cur["blockHtml"] = strings.Repeat("x", 33<<10)
+	b, _ := json.Marshal(cur)
+	if code, _ := admin.do("PUT", "/api/settings", string(b), true); code != http.StatusBadRequest {
+		t.Fatalf("oversized block page = %d, want 400", code)
+	}
+}
+
 func TestAccessRequestCreatesAlert(t *testing.T) {
 	srv := newTestServer(t)
 	send := func(csrf bool) int {

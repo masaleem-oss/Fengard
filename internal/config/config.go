@@ -50,6 +50,9 @@ type Settings struct {
 	WelcomeSince    time.Time `json:"welcomeSince,omitzero"`
 	SpeedTestOff    bool      `json:"speedTestOff,omitempty"` // skips the nightly speed test
 	PortalHTML      string    `json:"portalHtml,omitempty"`   // shown on the captive portal instead of the default
+	BlockPageOff    bool      `json:"blockPageOff,omitempty"` // blocked sites get an empty page
+	BlockCustom     bool      `json:"blockCustom,omitempty"`
+	BlockHTML       string    `json:"blockHtml,omitempty"` // the admins own block page with {site} style placeholders
 	PausedTill      time.Time `json:"protectionPausedUntil,omitzero"`
 	Recognize       string    `json:"recognize,omitempty"` // devices with a new private address: auto, ask or off
 }
