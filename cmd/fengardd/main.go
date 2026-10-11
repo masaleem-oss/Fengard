@@ -204,7 +204,7 @@ func main() {
 	dns := &dnsserver.Server{
 		Policy: engine, Devices: tracker, Log: qlog, Local: local,
 		BlockIP: ip, BlockIPv6: ip6, LocalNames: split(*hosts), Screen: screen,
-		Welcome: gate.Want,
+		Welcome: gate.Want, TrustLoopback: *fwOn,
 	}
 	dns.Init()
 

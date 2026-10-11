@@ -53,7 +53,7 @@ type Meter struct {
 
 	mu      sync.Mutex
 	last    map[string]seenConn // per connection bytes seen last time
-	rates   map[string]Usage     // per mac bytes in the last interval
+	rates   map[string]Usage    // per mac bytes in the last interval
 	at      time.Time
 	gap     time.Duration
 	day     string

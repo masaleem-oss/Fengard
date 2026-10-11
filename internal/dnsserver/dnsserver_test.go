@@ -257,3 +257,12 @@ func TestStrangersIgnored(t *testing.T) {
 		}
 	}
 }
+
+// on the router loopback is the router itself, eg tailscale on it needs tailscale.com even when vpns are blocked
+func TestRouterOwnLookupsArentFiltered(t *testing.T) {
+	up := startUpstream(t)
+	_, addr := startServer(t, up, nil, func(s *Server) { s.TrustLoopback = true })
+	if r, _ := query(addr, "tracker.ads.example", dns.TypeA); firstA(r) != "203.0.113.7" {
+		t.Fatalf("router lookup was filtered: %v", r.Answer)
+	}
+}

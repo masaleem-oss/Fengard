@@ -201,14 +201,14 @@ Results for 1.2.3:
 | ARM64 (Filogic, MT7622, IPQ807x: GL-MT3000, Flint 2, Linksys E8450) | OpenWrt 25.12.5 | linux-arm64 | ✅ all 8 checks | 32 MB |
 | ARMv7 (IPQ40xx, mvebu: Linksys WRT, GL-B1300) | OpenWrt 21.02.7 | linux-arm | ✅ all 8 checks | 29 MB |
 | ARMv7 (IPQ40xx, mvebu: Linksys WRT, GL-B1300) | OpenWrt 23.05.6 | linux-arm | ✅ all 8 checks | 29 MB |
-| MIPS big-endian (ath79: TP-Link Archer C7, GL-AR750S) | OpenWrt 22.03.7 | linux-mips | ✅ all 8 checks | 62 MB |
+| MIPS big-endian (ath79: TP-Link Archer C7, GL-AR750S) | OpenWrt 22.03.7 | linux-mips | ✅ all 8 checks | 32 MB |
 | MIPS little-endian (MT7621: Xiaomi 4A, Netgear R6220, GL-MT1300) | OpenWrt 24.10.8 | linux-mipsle | ✅ all 8 checks | 31 MB |
 | MIPS64 big-endian (Octeon: EdgeRouter Lite) | OpenWrt 24.10.8 | linux-mips64 | ✅ all 8 checks | 34 MB |
-| MIPS64 little-endian (Loongson) | OpenWrt 25.12.5 | linux-mips64le | ✅ all 6 checks (no internet in the VM) | 17 MB |
-| x86 32-bit | OpenWrt 23.05.6 | linux-386 | ✅ all 9 checks | 31 MB |
+| MIPS64 little-endian (Loongson) | OpenWrt 25.12.5 | linux-mips64le | ✅ all 6 checks (no internet in the VM) | 18 MB |
+| x86 32-bit | OpenWrt 23.05.6 | linux-386 | ✅ all 9 checks | 30 MB |
 | x86-64 mini PC | OpenWrt 19.07.10 | linux-amd64 | ✅ all 9 checks | 31 MB |
-| x86-64 mini PC | OpenWrt 22.03.7 | linux-amd64 | ✅ all 9 checks | 34 MB |
-| x86-64, squashfs like router flash | OpenWrt 24.10.8 | linux-amd64 | ✅ all 9 checks | 35 MB |
+| x86-64 mini PC | OpenWrt 22.03.7 | linux-amd64 | ✅ all 9 checks | 33 MB |
+| x86-64, squashfs like router flash | OpenWrt 24.10.8 | linux-amd64 | ✅ all 9 checks | 36 MB |
 
 On real hardware:
 
@@ -595,6 +595,7 @@ If you find a security issue, please report it privately through
 | Blocklists show only a few hundred domains | The router has no internet yet. Lists download as soon as it does |
 | VPN page says WireGuard isn't installed | Install the `kmod-wireguard` and `wireguard-tools` packages. Everything else works without them |
 | Phones show "no internet" on Wi-Fi | Check that devices get the router as their DNS server. The installer sets DHCP option 6 for every LAN network |
+| Tailscale on a phone or laptop stops working | The "VPN, proxy & DNS bypass" category blocks `tailscale.com`. Add an allow rule for `tailscale.com` under **Filtering → Network-wide rules**. Tailscale on the router itself always works |
 | Something is wrongly blocked | Use **Check a site**, then add an allow rule or a temporary allow. **Pause protection** turns filtering off for a few minutes |
 
 ## FAQ

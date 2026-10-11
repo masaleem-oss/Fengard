@@ -31,12 +31,13 @@ type Server struct {
 	Log     *querylog.Log
 	Local   *localdns.Resolver
 
-	BlockIP    net.IP // points at this box
-	BlockIPv6  net.IP
-	LocalNames []string       // eg fengard.lan
-	Allowed    []netip.Prefix // empty means private ranges
-	Screen     ScreenTime
-	Welcome    func(mac, hostname string) bool // true sends this phones captive check to us
+	BlockIP       net.IP // points at this box
+	BlockIPv6     net.IP
+	LocalNames    []string       // eg fengard.lan
+	Allowed       []netip.Prefix // empty means private ranges
+	Screen        ScreenTime
+	Welcome       func(mac, hostname string) bool // true sends this phones captive check to us
+	TrustLoopback bool                            // on the router loopback is the router itself
 
 	upstreams atomic.Pointer[[]config.Upstream]
 	ipv4Only  atomic.Pointer[[]netip.Prefix] // no aaaa for these since vpn tunnels only carry ipv4
@@ -273,6 +274,10 @@ func (s *Server) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 		return
 	}
 	dec := s.Policy.Decide(info.MAC, domain, start)
+	// the routers own lookups (tailscale, updates, ntp) never get filtered, only it can send from loopback
+	if s.TrustLoopback && ip.IsLoopback() {
+		dec = policy.Decision{Action: policy.Allow, Reason: "The router itself", Device: dec.Device}
+	}
 
 	entry := querylog.Entry{
 		Time: start, Client: client, MAC: info.MAC, Device: dec.Device, Group: dec.Group,
