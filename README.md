@@ -189,26 +189,26 @@ The installer checks memory and storage first and stops cleanly if the router is
 
 Every release goes through the [router lab](dev/routerlab), which boots real OpenWrt images in QEMU for each
 CPU type and runs the actual installer on them. Each router is checked for the right CPU build, DNS
-answering, LAN devices resolving and reaching the dashboard, SSH still working, full blocklists loading,
+answering, catching a DHCP request from the LAN, LAN devices resolving and reaching the dashboard, SSH still working, full blocklists loading,
 internet names resolving, and an uninstall that gives DNS back with no Fengard firewall rules left. The x86
 ones get rebooted too.
 
-Results for 1.2.3:
+Results for 1.2.4:
 
 | Router type | Firmware | CPU build | Result | Memory |
 |---|---|---|---|---|
-| ARM64 (Filogic, MT7622, IPQ807x: GL-MT3000, Flint 2, Linksys E8450) | OpenWrt 22.03.7 | linux-arm64 | ✅ all 8 checks | 32 MB |
-| ARM64 (Filogic, MT7622, IPQ807x: GL-MT3000, Flint 2, Linksys E8450) | OpenWrt 25.12.5 | linux-arm64 | ✅ all 8 checks | 32 MB |
-| ARMv7 (IPQ40xx, mvebu: Linksys WRT, GL-B1300) | OpenWrt 21.02.7 | linux-arm | ✅ all 8 checks | 29 MB |
-| ARMv7 (IPQ40xx, mvebu: Linksys WRT, GL-B1300) | OpenWrt 23.05.6 | linux-arm | ✅ all 8 checks | 29 MB |
-| MIPS big-endian (ath79: TP-Link Archer C7, GL-AR750S) | OpenWrt 22.03.7 | linux-mips | ✅ all 8 checks | 32 MB |
-| MIPS little-endian (MT7621: Xiaomi 4A, Netgear R6220, GL-MT1300) | OpenWrt 24.10.8 | linux-mipsle | ✅ all 8 checks | 31 MB |
-| MIPS64 big-endian (Octeon: EdgeRouter Lite) | OpenWrt 24.10.8 | linux-mips64 | ✅ all 8 checks | 34 MB |
-| MIPS64 little-endian (Loongson) | OpenWrt 25.12.5 | linux-mips64le | ✅ all 6 checks (no internet in the VM) | 18 MB |
-| x86 32-bit | OpenWrt 23.05.6 | linux-386 | ✅ all 9 checks | 30 MB |
-| x86-64 mini PC | OpenWrt 19.07.10 | linux-amd64 | ✅ all 9 checks | 31 MB |
-| x86-64 mini PC | OpenWrt 22.03.7 | linux-amd64 | ✅ all 9 checks | 33 MB |
-| x86-64, squashfs like router flash | OpenWrt 24.10.8 | linux-amd64 | ✅ all 9 checks | 36 MB |
+| ARM64 (Filogic, MT7622, IPQ807x: GL-MT3000, Flint 2, Linksys E8450) | OpenWrt 22.03.7 | linux-arm64 | ✅ all 9 checks | 31 MB |
+| ARM64 (Filogic, MT7622, IPQ807x: GL-MT3000, Flint 2, Linksys E8450) | OpenWrt 25.12.5 | linux-arm64 | ✅ all 9 checks | 32 MB |
+| ARMv7 (IPQ40xx, mvebu: Linksys WRT, GL-B1300) | OpenWrt 21.02.7 | linux-arm | ✅ all 9 checks | 29 MB |
+| ARMv7 (IPQ40xx, mvebu: Linksys WRT, GL-B1300) | OpenWrt 23.05.6 | linux-arm | ✅ all 9 checks | 29 MB |
+| MIPS big-endian (ath79: TP-Link Archer C7, GL-AR750S) | OpenWrt 22.03.7 | linux-mips | ✅ all 9 checks | 32 MB |
+| MIPS little-endian (MT7621: Xiaomi 4A, Netgear R6220, GL-MT1300) | OpenWrt 24.10.8 | linux-mipsle | ✅ all 9 checks | 31 MB |
+| MIPS64 big-endian (Octeon: EdgeRouter Lite) | OpenWrt 24.10.8 | linux-mips64 | ✅ all 9 checks | 34 MB |
+| MIPS64 little-endian (Loongson) | OpenWrt 25.12.5 | linux-mips64le | ✅ all 7 checks (no internet in the VM) | 18 MB |
+| x86 32-bit | OpenWrt 23.05.6 | linux-386 | ✅ all 10 checks | 31 MB |
+| x86-64 mini PC | OpenWrt 19.07.10 | linux-amd64 | ✅ all 10 checks | 32 MB |
+| x86-64 mini PC | OpenWrt 22.03.7 | linux-amd64 | ✅ all 10 checks | 34 MB |
+| x86-64, squashfs like router flash | OpenWrt 24.10.8 | linux-amd64 | ✅ all 10 checks | 35 MB |
 
 On real hardware:
 
@@ -488,6 +488,7 @@ Design choices:
 | Upstreams | Plain, DNS-over-TLS and DNS-over-HTTPS (by name or IP), with an optional DNSSEC-record request (validation depends on the upstream) |
 | Block page | Branded, over HTTP and HTTPS (a per-router CA with signing restricted in software to blocked names and the dashboard), with an access-request form |
 | Firewall | Port forwards, WAN hardening (service ports closed, SYN and ICMP limits, invalid packets dropped), per-device DNS flood limit, quarantine for new devices |
+| Returning devices | Phones and laptops that rejoin with a new private Wi-Fi address are matched to the device they were, by DHCP name and fingerprint, the old address going quiet as the new one appears, and the sites they use. Sure matches keep their profile automatically, others are suggested on the Devices page. A copied name alone is never enough |
 | DNS resilience | Cache, serve-stale when the upstream is down, merged duplicate lookups, per-device and global rate limits |
 | Notifications | Discord, Slack, Telegram, ntfy and generic webhooks, by severity |
 | Accounts | Admin and viewer roles, two-factor (TOTP and recovery codes), API keys, idle and absolute session timeouts |
@@ -608,6 +609,13 @@ time, app blocking, a block page and firewall enforcement. See [How it compares]
 Changing DNS doesn't help: all lookups are redirected back to Fengard, and DoH, DoT, DoQ and Tor are blocked
 in the router's firewall. Known VPN and proxy services are blocked by the "VPN, proxy & DNS bypass" category.
 No filter catches every VPN, so for younger kids pair it with a schedule or a device pause.
+
+**What about phones with private (random) Wi-Fi addresses?**
+Most phones keep one private address per network, so they stay the same device. When one does change
+(iOS "Rotating", forgetting the network), Fengard recognizes it from its DHCP name and fingerprint, the old
+address going quiet at the same moment, and the sites it uses, and puts it back in its own profile. Guesses
+it isn't sure about wait for you on the Devices page, and **Same device as…** links any two by hand. Two
+devices online at once are never merged, and copying a name isn't enough to get someone else's profile.
 
 **Do I have to flash my router?**
 No. If it already runs OpenWrt or GL.iNet firmware, Fengard installs next to it and uninstalls cleanly.

@@ -1,5 +1,5 @@
 import { get, patch, post, del } from '../api.js';
-import { $, $$, esc, icon, fmt, ago, until, dateTime, timeOf, inFuture, isSet, attempt, menu, drawer, confirmDialog, empty, statusBadge, switchInput } from '../ui.js';
+import { $, $$, esc, icon, fmt, ago, until, dateTime, timeOf, inFuture, isSet, attempt, menu, drawer, modal, confirmDialog, empty, statusBadge, switchInput } from '../ui.js';
 import { barList } from '../charts.js';
 import { deviceType, deviceName } from '../meta.js';
 import { isAdmin, refreshShell } from '../main.js';
@@ -13,6 +13,7 @@ export async function render(el, ctx) {
   let search = '', group = '';
 
   el.innerHTML = `
+    <div id="lookalikes"></div>
     <div class="panel">
       <div class="toolbar">
         <div class="input-wrap">${icon('search')}<input class="input input-sm" id="q" placeholder="Name, IP, MAC or vendor" aria-label="Search devices"></div>
@@ -29,6 +30,7 @@ export async function render(el, ctx) {
     const sel = $('#group', el);
     if (sel.options.length === 1) sel.insertAdjacentHTML('beforeend', groups.map((g) => `<option value="${g.id}">${esc(g.name)}</option>`).join(''));
     draw();
+    drawLookalikes();
   };
 
   const matches = (d) => {
@@ -43,6 +45,23 @@ export async function render(el, ctx) {
     return true;
   };
   const groupName = (id) => groups.find((g) => g.id === id)?.name || id;
+
+  // new private addresses that are probably a device we already know
+  const drawLookalikes = () => {
+    const list = isAdmin() ? devices.filter((d) => d.looksLike) : [];
+    $('#lookalikes', el).innerHTML = list.length ? `<div class="panel"><div class="panel-head"><h3>Returning devices?</h3><span class="sub">These joined with a new private Wi-Fi address</span></div>
+      <table class="table"><tbody>${list.map((d) => `<tr data-new="${esc(d.mac)}" data-old="${esc(d.looksLike.mac)}">
+        <td><div class="cell-title">${esc(deviceName(d))} <span class="t-3">looks like</span> ${esc(d.looksLike.name)}</div>
+          <div class="cell-sub">${esc(d.looksLike.reasons.join(', '))} · <span class="mono">${esc(d.mac)}</span></div></td>
+        <td class="col-actions" style="white-space:nowrap"><button class="btn btn-primary btn-sm" data-same>${icon('check', 'icon-sm')}Same device</button> <button class="btn btn-sm" data-differ>Not the same</button></td></tr>`).join('')}</tbody></table></div>` : '';
+  };
+  $('#lookalikes', el).addEventListener('click', async (e) => {
+    const row = e.target.closest('tr[data-new]');
+    if (!row) return;
+    const path = `/api/devices/${encodeURIComponent(row.dataset.new)}`;
+    if (e.target.closest('[data-same]') && await attempt(() => post(path + '/merge', { into: row.dataset.old }), 'Merged, it keeps its profile')) { load(); refreshShell(); }
+    if (e.target.closest('[data-differ]') && await attempt(() => post(path + '/not-same', { other: row.dataset.old }), 'Got it, kept as a separate device')) load();
+  });
 
   const draw = () => {
     const rows = devices.filter(matches);
@@ -115,6 +134,7 @@ export function deviceActions(d, groups, onChange) {
   if (!d.approved) {
     return [
       { label: 'Approve', icon: 'check', onClick: () => run(() => patch(path, { approved: true }), 'Device approved') },
+      { label: 'Same device as…', icon: 'link', onClick: () => mergeInto(d, onChange) },
       'divider',
       { label: 'Forget device', icon: 'trash-2', danger: true, onClick: () => forget(d, onChange) },
     ];
@@ -130,8 +150,35 @@ export function deviceActions(d, groups, onChange) {
     { label: 'Check a site for this device', icon: 'scan-search', onClick: () => (location.hash = `#filtering?mac=${encodeURIComponent(d.mac)}`) },
     { label: 'Wake up (Wake-on-LAN)', icon: 'power', onClick: () => attempt(() => post(path + '/wake'), 'Wake-up packet sent') },
     { label: 'Block (require approval)', icon: 'ban', onClick: () => run(() => patch(path, { approved: false }), 'Device blocked') },
+    { label: 'Same device as…', icon: 'link', onClick: () => mergeInto(d, onChange) },
     { label: 'Forget device', icon: 'trash-2', danger: true, onClick: () => forget(d, onChange) },
   ];
+}
+
+// for a phone that came back with a new private address and wasnt recognized
+async function mergeInto(d, onChange) {
+  const all = (await get('/api/devices')).filter((x) => x.mac !== d.mac && /^([0-9a-f]{2}:){5}[0-9a-f]{2}$/.test(x.mac));
+  const m = modal({ title: `Same device as…`, subtitle: `<b>${esc(deviceName(d))}</b> gets that device's name, profile and approval. Its old address keeps working too.`,
+    body: `<div class="input-wrap" style="margin-bottom:10px">${icon('search')}<input class="input input-sm" id="mq" placeholder="Find a device" aria-label="Find a device"></div><div id="ml" style="max-height:340px;overflow:auto"></div>`,
+    foot: '<button class="btn" data-close>Cancel</button>' });
+  const draw = (q = '') => {
+    const rows = all.filter((x) => `${deviceName(x)} ${x.hostname || ''} ${x.mac}`.toLowerCase().includes(q));
+    $('#ml', m.el).innerHTML = rows.length ? `<table class="table dense"><tbody>${rows.map((x) => `<tr class="clickable" data-into="${esc(x.mac)}" tabindex="0">
+      <td><div class="cell-title">${esc(deviceName(x))}</div><div class="cell-sub mono">${esc(x.mac)}</div></td>
+      <td class="t-2">${x.online ? 'Online' : `Last seen ${ago(x.lastSeen)}`}</td></tr>`).join('')}</tbody></table>` : '<p class="t-3 t-sm">No devices match.</p>';
+  };
+  draw();
+  $('#mq', m.el).addEventListener('input', (e) => draw(e.target.value.trim().toLowerCase()));
+  $('#ml', m.el).addEventListener('click', async (e) => {
+    const row = e.target.closest('[data-into]');
+    if (!row) return;
+    if (await attempt(() => post(`/api/devices/${encodeURIComponent(d.mac)}/merge`, { into: row.dataset.into }), 'Merged, it keeps its profile')) {
+      m.close();
+      document.querySelector('.drawer [data-close]')?.click();
+      onChange?.();
+      refreshShell();
+    }
+  });
 }
 
 async function forget(d, onChange) {
@@ -187,6 +234,7 @@ export async function openDevice(mac, { onChange } = {}) {
           <dt>Data today</dt><dd id="dv-data" class="t-3">–</dd>
           <dt>IP address</dt><dd class="mono">${esc((d.ips || []).join(', ') || '–')}</dd>
           <dt>MAC address</dt><dd class="mono">${esc(d.mac)}${d.randomized ? ' <span class="tag">Private address</span>' : ''}</dd>
+          ${(d.oldMacs || []).length ? `<dt>Earlier addresses</dt><dd>${d.oldMacs.map((o) => `<div class="row" style="gap:6px"><span class="mono t-2">${esc(o)}</span>${admin ? `<button class="btn btn-ghost btn-sm" data-unlink="${esc(o)}" title="Not this device">Unlink</button>` : ''}</div>`).join('')}</dd>` : ''}
           <dt>Manufacturer</dt><dd>${esc(d.vendor || (d.randomized ? 'Hidden (private address)' : 'Unknown'))}</dd>
           <dt>Hostname</dt><dd class="mono">${esc(d.hostname || '–')}</dd>
           <dt>First seen</dt><dd>${isSet(d.firstSeen) ? dateTime(d.firstSeen) : '–'}</dd>
@@ -219,9 +267,11 @@ export async function openDevice(mac, { onChange } = {}) {
   });
   $('#dv-more', el)?.addEventListener('click', (e) => menu(e.currentTarget, deviceActions(d, groups, () => { changed(); dr.close(); })));
   el.addEventListener('click', async (e) => {
+    const reopen = async () => { changed(); dr.close(); openDevice(mac, { onChange }); };
+    const u = e.target.closest('[data-unlink]');
+    if (u && await attempt(() => post(path + '/unlink', { old: u.dataset.unlink }), 'Unlinked, it shows up as its own device next time')) reopen();
     const b = e.target.closest('[data-act]');
     if (!b) return;
-    const reopen = async () => { changed(); dr.close(); openDevice(mac, { onChange }); };
     if (b.dataset.act === 'approve' && await attempt(() => patch(path, { approved: true }), 'Device approved')) reopen();
     if (b.dataset.act === 'resume' && await attempt(() => post(path + '/pause', { minutes: 0 }), 'Internet resumed')) reopen();
     if (b.dataset.act === 'pause') {

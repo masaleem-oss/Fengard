@@ -311,3 +311,10 @@ func ParseNeighbors(out []byte) []Info {
 	}
 	return res
 }
+
+// Forget makes a mac count as new again next time it shows up
+func (t *Tracker) Forget(mac string) {
+	t.mu.Lock()
+	delete(t.seen, mac)
+	t.mu.Unlock()
+}

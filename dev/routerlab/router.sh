@@ -40,6 +40,9 @@ kitsh router 127.0.0.1 | quiet | tail -8
 check "installed the right cpu build" "r '. /etc/fengard/install.env && echo arch=\$ARCH fw=\$FW ip=\$FG_IP' | grep arch="
 until_ok 60 fg_ok
 check "fengard answering dns" "fg_ok"
+# a dhcp request from the lan side, chaddr ce:11:22:33:44:55 and hostname fglabtest
+dhcp_ask() { { printf '\001\001\006\000'; head -c 24 /dev/zero; printf '\316\021\042\063\104\125'; head -c 202 /dev/zero; printf '\143\202\123\143\065\001\003\014\011fglabtest\377'; } >"$WORK/dhcp-$slot.bin"; socat -u "FILE:$WORK/dhcp-$slot.bin" UDP:127.0.0.1:$((16300 + slot)); }
+check "sees devices asking for an address" "until_ok 5 'dhcp_ask; r \"logread -e fengardd | grep -q fglabtest\"'"
 until_ok 60 lan_ok
 check "lan device resolves and opens the dashboard" "lan_ok"
 check "ssh to the router still works" "r true"

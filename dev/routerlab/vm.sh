@@ -3,7 +3,7 @@
 #   vm.sh start NAME KIND FILE RAM SLOT [keep]
 #   vm.sh stop NAME
 #   vm.sh ssh SLOT cmd
-# slot n gives ssh 2300+n web 18300+n and dns 15300+n on localhost
+# slot n gives ssh 2300+n web 18300+n dns 15300+n and dhcp 16300+n on localhost
 # kinds x86 mipsbe mipsle mips64be mips64le arm32 arm64
 # LANNET RIP SHOST FGIP change the lan subnet and WANOPT=restrict=on cuts the internet
 # emulated cpus boot slowly so the first boot is saved once its up and later runs carry on from there
@@ -13,7 +13,7 @@ WORK=${WORK:-/var/tmp/routerlab}
 cd "$WORK" || exit 1
 LANNET=${LANNET:-192.168.1.0/24} RIP=${RIP:-192.168.1.1} SHOST=${SHOST:-192.168.1.2} FGIP=${FGIP:-192.168.1.4}
 SSHOPT=(-q -o HostKeyAlgorithms=+ssh-rsa -o PubkeyAcceptedAlgorithms=+ssh-rsa -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null)
-lan() { echo "user,id=lan,net=$LANNET,host=$SHOST,dhcpstart=${RIP%.*}.240,hostfwd=tcp:0.0.0.0:$((2300 + $1))-$RIP:22,hostfwd=tcp:0.0.0.0:$((18300 + $1))-$FGIP:80,hostfwd=udp:0.0.0.0:$((15300 + $1))-$RIP:53"; }
+lan() { echo "user,id=lan,net=$LANNET,host=$SHOST,dhcpstart=${RIP%.*}.240,hostfwd=tcp:0.0.0.0:$((2300 + $1))-$RIP:22,hostfwd=tcp:0.0.0.0:$((18300 + $1))-$FGIP:80,hostfwd=udp:0.0.0.0:$((15300 + $1))-$RIP:53,hostfwd=udp:0.0.0.0:$((16300 + $1))-$RIP:67"; }
 r() { ssh "${SSHOPT[@]}" -o ConnectTimeout=3 -p $((2300 + slot)) root@127.0.0.1 "$@" 2>/dev/null; }
 mon() { echo "$1" | socat - "UNIX-CONNECT:$WORK/mon-$name.sock" 2>/dev/null; }
 # waits until qemu is really gone, a new vm on the same slot cant get its ports till then

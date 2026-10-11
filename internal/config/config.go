@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -50,6 +51,7 @@ type Settings struct {
 	SpeedTestOff    bool      `json:"speedTestOff,omitempty"` // skips the nightly speed test
 	PortalHTML      string    `json:"portalHtml,omitempty"`   // shown on the captive portal instead of the default
 	PausedTill      time.Time `json:"protectionPausedUntil,omitzero"`
+	Recognize       string    `json:"recognize,omitempty"` // devices with a new private address: auto, ask or off
 }
 
 type Group struct {
@@ -110,6 +112,7 @@ type Device struct {
 	FirstSeen  time.Time `json:"firstSeen"`
 	PausedTill time.Time `json:"pausedUntil,omitzero"`
 	Presence   bool      `json:"presence,omitempty"` // alerts when it arrives or leaves
+	OldMACs    []string  `json:"oldMacs,omitempty"`  // earlier private addresses of the same device
 }
 
 type TempAllow struct {
@@ -231,6 +234,9 @@ func (c *Config) Clone() *Config {
 		n.Groups[i] = g
 	}
 	n.Devices = append([]Device(nil), c.Devices...)
+	for i := range n.Devices {
+		n.Devices[i].OldMACs = clone(n.Devices[i].OldMACs)
+	}
 	n.Block, n.Allow = clone(c.Block), clone(c.Allow)
 	n.TempAllow = append([]TempAllow(nil), c.TempAllow...)
 	n.Lists = append([]CustomList(nil), c.Lists...)
@@ -254,9 +260,15 @@ func (c *Config) Group(id string) *Group {
 	return nil
 }
 
+// finds a device by its address or one it used before
 func (c *Config) Device(mac string) *Device {
 	for i := range c.Devices {
 		if c.Devices[i].MAC == mac {
+			return &c.Devices[i]
+		}
+	}
+	for i := range c.Devices {
+		if slices.Contains(c.Devices[i].OldMACs, mac) {
 			return &c.Devices[i]
 		}
 	}
@@ -383,6 +395,11 @@ func (c *Config) Validate() error {
 	if !ids[s.DefaultGroup] {
 		bad("default group %q does not exist", s.DefaultGroup)
 	}
+	switch s.Recognize {
+	case "", "auto", "ask", "off":
+	default:
+		bad("recognize must be auto, ask or off")
+	}
 
 	if c.Devices == nil {
 		c.Devices = []Device{}
@@ -402,6 +419,15 @@ func (c *Config) Validate() error {
 		macs[d.MAC] = true
 		if !ids[d.Group] {
 			bad("device %s is in unknown group %q", d.MAC, d.Group)
+		}
+		for j, old := range d.OldMACs {
+			id, err := NormIdentity(old)
+			if err != nil || macs[id] {
+				bad("device %s has a bad or duplicate old address %q", d.MAC, old)
+				continue
+			}
+			d.OldMACs[j] = id
+			macs[id] = true
 		}
 		d.Name = strings.TrimSpace(d.Name)
 	}
@@ -737,4 +763,58 @@ func ParseUpstream(s string) (Upstream, error) {
 		return Upstream{}, errors.New("must be an IP address")
 	}
 	return Upstream{Net: "udp", Addr: addr}, nil
+}
+
+const keepOldMACs = 8
+
+// MergeDevice says newMAC is really the device into, which keeps its name, profile and approval
+// and remembers its old address in case the device goes back to it
+func (c *Config) MergeDevice(newMAC, into string) error {
+	ti, ni := -1, -1
+	for i, d := range c.Devices {
+		if d.MAC == into || slices.Contains(d.OldMACs, into) {
+			ti = i
+		}
+		if d.MAC == newMAC {
+			ni = i
+		}
+	}
+	if ti < 0 {
+		return fmt.Errorf("no device %s", into)
+	}
+	if ti == ni {
+		return nil
+	}
+	for i, d := range c.Devices {
+		if i != ti && slices.Contains(d.OldMACs, newMAC) {
+			return fmt.Errorf("%s was already merged into another device", newMAC)
+		}
+	}
+	t := &c.Devices[ti]
+	old := slices.DeleteFunc(append(t.OldMACs, t.MAC), func(m string) bool { return m == newMAC })
+	if len(old) > keepOldMACs {
+		old = old[len(old)-keepOldMACs:]
+	}
+	t.OldMACs, t.MAC = old, newMAC
+	// the newcomers own entry goes, the merged device has its address now
+	if ni >= 0 {
+		if t.Hostname == "" {
+			t.Hostname = c.Devices[ni].Hostname
+		}
+		c.Devices = slices.Delete(c.Devices, ni, ni+1)
+	}
+	return nil
+}
+
+// UnlinkMAC undoes a merge, the address shows up as a new device next time its seen
+func (c *Config) UnlinkMAC(mac string) bool {
+	for i := range c.Devices {
+		if n := len(c.Devices[i].OldMACs); n > 0 {
+			c.Devices[i].OldMACs = slices.DeleteFunc(c.Devices[i].OldMACs, func(m string) bool { return m == mac })
+			if len(c.Devices[i].OldMACs) != n {
+				return true
+			}
+		}
+	}
+	return false
 }

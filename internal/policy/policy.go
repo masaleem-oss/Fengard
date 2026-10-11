@@ -220,7 +220,12 @@ func (e *Engine) Rebuild(cfg *config.Config, ds *catalog.DomainSet) {
 		if g == nil {
 			g = c.defaultGroup
 		}
-		c.devices[d.MAC] = &cdevice{name: d.Name, group: g, approved: d.Approved, pausedTill: d.PausedTill}
+		cd := &cdevice{name: d.Name, group: g, approved: d.Approved, pausedTill: d.PausedTill}
+		c.devices[d.MAC] = cd
+		// a phone that goes back to an older private address is still the same phone
+		for _, old := range d.OldMACs {
+			c.devices[old] = cd
+		}
 	}
 	// unlinked vpn peers are their own devices unless theres a device entry for them
 	for _, p := range cfg.VPN.Peers {

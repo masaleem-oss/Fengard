@@ -25,6 +25,7 @@ import (
 	"github.com/masaleem-oss/Fengard/internal/devices"
 	"github.com/masaleem-oss/Fengard/internal/dnsserver"
 	"github.com/masaleem-oss/Fengard/internal/firewall"
+	"github.com/masaleem-oss/Fengard/internal/identity"
 	"github.com/masaleem-oss/Fengard/internal/internet"
 	"github.com/masaleem-oss/Fengard/internal/netscan"
 	"github.com/masaleem-oss/Fengard/internal/notify"
@@ -87,10 +88,11 @@ type Server struct {
 	DashboardHosts []string // hostnames that reach the dashboard eg fengard.lan
 	Started        time.Time
 
-	Internet *internet.Monitor
-	Traffic  *traffic.Meter
-	Presence *presence.Watcher
-	Scanner  *netscan.Scanner
+	Internet   *internet.Monitor
+	Traffic    *traffic.Meter
+	Recognizer *identity.Recognizer
+	Presence   *presence.Watcher
+	Scanner    *netscan.Scanner
 
 	loginLimit   *ratelimit.Limiter
 	requestLimit *ratelimit.Limiter
@@ -157,6 +159,9 @@ func (s *Server) Handler() http.Handler {
 	admin("PATCH /api/devices/{mac}", s.updateDevice)
 	admin("POST /api/devices/{mac}/pause", s.pauseDevice)
 	admin("DELETE /api/devices/{mac}", s.forgetDevice)
+	admin("POST /api/devices/{mac}/merge", s.mergeDevice)
+	admin("POST /api/devices/{mac}/not-same", s.notSameDevice)
+	admin("POST /api/devices/{mac}/unlink", s.unlinkMAC)
 	admin("POST /api/groups", s.saveGroup)
 	admin("PUT /api/groups/{id}", s.saveGroup)
 	admin("DELETE /api/groups/{id}", s.deleteGroup)

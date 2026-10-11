@@ -39,6 +39,7 @@ import (
 	"github.com/masaleem-oss/Fengard/internal/devices"
 	"github.com/masaleem-oss/Fengard/internal/dnsserver"
 	"github.com/masaleem-oss/Fengard/internal/firewall"
+	"github.com/masaleem-oss/Fengard/internal/identity"
 	"github.com/masaleem-oss/Fengard/internal/internet"
 	"github.com/masaleem-oss/Fengard/internal/localdns"
 	"github.com/masaleem-oss/Fengard/internal/netscan"
@@ -199,12 +200,17 @@ func main() {
 		}
 	}
 
+	habits := identity.NewHabits(must(db.KV("habits")))
+	prints := identity.NewPrints(must(db.KV("dhcpprints")))
+	rec := &identity.Recognizer{Habits: habits, Prints: prints, Config: cfgStore.Get, Seen: tracker.Seen, KV: must(db.KV("recognize"))}
+
 	local := localdns.New(tracker)
 	gate := welcome.New(cfgStore, welcomeKV)
 	dns := &dnsserver.Server{
 		Policy: engine, Devices: tracker, Log: qlog, Local: local,
 		BlockIP: ip, BlockIPv6: ip6, LocalNames: split(*hosts), Screen: screen,
 		Welcome: gate.Want, TrustLoopback: *fwOn,
+		Note: habits.Note,
 	}
 	dns.Init()
 
@@ -224,9 +230,9 @@ func main() {
 		dns.Configure(c.Settings)
 		local.Rebuild(c)
 		notifier.Configure(c.Settings.BoxName, c.Channels)
-		macs := make([]string, len(c.Devices))
-		for i, d := range c.Devices {
-			macs[i] = d.MAC
+		var macs []string
+		for _, d := range c.Devices {
+			macs = append(append(macs, d.MAC), d.OldMACs...)
 		}
 		tracker.Known(macs)
 
@@ -274,7 +280,15 @@ func main() {
 			}
 		})
 	}
-	run(func() { recordNewDevices(ctx, newDevices, cfgStore, alrt) })
+	rec.Merge = func(newMAC string, m identity.Match) { mergeDevice(cfgStore, alrt, rec, newMAC, m, "system") }
+	rec.Suggest = func(newMAC string, m identity.Match) {
+		alrt.Raise("lookslike:"+newMAC, 0, alerts.Alert{Kind: "device_lookalike", Severity: alerts.Info, MAC: newMAC,
+			Title: "A new device looks like " + m.Name, Detail: strings.Join(m.Reasons, ", ") + ". Confirm it on the Devices page."})
+	}
+	run(func() { rec.Run(ctx) })
+	// skips lan interfaces that dont exist, so dev runs just go without
+	identity.Sniff(ctx, split(*lan), prints.Set)
+	run(func() { recordNewDevices(ctx, newDevices, cfgStore, alrt, rec) })
 
 	ca, err := certs.LoadOrCreate(*dataDir)
 	if err != nil {
@@ -465,7 +479,7 @@ func main() {
 		Auth: authn, Alerts: alrt, Audit: auditDB, Prefs: prefs, Notifier: notifier,
 		CPU: cpu, VPN: vpnMgr, Screen: screen, Version: version, Updater: updater,
 		DashboardHosts: split(*hosts), Started: time.Now(),
-		Welcome: gate, Internet: inet, Traffic: meter, Presence: home, Scanner: scanner,
+		Welcome: gate, Internet: inet, Traffic: meter, Presence: home, Scanner: scanner, Recognizer: rec,
 		ProbeURL: probeURL(*blockIP, *httpsAddr, *fwOn),
 	}
 	handler := webSrv.Handler()
@@ -624,7 +638,7 @@ func serve(srv *http.Server, tlsOn bool) {
 	}
 }
 
-func recordNewDevices(ctx context.Context, ch <-chan devices.Info, cs *config.Store, al *alerts.Alerts) {
+func recordNewDevices(ctx context.Context, ch <-chan devices.Info, cs *config.Store, al *alerts.Alerts, rec *identity.Recognizer) {
 	for {
 		var batch []devices.Info
 		select {
@@ -644,12 +658,28 @@ func recordNewDevices(ctx context.Context, ch <-chan devices.Info, cs *config.St
 				break gather
 			}
 		}
+		// a phone back with a new private address goes straight back to its own device
+		now := time.Now()
+		known := map[string]identity.Match{}
+		cur := cs.Get()
+		for _, d := range batch {
+			if cur.Device(d.MAC) == nil {
+				if m, ok := rec.Check(d.MAC, d.Hostname, now); ok && m.Sure {
+					known[d.MAC] = m
+				}
+			}
+		}
 		var added []devices.Info
+		var merged []string
 		quarantine := false
 		_, err := cs.Update("system", fmt.Sprintf("Discovered %d new device(s)", len(batch)), func(c *config.Config) error {
 			quarantine = c.Settings.QuarantineNew
 			for _, d := range batch {
 				if c.Device(d.MAC) != nil {
+					continue
+				}
+				if m, ok := known[d.MAC]; ok && c.MergeDevice(d.MAC, m.MAC) == nil {
+					merged = append(merged, d.MAC)
 					continue
 				}
 				c.Devices = append(c.Devices, config.Device{
@@ -658,7 +688,7 @@ func recordNewDevices(ctx context.Context, ch <-chan devices.Info, cs *config.St
 				})
 				added = append(added, d)
 			}
-			if len(added) == 0 {
+			if len(added)+len(merged) == 0 {
 				return errNothingNew
 			}
 			return nil
@@ -666,6 +696,9 @@ func recordNewDevices(ctx context.Context, ch <-chan devices.Info, cs *config.St
 		if err != nil && !errors.Is(err, errNothingNew) {
 			log.Printf("recording new devices: %v", err)
 			continue
+		}
+		for _, mac := range merged {
+			recognized(al, mac, known[mac])
 		}
 		for _, d := range added {
 			name := d.Hostname
@@ -678,11 +711,30 @@ func recordNewDevices(ctx context.Context, ch <-chan devices.Info, cs *config.St
 				a.Severity, a.Detail = alerts.Warning, a.Detail+" · waiting for approval"
 			}
 			al.Raise("new:"+d.MAC, time.Hour, a)
+			rec.Watch(d.MAC, now)
 		}
 	}
 }
 
 var errNothingNew = errors.New("no new devices")
+
+// mergeDevice is for matches found a while after the device joined
+func mergeDevice(cs *config.Store, al *alerts.Alerts, rec *identity.Recognizer, newMAC string, m identity.Match, by string) {
+	_, err := cs.Update(by, "Recognized "+m.Name+" on a new private address", func(c *config.Config) error {
+		return c.MergeDevice(newMAC, m.MAC)
+	})
+	if err != nil {
+		log.Printf("recognizing %s: %v", newMAC, err)
+		return
+	}
+	rec.Forget(newMAC)
+	recognized(al, newMAC, m)
+}
+
+func recognized(al *alerts.Alerts, mac string, m identity.Match) {
+	al.Raise("recognized:"+mac, time.Hour, alerts.Alert{Kind: "device_recognized", Severity: alerts.Info, MAC: mac,
+		Title: "Recognized " + m.Name + " on a new private address", Detail: strings.Join(m.Reasons, ", ") + ". Its profile and settings carried over."})
+}
 
 func maintain(ctx context.Context, cs *config.Store, ql *querylog.Log, al *alerts.Alerts, audit *store.Log, dns *dnsserver.Server) {
 	prune := func() {

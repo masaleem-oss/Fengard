@@ -91,3 +91,26 @@ func TestStoreHistoryAndRollback(t *testing.T) {
 		t.Fatalf("reopen: %v version=%d", err, s2.Get().Version)
 	}
 }
+
+func TestMergeDeviceKeepsProfileAndOldAddress(t *testing.T) {
+	c := Default()
+	c.Devices = []Device{
+		{MAC: "aa:aa:aa:aa:aa:01", Name: "Asad's iPhone", Group: c.Settings.DefaultGroup, Approved: true},
+		{MAC: "ce:11:22:33:44:55", Hostname: "Asads-iPhone", Group: c.Settings.DefaultGroup},
+	}
+	if err := c.MergeDevice("ce:11:22:33:44:55", "aa:aa:aa:aa:aa:01"); err != nil {
+		t.Fatal(err)
+	}
+	if len(c.Devices) != 1 || c.Devices[0].MAC != "ce:11:22:33:44:55" || !c.Devices[0].Approved || c.Devices[0].Name != "Asad's iPhone" {
+		t.Fatalf("%+v", c.Devices)
+	}
+	if d := c.Device("aa:aa:aa:aa:aa:01"); d == nil || d.MAC != "ce:11:22:33:44:55" {
+		t.Fatal("old address no longer finds the device")
+	}
+	if err := c.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if !c.UnlinkMAC("aa:aa:aa:aa:aa:01") || c.Device("aa:aa:aa:aa:aa:01") != nil {
+		t.Fatal("unlink")
+	}
+}

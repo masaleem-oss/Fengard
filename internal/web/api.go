@@ -19,6 +19,7 @@ import (
 	"github.com/masaleem-oss/Fengard/internal/auth"
 	"github.com/masaleem-oss/Fengard/internal/config"
 	"github.com/masaleem-oss/Fengard/internal/devices"
+	"github.com/masaleem-oss/Fengard/internal/identity"
 	"github.com/masaleem-oss/Fengard/internal/querylog"
 	"github.com/masaleem-oss/Fengard/internal/store"
 	"github.com/masaleem-oss/Fengard/internal/sysinfo"
@@ -226,12 +227,13 @@ func (s *Server) queries(w http.ResponseWriter, r *http.Request) {
 
 type deviceView struct {
 	config.Device
-	Vendor     string    `json:"vendor,omitempty"`
-	Randomized bool      `json:"randomized"` // private random mac
-	IPs        []string  `json:"ips"`
-	LastSeen   time.Time `json:"lastSeen,omitzero"`
-	Online     bool      `json:"online"`
-	Status     string    `json:"status"` // allowed paused or quarantined
+	Vendor     string          `json:"vendor,omitempty"`
+	Randomized bool            `json:"randomized"` // private random mac
+	IPs        []string        `json:"ips"`
+	LastSeen   time.Time       `json:"lastSeen,omitzero"`
+	Online     bool            `json:"online"`
+	Status     string          `json:"status"`              // allowed paused or quarantined
+	LooksLike  *identity.Match `json:"looksLike,omitempty"` // probably an existing device on a new private address
 }
 
 func (s *Server) listDevices(w http.ResponseWriter, r *http.Request) {
@@ -244,9 +246,22 @@ func (s *Server) listDevices(w http.ResponseWriter, r *http.Request) {
 			Device: d, Vendor: devices.Vendor(d.MAC), Randomized: devices.IsRandomized(d.MAC),
 			Status: s.Policy.Decide(d.MAC, "fengard.check", now).Action.String(),
 		}
+		for _, old := range d.OldMACs {
+			if sn := seen[old]; sn.LastSeen.After(v.LastSeen) {
+				v.LastSeen = sn.LastSeen
+			}
+		}
+		if s.Recognizer != nil {
+			if m, ok := s.Recognizer.Suggestion(d.MAC); ok && cfg.Device(m.MAC) != nil {
+				v.LooksLike = &m
+			}
+		}
 		if sn, ok := seen[d.MAC]; ok {
-			v.IPs, v.LastSeen = sn.IPs, sn.LastSeen
-			v.Online = !sn.LastSeen.IsZero() && now.Sub(sn.LastSeen) < 10*time.Minute
+			v.IPs = sn.IPs
+			if sn.LastSeen.After(v.LastSeen) {
+				v.LastSeen = sn.LastSeen
+			}
+			v.Online = !v.LastSeen.IsZero() && now.Sub(v.LastSeen) < 10*time.Minute
 			// tunnel clients get the tunnel name it knows better than whatever got recorded first
 			if v.Hostname == "" || (strings.HasPrefix(d.MAC, "ts:") && sn.Hostname != "") {
 				v.Hostname = sn.Hostname

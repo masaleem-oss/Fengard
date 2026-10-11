@@ -176,3 +176,17 @@ func itoa(i int) string {
 	}
 	return string(buf[n:])
 }
+
+// a phone back on an older private address still gets its own profile
+func TestOldAddressKeepsProfile(t *testing.T) {
+	cfg := config.Default()
+	cfg.Groups[0].Categories = []string{"ads"}
+	cfg.Devices = []config.Device{{MAC: "ce:11:22:33:44:55", OldMACs: []string{"aa:aa:aa:aa:aa:01"}, Group: "kids", Approved: true, Name: "Asad's iPhone"}}
+	e := New()
+	e.Rebuild(cfg, catalog.NewBuilder().Build())
+	for _, mac := range []string{"ce:11:22:33:44:55", "aa:aa:aa:aa:aa:01"} {
+		if d := e.Decide(mac, "example.com", time.Now()); d.Device != "Asad's iPhone" {
+			t.Fatalf("%s decided as %+v", mac, d)
+		}
+	}
+}

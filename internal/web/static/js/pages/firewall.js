@@ -29,6 +29,8 @@ export async function render(el, ctx) {
         ${switchInput(`data-set="blockBypass" ${ro}`, settings.blockBypass, 'Stop filter bypass')}</div>
       <div class="setting"><div class="setting-text"><b>Quarantine new devices</b><small>New devices get no internet until an admin approves them.</small></div>
         ${switchInput(`data-set="quarantineNew" ${ro}`, settings.quarantineNew, 'Quarantine new devices')}</div>
+      <div class="setting"><div class="setting-text"><b>Recognize returning devices</b><small>Phones and laptops that join with a new private Wi-Fi address are matched to the device they were, by name, DHCP fingerprint, timing and the sites they use, and keep their profile.</small></div>
+        <select class="select select-sm" data-set="recognize" style="width:auto" ${ro} aria-label="Recognize returning devices">${[['auto', 'Automatic'], ['ask', 'Ask me'], ['off', 'Off']].map(([v, l]) => `<option value="${v}" ${(settings.recognize || 'auto') === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
       <div class="setting"><div class="setting-text"><b>Per-device DNS limit</b><small>${settings.clientRateQps} queries/second before a device is throttled; the kernel drops floods at twice that.</small></div>
         <a class="btn btn-ghost btn-sm" href="#settings">Change</a></div>`;
 
@@ -57,9 +59,11 @@ export async function render(el, ctx) {
   el.addEventListener('change', async (e) => {
     const key = e.target.dataset.set;
     if (!key) return;
-    const value = e.target.checked;
+    const box = e.target.type === 'checkbox';
+    const value = box ? e.target.checked : e.target.value;
     if (await attempt(() => put('/api/settings', { ...settings, [key]: value }), 'Saved')) { setTimeout(load, 500); refreshShell(); }
-    else e.target.checked = !value;
+    else if (box) e.target.checked = !value;
+    else e.target.value = settings[key] || 'auto';
   });
   $('#copy', el).addEventListener('click', () => copyText(status?.ruleset || ''));
 

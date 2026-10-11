@@ -36,8 +36,9 @@ type Server struct {
 	LocalNames    []string       // eg fengard.lan
 	Allowed       []netip.Prefix // empty means private ranges
 	Screen        ScreenTime
-	Welcome       func(mac, hostname string) bool // true sends this phones captive check to us
-	TrustLoopback bool                            // on the router loopback is the router itself
+	Welcome       func(mac, hostname string) bool        // true sends this phones captive check to us
+	TrustLoopback bool                                   // on the router loopback is the router itself
+	Note          func(mac, domain string, at time.Time) // what each device looks up, for recognizing it later
 
 	upstreams atomic.Pointer[[]config.Upstream]
 	ipv4Only  atomic.Pointer[[]netip.Prefix] // no aaaa for these since vpn tunnels only carry ipv4
@@ -274,6 +275,9 @@ func (s *Server) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 		return
 	}
 	dec := s.Policy.Decide(info.MAC, domain, start)
+	if s.Note != nil && info.MAC != "" {
+		s.Note(info.MAC, domain, start)
+	}
 	// the routers own lookups (tailscale, updates, ntp) never get filtered, only it can send from loopback
 	if s.TrustLoopback && ip.IsLoopback() {
 		dec = policy.Decision{Action: policy.Allow, Reason: "The router itself", Device: dec.Device}

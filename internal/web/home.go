@@ -170,11 +170,17 @@ func (s *Server) trafficUsage(w http.ResponseWriter, r *http.Request) {
 		m[k].Down += u.Down
 		m[k].Up += u.Up
 	}
+	c := s.Config.Get()
 	if s.Traffic != nil {
 		for _, h := range s.Traffic.History("", 0) {
 			if h.Day >= from && h.Day <= to {
 				add(days, h.Day, h.Usage)
-				add(devs, h.MAC, h.Usage)
+				// a phone on a new private address counts as the device it was merged into
+				who := h.MAC
+				if d := c.Device(who); d != nil {
+					who = d.MAC
+				}
+				add(devs, who, h.Usage)
 			}
 		}
 	}
@@ -187,7 +193,6 @@ func (s *Server) trafficUsage(w http.ResponseWriter, r *http.Request) {
 		outDays = append(outDays, day{d, *u})
 	}
 	sort.Slice(outDays, func(i, j int) bool { return outDays[i].Day < outDays[j].Day })
-	c := s.Config.Get()
 	outDevs := []usageDevice{}
 	for mac, u := range devs {
 		n := s.namedDevice(c, mac)
