@@ -24,6 +24,7 @@ x86-32-2305  x86      23.05.6  x86/generic openwrt-23.05.6-x86-generic-generic-e
 x86-2410     x86      24.10.8  x86/64      openwrt-24.10.8-x86-64-generic-squashfs-combined.img.gz         256 yes x86-64, squashfs like router flash
 arm32-2102   arm32    21.02.7  armvirt/32  openwrt-21.02.7-armvirt-32-zImage-initramfs                     256 no  ARMv7 (IPQ40xx, mvebu: Linksys WRT, GL-B1300)
 arm32-2305   arm32    23.05.6  armsr/armv7 openwrt-23.05.6-armsr-armv7-generic-initramfs-kernel.bin        256 no  ARMv7 (IPQ40xx, mvebu: Linksys WRT, GL-B1300)
+arm32-2410   arm32    24.10.8  armsr/armv7 openwrt-24.10.8-armsr-armv7-generic-initramfs-kernel.bin        256 no  ARMv7 (IPQ40xx, mvebu: Linksys WRT, GL-B1300)
 arm64-2203   arm64    22.03.7  armvirt/64  openwrt-22.03.7-armvirt-64-Image-initramfs                      256 no  ARM64 (Filogic, MT7622, IPQ807x: GL-MT3000, Flint 2, Linksys E8450)
 arm64-2512   arm64    25.12.5  armsr/armv8 openwrt-25.12.5-armsr-armv8-generic-initramfs-kernel.bin        256 no  ARM64 (Filogic, MT7622, IPQ807x: GL-MT3000, Flint 2, Linksys E8450)
 mipsbe-2203  mipsbe   22.03.7  malta/be    openwrt-22.03.7-malta-be-vmlinux-initramfs.elf                  256 no  MIPS big-endian (ath79: TP-Link Archer C7, GL-AR750S)

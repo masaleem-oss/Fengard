@@ -32,19 +32,28 @@ func UseRouterTimezone() string {
 }
 
 // RouterZone is the city name of the routers own zone like Asia/Karachi or "" when it cant tell
+// utc doesnt count since thats what openwrt ships with before anyone sets it
 func RouterZone() string {
+	name := ""
 	if b, err := os.ReadFile("/etc/config/system"); err == nil {
-		if name := ZoneName(string(b)); name != "" {
-			if _, err := time.LoadLocation(name); err == nil {
-				return name
-			}
-		}
+		name = ZoneName(string(b))
 	}
 	// other linux boxes link localtime into the zoneinfo folder
-	if t, err := os.Readlink("/etc/localtime"); err == nil {
-		return zoneFromPath(t)
+	if t, err := os.Readlink("/etc/localtime"); err == nil && name == "" {
+		name = zoneFromPath(t)
 	}
-	return ""
+	return cityZone(name)
+}
+
+func cityZone(name string) string {
+	switch strings.TrimPrefix(name, "Etc/") {
+	case "", "UTC", "UCT", "GMT", "Zulu", "Universal", "Greenwich":
+		return ""
+	}
+	if _, err := time.LoadLocation(name); err != nil {
+		return ""
+	}
+	return name
 }
 
 func zoneFromPath(p string) string {

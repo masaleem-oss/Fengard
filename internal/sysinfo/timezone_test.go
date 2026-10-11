@@ -20,6 +20,14 @@ func TestZoneFromPath(t *testing.T) {
 	}
 }
 
+func TestCityZone(t *testing.T) {
+	for in, want := range map[string]string{"UTC": "", "Etc/UTC": "", "GMT": "", "Asia/Karachi": "Asia/Karachi", "Nowhere/Land": ""} {
+		if got := cityZone(in); got != want {
+			t.Errorf("cityZone(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
 func TestZoneName(t *testing.T) {
 	cases := map[string]string{
 		"config system\n\toption hostname 'GL-MT3000'\n\toption zonename 'Asia/Karachi'\n\toption timezone 'PKT-5'\n": "Asia/Karachi",
