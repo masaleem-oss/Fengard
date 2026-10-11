@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 
 	"github.com/miekg/dns"
@@ -72,9 +73,10 @@ func TestDoHNameUsesBootstrap(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	asked := 0
+	// a and aaaa get asked at the same time
+	var asked atomic.Int32
 	boot := &dns.Server{PacketConn: pc, Handler: dns.HandlerFunc(func(w dns.ResponseWriter, q *dns.Msg) {
-		asked++
+		asked.Add(1)
 		a := new(dns.Msg)
 		a.SetReply(q)
 		if q.Question[0].Qtype == dns.TypeA {
@@ -100,7 +102,7 @@ func TestDoHNameUsesBootstrap(t *testing.T) {
 	if err != nil || len(r.Answer) != 1 {
 		t.Fatalf("doh by name: %v %v", r, err)
 	}
-	if asked == 0 {
+	if asked.Load() == 0 {
 		t.Fatal("bootstrap was never asked")
 	}
 }
