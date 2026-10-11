@@ -24,7 +24,8 @@ export function bucketize(hours, days) {
   return [...byDay.values()];
 }
 
-export function stackedBars(container, data, { height = 220 } = {}) {
+// names and value let it chart other things than queries, eg bytes down and up
+export function stackedBars(container, data, { height = 220, names = ['Allowed', 'Blocked'], value = fmt, tick = compact, title = 'Queries over time' } = {}) {
   const W = container.clientWidth || 600, H = height;
   const pad = { l: 44, r: 8, t: 10, b: 26 };
   const iw = W - pad.l - pad.r, ih = H - pad.t - pad.b;
@@ -41,10 +42,10 @@ export function stackedBars(container, data, { height = 220 } = {}) {
   };
 
   const ticks = [0, max / 4, max / 2, (3 * max) / 4, max];
-  let svg = `<svg viewBox="0 0 ${W} ${H}" height="${H}" role="img" aria-label="Queries over time">`;
+  let svg = `<svg viewBox="0 0 ${W} ${H}" height="${H}" role="img" aria-label="${esc(title)}">`;
   for (const t of ticks) {
     svg += `<line class="grid-line" x1="${pad.l}" x2="${W - pad.r}" y1="${y(t)}" y2="${y(t)}"/>`;
-    svg += `<text class="axis-label" x="${pad.l - 8}" y="${y(t) + 4}" text-anchor="end">${compact(t)}</text>`;
+    svg += `<text class="axis-label" x="${pad.l - 8}" y="${y(t) + 4}" text-anchor="end">${tick(t)}</text>`;
   }
   data.forEach((d, i) => {
     const x = pad.l + i * slot + (slot - bw) / 2;
@@ -77,8 +78,8 @@ export function stackedBars(container, data, { height = 220 } = {}) {
       when = `${f(start)} – ${f(new Date(start.getTime() + 3600e3))}`;
     }
     tip.innerHTML = `<b>${esc(when)}</b>
-      <div class="tt-row"><i style="background:var(--chart-base)"></i><span>Allowed</span><span>${fmt(d.total - d.blocked)}</span></div>
-      <div class="tt-row"><i style="background:var(--accent)"></i><span>Blocked</span><span>${fmt(d.blocked)}</span></div>`;
+      <div class="tt-row"><i style="background:var(--chart-base)"></i><span>${names[0]}</span><span>${value(d.total - d.blocked)}</span></div>
+      <div class="tt-row"><i style="background:var(--accent)"></i><span>${names[1]}</span><span>${value(d.blocked)}</span></div>`;
     tip.hidden = false;
     const scale = svgEl.getBoundingClientRect().width / W;
     let left = (pad.l + i * slot + slot / 2) * scale;

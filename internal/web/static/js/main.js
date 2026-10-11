@@ -182,11 +182,11 @@ function showTwoFactor(token) {
 
 function strength(pw) {
   let s = 0;
-  if (pw.length >= 10) s++;
+  if (pw.length >= 8) s++;
   if (pw.length >= 14) s++;
   if (/[A-Z]/.test(pw) && /[a-z]/.test(pw)) s++;
   if (/\d/.test(pw) && /[^A-Za-z0-9]/.test(pw)) s++;
-  return pw.length < 10 ? Math.min(s, 1) : Math.max(1, s);
+  return pw.length < 8 ? Math.min(s, 1) : Math.max(1, s);
 }
 
 const PRESETS = [
@@ -208,7 +208,7 @@ function showSetup() {
           <div class="input-wrap">${icon('user')}<input class="input" name="username" value="admin" autocomplete="username" autocapitalize="none" spellcheck="false" required></div></label>
         ${passwordField('password', 'Password', 'new-password')}
         <div><div class="strength" id="strength"><i></i><i></i><i></i><i></i></div>
-          <div class="t-xs t-3" style="margin-top:6px">At least 10 characters. A passphrase works well.</div></div>
+          <div class="t-xs t-3" style="margin-top:6px">At least 8 characters. A passphrase works well.</div></div>
         ${passwordField('confirm', 'Confirm password', 'new-password')}
         <div class="t-xs t-warning row" data-caps hidden>${icon('triangle-alert', 'icon-sm')}Caps Lock is on</div>
         <button class="btn btn-primary btn-block" type="submit">Continue</button>
@@ -232,7 +232,7 @@ function showSetup() {
       f.addEventListener('submit', async (e) => {
         e.preventDefault();
         $('#err').hidden = true;
-        if (f.password.value.length < 10) return err('Password must be at least 10 characters.');
+        if (f.password.value.length < 8) return err('Password must be at least 8 characters.');
         if (f.password.value !== f.confirm.value) return err("Passwords don't match.");
         await busy(f.querySelector('[type=submit]'), async () => {
           try {

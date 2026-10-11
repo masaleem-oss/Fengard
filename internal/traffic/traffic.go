@@ -52,7 +52,7 @@ type Meter struct {
 	Every    time.Duration
 
 	mu      sync.Mutex
-	last    map[string][2]uint64 // per connection bytes seen last time
+	last    map[string]seenConn // per connection bytes seen last time
 	rates   map[string]Usage     // per mac bytes in the last interval
 	at      time.Time
 	gap     time.Duration
@@ -121,7 +121,7 @@ func (m *Meter) Sample() {
 
 func (m *Meter) SampleFrom(r io.Reader, now time.Time) {
 	locals := m.localAddrs(now)
-	seen := map[string][2]uint64{}
+	seen := map[string]seenConn{}
 	delta := map[string]Usage{}
 	macs := map[string]string{}
 	sc := bufio.NewScanner(r)
@@ -143,7 +143,11 @@ func (m *Meter) SampleFrom(r io.Reader, now time.Time) {
 		default:
 			continue
 		}
-		seen[c.key] = [2]uint64{up, down}
+		// a busy table can list one connection twice in a read
+		if _, dup := seen[c.key]; dup {
+			continue
+		}
+		seen[c.key] = seenConn{[2]uint64{up, down}, now}
 		mac, known := macs[dev]
 		if !known {
 			mac, _ = m.Lookup(dev)
@@ -157,9 +161,15 @@ func (m *Meter) SampleFrom(r io.Reader, now time.Time) {
 			continue
 		}
 		u := delta[mac]
-		u.Up += sub(up, prev[0])
-		u.Down += sub(down, prev[1])
+		u.Up += sub(up, prev.bytes[0])
+		u.Down += sub(down, prev.bytes[1])
 		delta[mac] = u
+	}
+	// or skip one, so keep what we knew for a bit or it gets counted again from zero
+	for k, c := range m.last {
+		if _, ok := seen[k]; !ok && now.Sub(c.at) < forget {
+			seen[k] = c
+		}
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -184,6 +194,13 @@ func (m *Meter) SampleFrom(r io.Reader, now time.Time) {
 	}
 	m.last, m.rates, m.at, m.primed = seen, delta, now, true
 }
+
+type seenConn struct {
+	bytes [2]uint64
+	at    time.Time
+}
+
+const forget = 2 * time.Minute
 
 // a connection that got reused or reset starts again from zero
 func sub(now, before uint64) uint64 {
@@ -351,7 +368,7 @@ func (m *Meter) Flush() {
 	m.flushLocked()
 }
 
-const keepDays = 31
+const keepDays = 400
 
 func (m *Meter) flushLocked() {
 	if m.KV == nil || !m.dirty {

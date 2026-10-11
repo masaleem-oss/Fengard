@@ -42,6 +42,7 @@ type Server struct {
 	ipv4Only  atomic.Pointer[[]netip.Prefix] // no aaaa for these since vpn tunnels only carry ipv4
 	bypass    atomic.Bool                    // answer the firefox doh and icloud relay canaries
 	dnssec    atomic.Bool
+	boot      atomic.Pointer[[]string] // plain dns for looking up doh server names
 	doh       *http.Client
 	cache     *cache
 	flight    singleflight.Group
@@ -76,6 +77,8 @@ const (
 	blockTTL     = 10
 )
 
+var defaultBoot = []string{"9.9.9.9:53", "1.1.1.1:53", "8.8.8.8:53"}
+
 var defaultAllowed = []netip.Prefix{
 	netip.MustParsePrefix("127.0.0.0/8"),
 	netip.MustParsePrefix("10.0.0.0/8"),
@@ -94,7 +97,24 @@ func (s *Server) Init() {
 	s.sem = make(chan struct{}, maxInflight)
 	s.perClient = ratelimit.New(100, 300, maxClients)
 	s.global = ratelimit.New(globalQPS, globalQPS*2, 1)
+	if s.boot.Load() == nil {
+		s.boot.Store(&defaultBoot)
+	}
+	// doh names like dns.quad9.net cant be looked up through ourselves, that needs doh working first
+	boot := &net.Resolver{PreferGo: true, Dial: func(ctx context.Context, network, _ string) (net.Conn, error) {
+		var d net.Dialer
+		var err error
+		for _, a := range *s.boot.Load() {
+			var c net.Conn
+			if c, err = d.DialContext(ctx, network, a); err == nil {
+				return c, nil
+			}
+		}
+		return nil, err
+	}}
+	dial := &net.Dialer{Timeout: 5 * time.Second, Resolver: boot}
 	s.doh = &http.Client{Timeout: 5 * time.Second, Transport: &http.Transport{
+		DialContext:  dial.DialContext,
 		MaxIdleConns: 8, IdleConnTimeout: 90 * time.Second, TLSHandshakeTimeout: 5 * time.Second,
 		// a custom tls config turns http/2 off and quad9 refuses doh over http/1.1
 		ForceAttemptHTTP2: true,
@@ -132,6 +152,15 @@ func (s *Server) Configure(set config.Settings) {
 		}
 	}
 	s.upstreams.Store(&ups)
+	// plain upstreams the user picked go first for looking up doh names
+	var boot []string
+	for _, u := range ups {
+		if u.Net == "udp" {
+			boot = append(boot, u.Addr)
+		}
+	}
+	boot = append(boot, defaultBoot...)
+	s.boot.Store(&boot)
 	s.bypass.Store(set.BlockBypass)
 	s.dnssec.Store(set.DNSSEC)
 	if s.perClient != nil {

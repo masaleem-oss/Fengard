@@ -3,6 +3,7 @@ package web
 import (
 	"errors"
 	"net/http"
+	"sort"
 	"time"
 
 	"github.com/masaleem-oss/Fengard/internal/config"
@@ -143,4 +144,55 @@ func (s *Server) scanNow(w http.ResponseWriter, r *http.Request) {
 	}
 	s.audit(r, "Checked devices for risky settings", "")
 	writeJSON(w, map[string]bool{"started": true})
+}
+
+type usageDevice struct {
+	traffic.Usage
+	MAC    string `json:"mac"`
+	Name   string `json:"name"`
+	Vendor string `json:"vendor,omitempty"`
+}
+
+// totals per device and per day between two dates, both included
+func (s *Server) trafficUsage(w http.ResponseWriter, r *http.Request) {
+	from, to := r.URL.Query().Get("from"), r.URL.Query().Get("to")
+	for _, d := range []string{from, to} {
+		if _, err := time.Parse("2006-01-02", d); err != nil {
+			httpError(w, http.StatusBadRequest, "dates must look like 2026-10-01")
+			return
+		}
+	}
+	days, devs := map[string]*traffic.Usage{}, map[string]*traffic.Usage{}
+	add := func(m map[string]*traffic.Usage, k string, u traffic.Usage) {
+		if m[k] == nil {
+			m[k] = &traffic.Usage{}
+		}
+		m[k].Down += u.Down
+		m[k].Up += u.Up
+	}
+	if s.Traffic != nil {
+		for _, h := range s.Traffic.History("", 0) {
+			if h.Day >= from && h.Day <= to {
+				add(days, h.Day, h.Usage)
+				add(devs, h.MAC, h.Usage)
+			}
+		}
+	}
+	type day struct {
+		Day string `json:"day"`
+		traffic.Usage
+	}
+	outDays := []day{}
+	for d, u := range days {
+		outDays = append(outDays, day{d, *u})
+	}
+	sort.Slice(outDays, func(i, j int) bool { return outDays[i].Day < outDays[j].Day })
+	c := s.Config.Get()
+	outDevs := []usageDevice{}
+	for mac, u := range devs {
+		n := s.namedDevice(c, mac)
+		outDevs = append(outDevs, usageDevice{Usage: *u, MAC: mac, Name: n.Name, Vendor: n.Vendor})
+	}
+	sort.Slice(outDevs, func(i, j int) bool { return outDevs[i].Down+outDevs[i].Up > outDevs[j].Down+outDevs[j].Up })
+	writeJSON(w, map[string]any{"days": outDays, "devices": outDevs})
 }

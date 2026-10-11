@@ -140,7 +140,7 @@ async function account(body) {
     <form class="section form-grid" id="pw" novalidate>
       <b>Change password</b>
       <label class="field"><span>Current password</span><input class="input" type="password" name="current" autocomplete="current-password" required></label>
-      <label class="field"><span>New password</span><input class="input" type="password" name="next" autocomplete="new-password" minlength="10" required><span class="help">At least 10 characters. You'll be signed out everywhere.</span></label>
+      <label class="field"><span>New password</span><input class="input" type="password" name="next" autocomplete="new-password" minlength="8" required><span class="help">At least 8 characters. You'll be signed out everywhere.</span></label>
       <label class="field"><span>Confirm new password</span><input class="input" type="password" name="confirm" autocomplete="new-password" required></label>
       <p class="t-sm t-danger" id="err" hidden></p>
       <div><button class="btn" type="submit">Change password</button></div>
@@ -162,7 +162,7 @@ async function account(body) {
   f.addEventListener('submit', async (e) => {
     e.preventDefault();
     const err = (t) => { $('#err', f).textContent = t; $('#err', f).hidden = false; };
-    if (f.next.value.length < 10) return err('New password must be at least 10 characters.');
+    if (f.next.value.length < 8) return err('New password must be at least 8 characters.');
     if (f.next.value !== f.confirm.value) return err("New passwords don't match.");
     await busy(f.querySelector('[type=submit]'), async () => {
       try { await post('/api/password', { current: f.current.value, new: f.next.value }); toast('Password changed. Sign in again.'); setTimeout(() => location.reload(), 1200); }
@@ -225,7 +225,7 @@ async function users(body) {
     const m = modal({ title: 'Add user',
       body: `<form id="uf" class="stack" novalidate>
         <label class="field"><span>Username</span><input class="input" name="username" autocapitalize="none" spellcheck="false" required autofocus></label>
-        <label class="field"><span>Password</span><input class="input" type="password" name="password" autocomplete="new-password" required><span class="help">At least 10 characters.</span></label>
+        <label class="field"><span>Password</span><input class="input" type="password" name="password" autocomplete="new-password" required><span class="help">At least 8 characters.</span></label>
         <div class="field"><span>Role</span>
           <label class="option"><input type="radio" name="role" value="viewer" checked><span><b>Viewer</b><small>Sees everything, changes nothing.</small></span></label>
           <label class="option"><input type="radio" name="role" value="admin"><span><b>Administrator</b><small>Full control, including users and backups.</small></span></label></div>

@@ -1,7 +1,37 @@
 import { get, post, put, del } from '../api.js';
-import { $, $$, esc, icon, fmt, compact, ago, until, isSet, attempt, busy, empty, toast, switchInput, confirmDialog, statusBadge } from '../ui.js';
+import { $, $$, esc, icon, fmt, compact, ago, until, isSet, attempt, busy, empty, toast, switchInput, confirmDialog, statusBadge, modal } from '../ui.js';
 import { CATEGORY_ICONS, deviceName } from '../meta.js';
 import { state, isAdmin } from '../main.js';
+// well known lists, sizes are rough and only there to help pick
+const H = 'https://raw.githubusercontent.com/hagezi/dns-blocklists/main/wildcard/';
+const POPULAR = [
+  { group: 'Ads and tracking', items: [
+    { name: 'HaGeZi Light', size: '55k', url: H + 'light-onlydomains.txt', desc: 'Basic, almost never breaks anything' },
+    { name: 'HaGeZi Normal', size: '160k', url: H + 'multi-onlydomains.txt', desc: 'All-round protection, a good default' },
+    { name: 'HaGeZi Pro', size: '196k', url: H + 'pro-onlydomains.txt', desc: 'Stricter, still rarely breaks sites' },
+    { name: 'HaGeZi Pro++', size: '209k', url: H + 'pro.plus-onlydomains.txt', desc: 'Aggressive, may break some sites' },
+    { name: 'HaGeZi Ultimate', size: '232k', url: H + 'ultimate-onlydomains.txt', desc: 'Strictest, expect some breakage' },
+    { name: 'OISD Small', size: '56k', url: 'https://small.oisd.nl/domainswild2', desc: 'Ads and tracking with very few false blocks' },
+    { name: 'OISD Big', size: '237k', url: 'https://big.oisd.nl/domainswild2', desc: 'Ads, tracking, malware and phishing' },
+    { name: 'AdGuard DNS filter', size: '181k', url: 'https://adguardteam.github.io/AdGuardSDNSFilter/Filters/filter.txt', desc: 'The default list in AdGuard Home' },
+    { name: 'Steven Black Unified', size: '73k', url: 'https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts', desc: 'Classic hosts file of ads and malware' },
+    { name: '1Hosts Lite', size: '102k', url: 'https://raw.githubusercontent.com/badmojr/1Hosts/master/Lite/domains.wildcards', desc: 'Ads and tracking, balanced' },
+    { name: "Peter Lowe's list", size: '3.5k', url: 'https://pgl.yoyo.org/adservers/serverlist.php?hostformat=hosts&showintro=0&mimetype=plaintext', desc: 'Small, hand-picked ad servers' },
+    { name: 'Dan Pollock', size: '13k', url: 'https://someonewhocares.org/hosts/zero/hosts', desc: 'Long-running hand-kept hosts file' },
+    { name: 'HaGeZi Pop-up ads', size: '47k', url: H + 'popupads-onlydomains.txt', desc: 'Annoying pop-up and pop-under ads' },
+  ] },
+  { group: 'Security', items: [
+    { name: 'HaGeZi Fake', size: '17k', url: H + 'fake-onlydomains.txt', desc: 'Fake shops, scams and rip-offs' },
+    { name: 'Phishing Army Extended', size: '142k', url: 'https://phishing.army/download/phishing_army_blocklist_extended.txt', desc: 'Phishing sites' },
+  ] },
+  { group: 'Device trackers', items: [
+    { name: 'Samsung trackers', size: '200', url: H + 'native.samsung-onlydomains.txt', desc: 'Smart TVs and phones calling home' },
+    { name: 'Amazon trackers', size: '370', url: H + 'native.amazon-onlydomains.txt', desc: 'Fire TV, Echo and Kindle' },
+    { name: 'Apple trackers', size: '100', url: H + 'native.apple-onlydomains.txt', desc: 'Apple telemetry' },
+    { name: 'Windows and Office trackers', size: '380', url: H + 'native.winoffice-onlydomains.txt', desc: 'Microsoft telemetry' },
+  ] },
+];
+
 
 export async function render(el, ctx) {
   const admin = isAdmin();
@@ -35,7 +65,8 @@ export async function render(el, ctx) {
       <div class="table-wrap" id="cats"></div>
     </div>
     <div class="panel">
-      <div class="panel-head"><h3>Custom blocklists</h3><span class="sub">Any hosts-file or domain list by URL, applied to every profile</span></div>
+      <div class="panel-head"><h3>Custom blocklists</h3><span class="sub">Any hosts-file or domain list by URL, applied to every profile</span>
+        ${admin ? `<div class="actions"><button class="btn btn-sm btn-primary" id="popular">${icon('list-plus', 'icon-sm')}Popular lists</button></div>` : ''}</div>
       ${admin ? `<form class="toolbar" id="add-list" novalidate>
         <input class="input input-sm" name="name" placeholder="Name" style="width:180px" aria-label="List name">
         <div class="input-wrap" style="flex:1;min-width:260px">${icon('link')}<input class="input input-sm" name="url" placeholder="https://…/hosts.txt" spellcheck="false" aria-label="List URL" required></div>
@@ -78,7 +109,7 @@ export async function render(el, ctx) {
         <td class="t-2">${l.error ? `<span class="t-danger" title="${esc(l.error)}">Failed</span>` : isSet(l.updated) ? ago(l.updated) : 'Downloading…'}</td>
         <td>${switchInput(`data-toggle ${admin ? '' : 'disabled'}`, l.enabled, `Enable ${l.name}`)}</td>
         <td class="col-actions">${admin ? `<button class="btn btn-ghost btn-sm" data-refresh>${icon('refresh-cw', 'icon-sm')}</button><button class="btn btn-ghost btn-sm btn-danger" data-del>${icon('trash-2', 'icon-sm')}</button>` : ''}</td></tr>`).join('')}</tbody></table>`
-      : `<p class="t-3 t-sm" style="padding:16px 14px">No custom lists. Popular ones: Hagezi, OISD, Steven Black. Up to 16.</p>`;
+      : `<p class="t-3 t-sm" style="padding:16px 14px">No custom lists yet. Pick one from Popular lists or paste any URL. Up to 16.</p>`;
   };
 
   const load = async () => {
@@ -173,6 +204,28 @@ export async function render(el, ctx) {
         await load();
         setTimeout(() => { if (ctx.alive()) load(); }, 6000);
       }
+    });
+  });
+  $('#popular', el)?.addEventListener('click', () => {
+    const have = () => new Set(lists.map((l) => l.url));
+    const rows = () => POPULAR.map((g) => `<div class="t-xs t-3" style="margin:14px 0 6px;text-transform:uppercase;letter-spacing:.04em">${esc(g.group)}</div>
+      <table class="table dense"><tbody>${g.items.map((p) => `<tr>
+        <td><div class="cell-title">${esc(p.name)}</div><div class="cell-sub">${esc(p.desc)}</div></td>
+        <td class="num t-2" style="text-align:right;white-space:nowrap">${esc(p.size)} domains</td>
+        <td class="col-actions">${have().has(p.url) ? '<span class="badge b-success">Added</span>' : `<button class="btn btn-sm" data-pick="${esc(p.url)}">${icon('plus', 'icon-sm')}Add</button>`}</td></tr>`).join('')}</tbody></table>`).join('');
+    const m = modal({ title: 'Popular lists', wide: true, subtitle: 'Pick one or two. Bigger lists block more but use more memory and break more sites.',
+      body: `<div id="pop">${rows()}</div>`, foot: '<button class="btn" data-close>Done</button>' });
+    $('#pop', m.el).addEventListener('click', async (e) => {
+      const b = e.target.closest('[data-pick]');
+      if (!b) return;
+      const p = POPULAR.flatMap((g) => g.items).find((x) => x.url === b.dataset.pick);
+      await busy(b, async () => {
+        if (await attempt(() => post('/api/lists', { name: p.name, url: p.url, enabled: true }), `${p.name} added. Downloading the list…`)) {
+          await load();
+          $('#pop', m.el).innerHTML = rows();
+          setTimeout(() => { if (ctx.alive()) load(); }, 6000);
+        }
+      });
     });
   });
   $('#lists', el).addEventListener('change', async (e) => {

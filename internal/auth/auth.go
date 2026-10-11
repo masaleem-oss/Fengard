@@ -125,8 +125,8 @@ func (a *Auth) create(username, password string, role Role) error {
 }
 
 func checkPassword(p string) error {
-	if len(p) < 10 {
-		return errors.New("password must be at least 10 characters")
+	if len(p) < 8 {
+		return errors.New("password must be at least 8 characters")
 	}
 	if len(p) > 72 {
 		return errors.New("password must be at most 72 characters")

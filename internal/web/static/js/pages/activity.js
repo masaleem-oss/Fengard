@@ -1,5 +1,6 @@
 import { get, post } from '../api.js';
-import { $, $$, esc, icon, timeOf, dateShort, attempt, menu, empty, statusBadge, copyText, download, switchInput } from '../ui.js';
+import { $, $$, esc, icon, timeOf, dateShort, attempt, menu, empty, statusBadge, copyText, download, switchInput, modal } from '../ui.js';
+import { stackedBars } from '../charts.js';
 import { deviceName } from '../meta.js';
 import { isAdmin } from '../main.js';
 import { mbps, bytes } from '../home.js';
@@ -127,16 +128,79 @@ export async function render(el, ctx) {
     const bw = $('#bw', el);
     if (!bw || !t?.available) return;
     const d = f.mac ? t.devices.find((x) => x.mac === f.mac) || { downRate: 0, upRate: 0, today: { down: 0, up: 0 } } : t;
-    const stat = (label, ic, value, sub) => `<div class="stat"><div class="stat-label">${icon(ic, 'icon-sm')}${label}</div><div class="stat-value">${value}</div><div class="stat-sub">${sub}</div></div>`;
+    const stat = (label, ic, value, sub, tag = 'div') => `<${tag} class="stat"${tag === 'button' ? ' type="button" id="usage-open"' : ''}><div class="stat-label">${icon(ic, 'icon-sm')}${label}</div><div class="stat-value">${value}</div><div class="stat-sub">${sub}</div></${tag}>`;
     bw.innerHTML = [
       stat('Download now', 'arrow-down', mbps(d.downRate), f.mac ? 'this device' : 'whole network'),
       stat('Upload now', 'arrow-up', mbps(d.upRate), f.mac ? 'this device' : 'whole network'),
-      stat('Used today', 'chart-column', bytes(d.today.down + d.today.up), `${bytes(d.today.down)} down · ${bytes(d.today.up)} up`),
+      stat('Used today', 'chart-column', bytes(d.today.down + d.today.up), `${bytes(d.today.down)} down · ${bytes(d.today.up)} up`, 'button'),
     ].join('');
+    $('#usage-open', bw).onclick = () => usage(f.mac);
     bw.hidden = false;
   };
   bandwidth();
   ctx.every(3000, bandwidth);
 
   restart();
+}
+
+// data used per device and per day, for any range the router still remembers
+const day = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+const RANGES = [
+  { k: 'today', name: 'Today', from: () => new Date() },
+  { k: 'week', name: '7 days', from: () => new Date(Date.now() - 6 * 864e5) },
+  { k: 'month', name: '30 days', from: () => new Date(Date.now() - 29 * 864e5) },
+  { k: 'this', name: 'This month', from: () => new Date(new Date().getFullYear(), new Date().getMonth(), 1) },
+  { k: 'custom', name: 'Custom' },
+];
+
+function usage(mac) {
+  let range = 'today';
+  const m = modal({ title: 'Data used', wide: true, subtitle: 'Internet traffic per device. The router keeps about a year of history.',
+    body: `<div class="row wrap" style="gap:8px;align-items:center">
+        <div class="seg" id="u-range">${RANGES.map((r) => `<button type="button" data-k="${r.k}" class="${r.k === range ? 'on' : ''}">${r.name}</button>`).join('')}</div>
+        <span id="u-custom" class="row" style="gap:6px" hidden><input class="input input-sm" type="date" id="u-from" aria-label="From"><span class="t-3">to</span><input class="input input-sm" type="date" id="u-to" aria-label="To"></span>
+      </div>
+      <div class="stat-value" id="u-total" style="margin-top:14px"></div><div class="stat-sub" id="u-split"></div>
+      <div id="u-chart" class="chart" style="margin-top:10px" hidden></div>
+      <div id="u-devs" style="margin-top:12px"></div>`,
+    foot: '<button class="btn" data-close>Close</button>' });
+  const from = $('#u-from', m.el), to = $('#u-to', m.el);
+  to.value = day(new Date());
+  from.value = day(RANGES[2].from());
+  const load = async () => {
+    const r = RANGES.find((x) => x.k === range);
+    const a = r.from ? day(r.from()) : from.value, b = r.from ? day(new Date()) : to.value;
+    if (!a || !b) return;
+    const u = await get(`/api/traffic/usage?from=${a}&to=${b}`).catch(() => null);
+    if (!u || !m.el.isConnected) return;
+    const devs = mac ? u.devices.filter((d) => d.mac === mac) : u.devices;
+    const down = devs.reduce((s, d) => s + d.down, 0), up = devs.reduce((s, d) => s + d.up, 0);
+    $('#u-total', m.el).textContent = bytes(down + up);
+    $('#u-split', m.el).textContent = `${bytes(down)} down · ${bytes(up)} up${mac ? ' · this device' : ''}`;
+    // one bar per day, upload stacked on top
+    const chart = $('#u-chart', m.el);
+    chart.hidden = mac || u.days.length < 2;
+    if (!chart.hidden) {
+      stackedBars(chart, u.days.map((d) => ({ time: d.day + 'T00:00', total: d.down + d.up, blocked: d.up, span: 'day' })),
+        { height: 180, names: ['Download', 'Upload'], value: bytes, tick: bytes, title: 'Data used per day' });
+    }
+    const total = Math.max(1, down + up);
+    $('#u-devs', m.el).innerHTML = devs.length ? `<table class="table dense"><thead><tr><th>Device</th><th style="text-align:right">Down</th><th style="text-align:right">Up</th><th style="text-align:right">Total</th><th style="width:22%">Share</th></tr></thead>
+      <tbody>${devs.map((d) => `<tr><td><div class="cell-title">${esc(d.name || d.mac)}</div>${d.vendor ? `<div class="cell-sub">${esc(d.vendor)}</div>` : ''}</td>
+        <td class="num t-2" style="text-align:right">${bytes(d.down)}</td><td class="num t-2" style="text-align:right">${bytes(d.up)}</td>
+        <td class="num" style="text-align:right"><b>${bytes(d.down + d.up)}</b></td>
+        <td><div class="bar-list"><div class="bar-item"><div class="bar-fill" style="width:${Math.max(2, ((d.down + d.up) / total) * 100)}%"></div><div class="name t-xs">${Math.round(((d.down + d.up) / total) * 100)}%</div></div></div></td></tr>`).join('')}</tbody></table>`
+      : `<p class="t-3 t-sm" style="padding:16px 0">No traffic in this range.</p>`;
+  };
+  $('#u-range', m.el).addEventListener('click', (e) => {
+    const b = e.target.closest('[data-k]');
+    if (!b) return;
+    range = b.dataset.k;
+    $$('#u-range button', m.el).forEach((x) => x.classList.toggle('on', x === b));
+    $('#u-custom', m.el).hidden = range !== 'custom';
+    load();
+  });
+  from.addEventListener('change', load);
+  to.addEventListener('change', load);
+  load();
 }

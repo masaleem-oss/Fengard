@@ -193,15 +193,15 @@ answering, LAN devices resolving and reaching the dashboard, SSH still working, 
 internet names resolving, and an uninstall that gives DNS back with no Fengard firewall rules left. The x86
 ones get rebooted too.
 
-Results for 1.2.2:
+Results for 1.2.3:
 
 | Router type | Firmware | CPU build | Result | Memory |
 |---|---|---|---|---|
-| ARM64 (Filogic, MT7622, IPQ807x: GL-MT3000, Flint 2, Linksys E8450) | OpenWrt 22.03.7 | linux-arm64 | ✅ all 8 checks | 36 MB |
-| ARM64 (Filogic, MT7622, IPQ807x: GL-MT3000, Flint 2, Linksys E8450) | OpenWrt 25.12.5 | linux-arm64 | ✅ all 8 checks | 36 MB |
+| ARM64 (Filogic, MT7622, IPQ807x: GL-MT3000, Flint 2, Linksys E8450) | OpenWrt 22.03.7 | linux-arm64 | ✅ all 8 checks | 32 MB |
+| ARM64 (Filogic, MT7622, IPQ807x: GL-MT3000, Flint 2, Linksys E8450) | OpenWrt 25.12.5 | linux-arm64 | ✅ all 8 checks | 32 MB |
 | ARMv7 (IPQ40xx, mvebu: Linksys WRT, GL-B1300) | OpenWrt 21.02.7 | linux-arm | ✅ all 8 checks | 29 MB |
-| ARMv7 (IPQ40xx, mvebu: Linksys WRT, GL-B1300) | OpenWrt 23.05.6 | linux-arm | ✅ all 8 checks | 30 MB |
-| MIPS big-endian (ath79: TP-Link Archer C7, GL-AR750S) | OpenWrt 22.03.7 | linux-mips | ✅ all 8 checks | 31 MB |
+| ARMv7 (IPQ40xx, mvebu: Linksys WRT, GL-B1300) | OpenWrt 23.05.6 | linux-arm | ✅ all 8 checks | 29 MB |
+| MIPS big-endian (ath79: TP-Link Archer C7, GL-AR750S) | OpenWrt 22.03.7 | linux-mips | ✅ all 8 checks | 62 MB |
 | MIPS little-endian (MT7621: Xiaomi 4A, Netgear R6220, GL-MT1300) | OpenWrt 24.10.8 | linux-mipsle | ✅ all 8 checks | 31 MB |
 | MIPS64 big-endian (Octeon: EdgeRouter Lite) | OpenWrt 24.10.8 | linux-mips64 | ✅ all 8 checks | 34 MB |
 | MIPS64 little-endian (Loongson) | OpenWrt 25.12.5 | linux-mips64le | ✅ all 6 checks (no internet in the VM) | 17 MB |
@@ -480,12 +480,12 @@ Design choices:
 | Tor | Blocked by name (Tor Browser, bridges) and by address: the relay list refreshes daily into a firewall set, applied per profile |
 | Remote access VPN | Built-in WireGuard server. Add a phone, scan the QR code, and it gets the same filtering on mobile data. Detects double NAT and says what to forward |
 | Tailscale | When no port can be forwarded, the router can be a Tailscale exit node. Fengard filters `tailscale0` like the LAN and lists Tailscale devices |
-| Custom blocklists | Subscribe to up to 16 hosts-file or domain lists by URL |
+| Custom blocklists | Pick from popular lists (HaGeZi, OISD, AdGuard DNS filter, Steven Black and more) or subscribe to any hosts-file or domain list by URL, up to 16 |
 | Check a site | What every profile would do with a domain and why, also from the command palette |
 | Temporary allow | Allow a site for an hour, or any length, for one profile or everyone. One click from an access request |
 | Pause protection | Turn all filtering off for a few minutes when something breaks. Device pauses still apply |
 | Local DNS | Every device answers as `<name>.lan`, with custom A, AAAA and CNAME records and reverse lookups. `.lan` never leaks upstream |
-| Upstreams | Plain, DNS-over-TLS and DNS-over-HTTPS, with an optional DNSSEC-record request (validation depends on the upstream) |
+| Upstreams | Plain, DNS-over-TLS and DNS-over-HTTPS (by name or IP), with an optional DNSSEC-record request (validation depends on the upstream) |
 | Block page | Branded, over HTTP and HTTPS (a per-router CA with signing restricted in software to blocked names and the dashboard), with an access-request form |
 | Firewall | Port forwards, WAN hardening (service ports closed, SYN and ICMP limits, invalid packets dropped), per-device DNS flood limit, quarantine for new devices |
 | DNS resilience | Cache, serve-stale when the upstream is down, merged duplicate lookups, per-device and global rate limits |
@@ -497,7 +497,7 @@ Design choices:
 | Updates | Checks GitHub for new releases, makes sure a release still supports this router's CPU, firmware and memory, then updates from the dashboard in about a minute or overnight on its own. A new version is test-run before it replaces the old one, and the old one comes back if it doesn't start |
 | Monitoring | Live and historical activity per device, 24 h, 7 d and 30 d charts with comparison, top lists, alerts |
 | Internet | A green bar with the line's speed, a speed test every night around 4 am (or any time from the dashboard), and an alert like "Internet was down 14 min" after an outage |
-| Live activity | Live speed and today's data for each device, read from the router's own connection table with no extra firewall rules |
+| Live activity | Live speed and data used per device, by day, week, month or any date range in the last year, read from the router's own connection table with no extra firewall rules |
 | Who's home | Turn on arrival alerts for a phone and Fengard shows whether it's home and messages you when it arrives or leaves |
 | Device check | Every week Fengard checks the devices on your network for risky open doors like Telnet, Android debugging on TV boxes, or a camera stream with no password, and for ports a device opened to the internet with UPnP, and explains each one in plain words |
 | Captive portal | Optional. The first time a new iPhone or iPad joins, it shows a sign-in page saying the network is protected by Fengard, with a Join network button. You can swap in your own HTML and CSS (scripts never run). Computers and smart devices never see it, and anything that doesn't tap Join gets through after 10 minutes |

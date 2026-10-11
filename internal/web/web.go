@@ -123,6 +123,7 @@ func (s *Server) Handler() http.Handler {
 	view("GET /api/devices", s.listDevices)
 	view("GET /api/internet", s.internetStatus)
 	view("GET /api/traffic", s.trafficNow)
+	view("GET /api/traffic/usage", s.trafficUsage)
 	view("GET /api/traffic/{mac}", s.trafficHistory)
 	view("GET /api/presence", s.presenceNow)
 	view("GET /api/scan", s.scanReport)
