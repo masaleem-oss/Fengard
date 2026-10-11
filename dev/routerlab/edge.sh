@@ -1,6 +1,6 @@
 #!/bin/bash
 # the situations that would hurt a household on openwrt 24.10 x86 squashfs which has the same layout as router flash
-#   edge.sh [test...]   tests lowram ram128 subnet nonet port53 power-dns power-start sysupgrade stopped missing crash lowflash adguard pkg-fw3 pkg-opkg pkg-apk
+#   edge.sh [test...]   tests lowram ram128 subnet nonet port53 power-dns power-start sysupgrade stopped missing crash lowflash adguard pkg-fw3 pkg-opkg pkg-apk glinet49
 # prints EDGE rows for the readme table
 # each test has its own vm slot so they can all run at once
 WORK=${WORK:-/var/tmp/routerlab}
@@ -35,7 +35,7 @@ until_ok() { n=$1; shift; for _ in $(seq "$n"); do eval "$*" && return 0; sleep 
 # the guard checks every 20 s and waits 10 min before trying fengard again, this makes it 2 s and 1 min
 fast_guard() { r "$1" "echo \"GUARD_TICK='2'\" >>/etc/fengard/install.env; /etc/init.d/fengard restart"; until_ok 60 fg_ok "$1"; }
 
-[ $# -gt 0 ] || set -- lowram ram128 subnet nonet port53 power-dns power-start sysupgrade stopped missing crash lowflash adguard pkg-fw3 pkg-opkg pkg-apk
+[ $# -gt 0 ] || set -- lowram ram128 subnet nonet port53 power-dns power-start sysupgrade stopped missing crash lowflash adguard pkg-fw3 pkg-opkg pkg-apk glinet49
 for t in "$@"; do
 	case $t in
 	lowram)
@@ -169,6 +169,25 @@ for t in "$@"; do
 		uninst 35 >/dev/null
 		row "Removing Fengard turns AdGuard Home back on" "until_ok 30 'agh && landns 35' && r 35 '[ \"\$(uci -q get dhcp.@dnsmasq[0].port)\" = 54 ]'"
 		V stop adguard ;;
+	glinet49)
+		# glinet 4.9 (beryl 7) is fw3 on iptables but also ships an nft that answers list and can't open /dev/stdin
+		V start glinet49 x86 "$WORK/openwrt-21.02.7-x86-64-generic-ext4-combined.img" 256 36 >/dev/null
+		r 36 'cat >/usr/sbin/nft; chmod 755 /usr/sbin/nft; rm -f /dev/stdin' <<-'EOF'
+			#!/bin/sh
+			# lab stand in for the nft on glinet 4.9
+			echo "$*" >>/tmp/nft.calls
+			case "$*" in
+			"list tables") exit 0 ;;
+			*"-f -"*) echo 'internal:0:0-0: Error: Could not open file "/dev/stdin": No such file or directory' >&2; exit 1 ;;
+			esac
+			exit 1
+		EOF
+		kit; inst 36 >/dev/null
+		until_ok 60 "r 36 'iptables -t nat -S | grep -q FENGARD_DSTNAT'"
+		row "GL.iNet 4.9 style firmware (fw3 with an nft that can't read /dev/stdin, like the Beryl 7): uses iptables and the dashboard opens" "fg_ok 36 && landns 36 fengard.lan && curl -s -m 10 http://127.0.0.1:18336/api/session | grep -q '\"version\"' && ! r 36 'logread -e fengardd | grep -q \"firewall:.*nft\"'"
+		uninst 36 >/dev/null
+		row "GL.iNet 4.9 style firmware: removed cleanly" "until_ok 30 'untouched 36 && landns 36' && ! r 36 'iptables-save | grep -q FENGARD'"
+		V stop glinet49 ;;
 	lowflash)
 		V start lowflash x86 "$IMG" 256 28 >/dev/null
 		r 28 'free=$(df -k /overlay | awk "NR==2{print \$4}"); dd if=/dev/zero of=/overlay/filler bs=1024 count=$((free - 12000)) 2>/dev/null'

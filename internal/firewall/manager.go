@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
@@ -134,14 +135,28 @@ func Detect(netns string) Backend {
 	if runtime.GOOS != "linux" {
 		return &NFTables{Netns: netns}
 	}
+	_, ipErr := run(netns, "iptables", nil, "-S")
+	// openwrt 21.02 and glinet 4.x run fw3 on iptables even when they ship an nft binary
+	if ipErr == nil && fw3("/") {
+		if _, err := run(netns, "nft", nil, "delete", "table", "inet", Table); err == nil {
+			log.Printf("firewall: removed old nftables rules, fw3 uses iptables")
+		}
+		return NewIPTables(netns)
+	}
 	if _, err := run(netns, "nft", nil, "list", "tables"); err == nil {
 		return &NFTables{Netns: netns}
 	}
-	if _, err := run(netns, "iptables", nil, "-S"); err == nil {
+	if ipErr == nil {
 		log.Printf("firewall: nft not usable, using iptables")
 		return NewIPTables(netns)
 	}
 	return &NFTables{Netns: netns}
+}
+
+func fw3(root string) bool {
+	_, e3 := os.Stat(filepath.Join(root, "sbin/fw3"))
+	_, e4 := os.Stat(filepath.Join(root, "sbin/fw4"))
+	return e3 == nil && e4 != nil
 }
 
 func run(netns, name string, stdin []byte, args ...string) (string, error) {
@@ -170,21 +185,32 @@ type NFTables struct{ Netns string }
 
 func (n *NFTables) Name() string                    { return "nftables" }
 func (n *NFTables) Render(p Params) (string, error) { return Render(p) }
-func (n *NFTables) Apply(rs string, _ Params) error {
-	_, err := run(n.Netns, "nft", []byte(rs), "-f", "-")
-	return err
-}
-func (n *NFTables) Check(rs string) error {
-	_, err := run(n.Netns, "nft", []byte(rs), "-c", "-f", "-")
-	return err
-}
+func (n *NFTables) Apply(rs string, _ Params) error { return nftFile(n.Netns, rs) }
+func (n *NFTables) Check(rs string) error           { return nftFile(n.Netns, rs, "-c") }
 func (n *NFTables) Healthy() bool {
 	_, err := run(n.Netns, "nft", nil, "list", "table", "inet", Table)
 	return err == nil
 }
 
 func (n *NFTables) Remove() error {
-	_, err := run(n.Netns, "nft", []byte(fmt.Sprintf("table inet %s {}\ndelete table inet %s\n", Table, Table)), "-f", "-")
+	return nftFile(n.Netns, fmt.Sprintf("table inet %s {}\ndelete table inet %s\n", Table, Table))
+}
+
+// a file not -f - since some firmware like glinet 4.9 has no /dev/stdin for nft to open
+func nftFile(netns, rs string, args ...string) error {
+	f, err := os.CreateTemp("", "fengard-*.nft")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(f.Name())
+	_, err = f.WriteString(rs)
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		return err
+	}
+	_, err = run(netns, "nft", nil, append(args, "-f", f.Name())...)
 	return err
 }
 

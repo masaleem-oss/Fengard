@@ -81,3 +81,20 @@ func TestIPTablesApplies(t *testing.T) {
 		t.Errorf("rules left behind:\n%s", out)
 	}
 }
+
+// glinet 4.9 ships nft next to fw3 but the firewall is iptables
+func TestFW3(t *testing.T) {
+	root := t.TempDir()
+	if fw3(root) {
+		t.Fatal("no firewall should not count as fw3")
+	}
+	os.MkdirAll(root+"/sbin", 0o755)
+	os.WriteFile(root+"/sbin/fw3", nil, 0o755)
+	if !fw3(root) {
+		t.Fatal("fw3 alone should count")
+	}
+	os.WriteFile(root+"/sbin/fw4", nil, 0o755)
+	if fw3(root) {
+		t.Fatal("fw4 should win")
+	}
+}

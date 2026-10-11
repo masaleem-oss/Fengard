@@ -198,17 +198,17 @@ Results for 1.2.5:
 | Router type | Firmware | CPU build | Result | Memory |
 |---|---|---|---|---|
 | ARM64 (Filogic, MT7622, IPQ807x: GL-MT3000, Flint 2, Linksys E8450) | OpenWrt 22.03.7 | linux-arm64 | ✅ all 9 checks | 32 MB |
-| ARM64 (Filogic, MT7622, IPQ807x: GL-MT3000, Flint 2, Linksys E8450) | OpenWrt 25.12.5 | linux-arm64 | ✅ all 9 checks | 34 MB |
-| ARMv7 (IPQ40xx, mvebu: Linksys WRT, GL-B1300) | OpenWrt 21.02.7 | linux-arm | ✅ all 9 checks | 29 MB |
-| ARMv7 (IPQ40xx, mvebu: Linksys WRT, GL-B1300) | OpenWrt 23.05.6 | linux-arm | ✅ all 9 checks | 29 MB |
-| ARMv7 (IPQ40xx, mvebu: Linksys WRT, GL-B1300) | OpenWrt 24.10.8 | linux-arm | ✅ all 9 checks | 31 MB |
-| MIPS big-endian (ath79: TP-Link Archer C7, GL-AR750S) | OpenWrt 22.03.7 | linux-mips | ✅ all 9 checks | 32 MB |
-| MIPS little-endian (MT7621: Xiaomi 4A, Netgear R6220, GL-MT1300) | OpenWrt 24.10.8 | linux-mipsle | ✅ all 9 checks | 32 MB |
-| MIPS64 big-endian (Octeon: EdgeRouter Lite) | OpenWrt 24.10.8 | linux-mips64 | ✅ all 9 checks | 36 MB |
+| ARM64 (Filogic, MT7622, IPQ807x: GL-MT3000, Flint 2, Linksys E8450) | OpenWrt 25.12.5 | linux-arm64 | ✅ all 9 checks | 33 MB |
+| ARMv7 (IPQ40xx, mvebu: Linksys WRT, GL-B1300) | OpenWrt 21.02.7 | linux-arm | ✅ all 9 checks | 30 MB |
+| ARMv7 (IPQ40xx, mvebu: Linksys WRT, GL-B1300) | OpenWrt 23.05.6 | linux-arm | ✅ all 9 checks | 30 MB |
+| ARMv7 (IPQ40xx, mvebu: Linksys WRT, GL-B1300) | OpenWrt 24.10.8 | linux-arm | ✅ all 9 checks | 30 MB |
+| MIPS big-endian (ath79: TP-Link Archer C7, GL-AR750S) | OpenWrt 22.03.7 | linux-mips | ✅ all 9 checks | 31 MB |
+| MIPS little-endian (MT7621: Xiaomi 4A, Netgear R6220, GL-MT1300) | OpenWrt 24.10.8 | linux-mipsle | ✅ all 9 checks | 31 MB |
+| MIPS64 big-endian (Octeon: EdgeRouter Lite) | OpenWrt 24.10.8 | linux-mips64 | ✅ all 9 checks | 34 MB |
 | MIPS64 little-endian (Loongson) | OpenWrt 25.12.5 | linux-mips64le | ✅ all 7 checks (no internet in the VM) | 18 MB |
-| x86 32-bit | OpenWrt 23.05.6 | linux-386 | ✅ all 10 checks | 30 MB |
-| x86-64 mini PC | OpenWrt 19.07.10 | linux-amd64 | ✅ all 10 checks | 31 MB |
-| x86-64 mini PC | OpenWrt 22.03.7 | linux-amd64 | ✅ all 10 checks | 34 MB |
+| x86 32-bit | OpenWrt 23.05.6 | linux-386 | ✅ all 10 checks | 31 MB |
+| x86-64 mini PC | OpenWrt 19.07.10 | linux-amd64 | ✅ all 10 checks | 30 MB |
+| x86-64 mini PC | OpenWrt 22.03.7 | linux-amd64 | ✅ all 10 checks | 33 MB |
 | x86-64, squashfs like router flash | OpenWrt 24.10.8 | linux-amd64 | ✅ all 10 checks | 35 MB |
 
 On real hardware:
@@ -223,7 +223,7 @@ and it'll go in this table.
 #### When things go wrong
 
 These run in the lab on OpenWrt 24.10 x86 squashfs, which has the same flash layout as a real router (the package
-rows also on 21.02 and 25.12):
+rows also on 21.02 and 25.12, and the GL.iNet 4.9 rows on 21.02):
 
 | Situation | Result |
 |---|---|
@@ -246,6 +246,8 @@ rows also on 21.02 and 25.12):
 | Recovers by itself once the program works again | ✅ |
 | Installed from the ipk on OpenWrt 21.02 (fw3, like stock GL.iNet): works like the installer | ✅ |
 | Removed with the ipk on OpenWrt 21.02 (fw3, like stock GL.iNet): router back to stock | ✅ |
+| GL.iNet 4.9 style firmware (fw3 with an nft that can't read /dev/stdin, like the Beryl 7): uses iptables and the dashboard opens | ✅ |
+| GL.iNet 4.9 style firmware: removed cleanly | ✅ |
 | Installed from the ipk on OpenWrt 24.10: works like the installer | ✅ |
 | Removed with the ipk on OpenWrt 24.10: router back to stock | ✅ |
 | Installed from the apk on OpenWrt 25.12: works like the installer | ✅ |
