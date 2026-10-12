@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/masaleem-oss/Fengard/internal/alerts"
+	"github.com/masaleem-oss/Fengard/internal/config"
 	"github.com/masaleem-oss/Fengard/internal/update"
 )
 
@@ -79,4 +80,64 @@ func sentence(s string) string {
 		return s
 	}
 	return strings.ToUpper(s[:1]) + s[1:] + "."
+}
+
+func (s *Server) updateOlder(w http.ResponseWriter, r *http.Request) {
+	if s.Updater == nil || s.Updater.API == "" {
+		httpError(w, http.StatusBadRequest, "update checks are turned off")
+		return
+	}
+	list, err := s.Updater.Older(r.Context())
+	if err != nil {
+		httpError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	writeJSON(w, list)
+}
+
+func (s *Server) updateRollback(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Version string `json:"version"`
+	}
+	if !decode(w, r, &body) {
+		return
+	}
+	v := s.updateView()
+	switch {
+	case v.Disabled:
+		httpError(w, http.StatusBadRequest, "update checks are turned off")
+		return
+	case !v.CanInstall:
+		httpError(w, http.StatusBadRequest, "this install can't change its own version, install the older kit from GitHub")
+		return
+	case v.Installing:
+		httpError(w, http.StatusConflict, "an update is already running")
+		return
+	case body.Version == "" || update.Compare(body.Version, v.Current) >= 0:
+		httpError(w, http.StatusBadRequest, "pick a version older than this one")
+		return
+	}
+	// older versions ignore the hold, so they would put the version just left back overnight
+	if v.AutoUpdate && update.Compare(body.Version, update.FirstWithHold) < 0 && !s.update(w, r, "Turned automatic updates off before going back to "+body.Version, func(c *config.Config) error {
+		c.Settings.AutoUpdate = false
+		return nil
+	}) {
+		return
+	}
+	who := "admin"
+	if sess := s.currentSession(r); sess != nil {
+		who = sess.Username
+	}
+	s.Audit.Append(auditRecord(who, clientIP(r), "Started going back to "+body.Version))
+	if !s.startWorker(func(ctx context.Context) {
+		if err := s.Updater.Rollback(ctx, body.Version); err != nil && ctx.Err() == nil {
+			s.Alerts.Raise("update_failed:"+body.Version, 0, alerts.Alert{Kind: "update_failed", Severity: alerts.Warning,
+				Title: "Going back to Fengard " + body.Version + " failed", Detail: sentence(err.Error())})
+		}
+	}) {
+		httpError(w, http.StatusServiceUnavailable, "Fengard is shutting down")
+		return
+	}
+	v.Installing, v.To = true, body.Version
+	writeJSON(w, v)
 }

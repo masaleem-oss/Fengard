@@ -107,7 +107,7 @@ func New(recent int, db *store.Log, hourly *store.KV) *Log {
 	}
 	if db != nil {
 		l.restore()
-		l.ch = make(chan Entry, 8192)
+		l.ch = make(chan Entry, 1024) // the writer batches, this only covers bursts
 		go l.writer()
 	} else {
 		close(l.done)

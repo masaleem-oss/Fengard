@@ -177,6 +177,8 @@ func (s *Server) Handler() http.Handler {
 	admin("PUT /api/settings", s.putSettings)
 	admin("POST /api/update/check", s.updateCheck)
 	admin("POST /api/update/install", s.updateInstall)
+	admin("GET /api/update/older", s.updateOlder)
+	admin("POST /api/update/rollback", s.updateRollback)
 	admin("POST /api/internet/speedtest", s.speedTest)
 	admin("POST /api/scan", s.scanNow)
 	admin("POST /api/rules/temp", s.addTempAllow)

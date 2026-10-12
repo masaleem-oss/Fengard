@@ -19,6 +19,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -48,6 +49,9 @@ type Status struct {
 	Installing bool      `json:"installing"`
 	Target     string    `json:"target"`
 	Prerelease bool      `json:"prerelease"` // the newest one found is a preview build
+	To         string    `json:"to,omitempty"`       // the version being installed, older when going back
+	Previous   string    `json:"previous,omitempty"` // what this router ran before its last update
+	Held       string    `json:"held,omitempty"`     // went back from this, so automatic updates skip it
 }
 
 // newer and runs here
@@ -129,7 +133,22 @@ func (u *Updater) view() Status {
 	s.Current = u.Current
 	s.Target = Target()
 	s.CanInstall = u.canInstall()
+	s.Previous = u.readState("previous-version")
+	// only means something while the version gone back from is ahead of this one
+	if h := u.readState("update-hold"); Compare(h, u.Current) > 0 {
+		s.Held = h
+	}
 	return s
+}
+
+func (u *Updater) readState(name string) string {
+	u.defaults()
+	b, _ := os.ReadFile(filepath.Join(u.StateDir, name))
+	v := strings.TrimSpace(string(b))
+	if !plainVersion.MatchString(v) {
+		return ""
+	}
+	return v
 }
 
 // listURL is every release rather than just the latest, which github never fills with a pre-release
@@ -367,21 +386,123 @@ func (u *Updater) Install(ctx context.Context) error {
 		u.mu.Unlock()
 		return errors.New("no update available for this router")
 	}
-	u.st.Installing = true
+	u.st.Installing, u.st.To = true, st.Latest
 	u.mu.Unlock()
-	err := u.install(ctx, rel, st.Latest)
+	err := u.install(ctx, rel, st.Latest, false)
 	if err != nil {
 		u.mu.Lock()
-		u.st.Installing = false
+		u.st.Installing, u.st.To = false, ""
 		u.mu.Unlock()
 	}
 	return err
 }
 
+// versions from this one keep automatic updates off the version someone went back from
+const FirstWithHold = "1.3.1.2"
+
+// going back further than this lands on versions that don't know about previews or four part versions
+const OldestRollback = "1.3.0"
+
+type Older struct {
+	Version    string `json:"version"`
+	Prerelease bool   `json:"prerelease"`
+	Supported  bool   `json:"supported"`
+	Reason     string `json:"reason,omitempty"`
+	URL        string `json:"url,omitempty"`
+}
+
+// olderReleases are the ones this router could go back to, newest first
+func (u *Updater) olderReleases(ctx context.Context) ([]release, error) {
+	body, err := u.get(ctx, listURL(u.API), 4<<20)
+	if err != nil {
+		return nil, err
+	}
+	var rels []release
+	if err := json.Unmarshal(body, &rels); err != nil {
+		return nil, err
+	}
+	out := rels[:0]
+	for _, r := range rels {
+		v := strings.TrimPrefix(r.Tag, "v")
+		if r.Draft || r.Prerelease && !u.preview() || !plainVersion.MatchString(v) ||
+			Compare(v, u.Current) >= 0 || Compare(v, OldestRollback) < 0 {
+			continue
+		}
+		out = append(out, r)
+	}
+	slices.SortFunc(out, func(a, b release) int { return Compare(b.Tag, a.Tag) })
+	return out, nil
+}
+
+// Older lists what Go back can install, at most 8
+func (u *Updater) Older(ctx context.Context) ([]Older, error) {
+	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
+	defer cancel()
+	rels, err := u.olderReleases(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("couldn't reach GitHub: %v", err)
+	}
+	out := []Older{}
+	for i := range rels {
+		if len(out) == 8 {
+			break
+		}
+		ok, why := supported(&rels[i], nil)
+		out = append(out, Older{Version: strings.TrimPrefix(rels[i].Tag, "v"), Prerelease: rels[i].Prerelease,
+			Supported: ok, Reason: why, URL: rels[i].Page})
+	}
+	return out, nil
+}
+
+// Rollback installs an older release the same careful way as an update and holds automatic
+// updates at it so the version just left doesn't come straight back overnight
+func (u *Updater) Rollback(ctx context.Context, version string) error {
+	u.defaults()
+	if !u.canInstall() {
+		return errors.New("this install can't change its own version, install the older kit from GitHub")
+	}
+	version = strings.TrimPrefix(version, "v")
+	u.mu.Lock()
+	if u.st.Installing {
+		u.mu.Unlock()
+		return ErrBusy
+	}
+	u.st.Installing, u.st.To = true, version
+	u.mu.Unlock()
+	err := func() error {
+		rels, err := u.olderReleases(ctx)
+		if err != nil {
+			return fmt.Errorf("couldn't reach GitHub: %v", err)
+		}
+		for i := range rels {
+			if strings.TrimPrefix(rels[i].Tag, "v") != version {
+				continue
+			}
+			if ok, why := supported(&rels[i], nil); !ok {
+				return errors.New(why)
+			}
+			return u.install(ctx, &rels[i], version, true)
+		}
+		return errors.New("Fengard " + version + " isn't one this router can go back to")
+	}()
+	if err != nil {
+		u.mu.Lock()
+		u.st.Installing, u.st.To = false, ""
+		u.mu.Unlock()
+	}
+	return err
+}
+
+// automatic updates skip what someone went back from, anything newer still comes
+func (u *Updater) held(latest string) bool {
+	h := u.readState("update-hold")
+	return h != "" && Compare(latest, h) <= 0
+}
+
 // the version ends up in a shell script so only plain ones get through
 var plainVersion = regexp.MustCompile(`^[0-9A-Za-z.-]{1,32}$`)
 
-func (u *Updater) install(ctx context.Context, rel *release, version string) error {
+func (u *Updater) install(ctx context.Context, rel *release, version string, back bool) error {
 	if !plainVersion.MatchString(version) || !plainVersion.MatchString(u.Current) {
 		return errors.New("the release has an odd version number, not installing it")
 	}
@@ -445,7 +566,7 @@ func (u *Updater) install(ctx context.Context, rel *release, version string) err
 		return err
 	}
 	script := filepath.Join(u.WorkDir, "apply.sh")
-	if err := os.WriteFile(script, []byte(applyScript(self, newBin, u.InitScript, u.StateDir, version, u.Current)), 0o700); err != nil {
+	if err := os.WriteFile(script, []byte(applyScript(self, newBin, u.InitScript, u.StateDir, version, u.Current, back)), 0o700); err != nil {
 		return err
 	}
 	return detach(script)
@@ -498,12 +619,23 @@ func preflight(ctx context.Context, bin, dir string) error {
 }
 
 // runs after this process is gone so it can restart the service and roll back
-func applyScript(bin, newBin, initScript, stateDir, version, current string) string {
+func applyScript(bin, newBin, initScript, stateDir, version, current string, back bool) string {
+	// going back holds automatic updates at the version left, going forward lets them run again
+	after := `rm -f "$STATE/update-hold"`
+	if back {
+		after = fmt.Sprintf(`echo %q >"$STATE/update-hold"`, current)
+	}
 	return fmt.Sprintf(`#!/bin/sh
 BIN=%[1]q NEW=%[2]q INIT=%[3]q STATE=%[4]q
 . "$STATE/install.env"
 sleep 2
-logger -t fengard "updating to %[5]s"
+logger -t fengard "switching from %[6]s to %[5]s"
+# settings as they were on %[6]s, so a version that reads them differently never loses anything
+D=${FG_DIR:-$STATE}
+if [ -f "$D/config.json" ]; then
+	cp "$D/config.json" "$D/config.%[6]s.json"
+	ls -t "$D"/config.*.json 2>/dev/null | tail -n +4 | while read -r f; do rm -f "$f"; done
+fi
 cp "$BIN" "$NEW.prev" && cp "$NEW" "$BIN.new" && chmod 755 "$BIN.new" && mv "$BIN.new" "$BIN" || {
 	rm -f "$BIN.new"
 	echo "failed %[5]s couldn't write the new program, is the flash full" >"$STATE/update-result"
@@ -516,7 +648,12 @@ V=/usr/share/fengard/version
 "$INIT" restart
 for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18; do
 	sleep 5
-	nslookup fengard.lan 127.0.0.1 2>/dev/null | grep -q "$FG_IP" && { echo "ok %[5]s" >"$STATE/update-result"; exit 0; }
+	nslookup fengard.lan 127.0.0.1 2>/dev/null | grep -q "$FG_IP" && {
+		echo "ok %[5]s" >"$STATE/update-result"
+		echo %[6]s >"$STATE/previous-version"
+		%[7]s
+		exit 0
+	}
 done
 logger -t fengard "%[5]s didn't answer dns, going back to %[6]s"
 cp "$NEW.prev" "$BIN.new" && mv "$BIN.new" "$BIN"
@@ -524,7 +661,7 @@ cp "$NEW.prev" "$BIN.new" && mv "$BIN.new" "$BIN"
 sync
 echo "failed %[5]s didn't start, went back to %[6]s" >"$STATE/update-result"
 "$INIT" restart
-`, bin, newBin, initScript, stateDir, version, current)
+`, bin, newBin, initScript, stateDir, version, current, after)
 }
 
 // reports how the last update went, called once at startup
@@ -568,7 +705,7 @@ func (u *Updater) Run(ctx context.Context) {
 			u.Check(ctx)
 			last = time.Now()
 		}
-		if u.Auto != nil && u.Auto() && u.Status().Available() {
+		if st := u.Status(); u.Auto != nil && u.Auto() && st.Available() && !u.held(st.Latest) {
 			loc := time.Local
 			if u.Loc != nil {
 				loc = u.Loc()

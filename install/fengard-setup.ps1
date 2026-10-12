@@ -135,7 +135,7 @@ function Install-Router {
         $agh = 'ADGUARD=off '
     }
     switch ($code) {
-        0 { Say 'Done. Open the dashboard address shown above and create the admin account.' }
+        0 { Say 'Done.' }
         255 { Fail 'Could not connect to the router over SSH.' }
         7 { Fail 'AdGuard Home is still using port 53, so nothing was changed.' }
         default { Fail "The router install stopped (code $code); see the messages above. The router's own DNS setup was left working." }

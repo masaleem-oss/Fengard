@@ -328,6 +328,8 @@ if [ "$BIN_SRC" != "$BIN" ]; then
 	cp "$BIN_SRC" "$BIN.new" && chmod 755 "$BIN.new" && mv "$BIN.new" "$BIN" || die "can't write $BIN"
 fi
 cp "$UNINSTALL_SRC" /etc/fengard/uninstall.sh && chmod 755 /etc/fengard/uninstall.sh
+# a kit install is a fresh choice of version, so a hold from going back no longer applies
+rm -f /etc/fengard/update-hold
 rm -f /etc/fengard/router-uninstall.sh
 if [ -d "$SRC/lists" ] && [ "$FG_DIR" != "$SRC" ]; then
 	mkdir -p "$FG_DIR/lists" && cp "$SRC"/lists/* "$FG_DIR/lists/" 2>/dev/null && note "copied the blocklist cache"
@@ -591,3 +593,15 @@ echo "Fengard is running."
 echo "  Dashboard   http://$FG_IP/  or  http://fengard.lan/"
 echo "  DNS         $LAN_IP (devices need no changes)"
 echo "  Uninstall   sh /etc/fengard/uninstall.sh"
+# fengard logs this right after the dashboard starts, only when nobody has an account yet
+first=
+for _ in 1 2 3 4 5; do
+	logread -e fengardd 2>/dev/null | grep -F "fengardd[$(pidof fengardd)]" | grep -q "first run" && { first=1; break; }
+	sleep 1
+done
+echo
+if [ -n "$first" ]; then
+	echo "Next: open the dashboard and create the admin account."
+else
+	echo "Your settings, devices and admin account were kept. Sign in on the dashboard as usual."
+fi

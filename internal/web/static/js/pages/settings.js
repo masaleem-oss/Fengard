@@ -2,7 +2,7 @@ import { api, get, post, put, del } from '../api.js';
 import { $, $$, esc, icon, dateTime, ago, isSet, attempt, busy, modal, confirmDialog, empty, copyText, toast, switchInput } from '../ui.js';
 import { platformTiles, wirePlatformTiles, trustStatus, trustBadge } from '../cert.js';
 import { state, isAdmin, refreshShell } from '../main.js';
-import { startUpdate, codename } from '../update.js';
+import { startUpdate, startRollback, codename } from '../update.js';
 
 const TABS = [
   ['general', 'settings', 'General', true],
@@ -51,7 +51,7 @@ async function updates(box) {
     const admin = isAdmin();
     let line = 'Not checked yet.';
     if (u.disabled) line = 'Update checks are turned off.';
-    else if (u.installing) line = `Updating to ${esc(u.latest)}. Fengard restarts in a moment and DNS keeps working while it does.`;
+    else if (u.installing) line = `Switching to Fengard ${esc(u.to || u.latest)}. Fengard restarts in a moment and DNS keeps working while it does.`;
     else if (u.available) line = `<b>Fengard ${esc(u.latest)}${u.prerelease ? ' preview' : ''} is available.</b>${u.canInstall ? '' : ' Download the new kit from GitHub to install it.'}`;
     else if (u.newer && !u.supported) line = `Fengard ${esc(u.latest)} is out but doesn't support this router. ${esc(u.reason || '')}`;
     else if (isSet(u.checkedAt) && u.latest && newer(u.current, u.latest)) line = "You're on a preview build. The next release replaces it.";
@@ -66,13 +66,16 @@ async function updates(box) {
       ${admin && !u.disabled ? `<div class="row" style="margin:12px 0">
           <button class="btn btn-sm" type="button" id="up-check">${icon('refresh-cw', 'icon-sm')}Check now</button>
           ${u.available && u.canInstall && !u.installing ? `<button class="btn btn-sm btn-primary" type="button" id="up-go">${icon('download', 'icon-sm')}Update to ${esc(u.latest)}</button>` : ''}
+          ${u.canInstall && !u.installing ? `<button class="btn btn-sm" type="button" id="up-back">${icon('history', 'icon-sm')}Go back…</button>` : ''}
         </div>
+        ${u.held ? `<p class="t-3 t-sm" style="margin:-4px 0 12px">You went back from ${esc(u.held)}, so automatic updates skip it. Anything newer still installs.</p>` : ''}
         <div class="setting" style="padding-left:0;padding-right:0"><div class="setting-text"><b>Install updates automatically</b><small>New releases install overnight, between 3 and 5 am, once Fengard has checked they support this router. If a new version doesn't start, the old one comes back on its own.</small></div>
           ${switchInput('id="up-auto"', u.autoUpdate, 'Install updates automatically')}</div>
         <div class="setting" style="padding-left:0;padding-right:0"><div class="setting-text"><b>Preview builds</b><small>Get pre-releases before everyone else, to try new things early. They're tested the same way but haven't had as long in real homes. Off means only full releases, and a preview you're on is replaced by the next full release.</small></div>
           ${switchInput('id="up-preview"', u.previewBuilds, 'Preview builds')}</div>` : ''}`;
     $('#up-check', box)?.addEventListener('click', (e) => busy(e.currentTarget, () => attempt(async () => { await post('/api/update/check'); await draw(); })));
     $('#up-go', box)?.addEventListener('click', () => startUpdate(u, draw));
+    $('#up-back', box)?.addEventListener('click', () => startRollback(u, draw));
     $('#up-auto', box)?.addEventListener('change', (e) => attempt(() => saveSettings({ autoUpdate: e.target.checked },
       e.target.checked ? 'Updates will install automatically' : 'Automatic updates turned off')));
     $('#up-preview', box)?.addEventListener('change', async (e) => {

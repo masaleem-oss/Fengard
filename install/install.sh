@@ -89,7 +89,7 @@ install_router() {
 		esac
 	fi
 	case $code in
-	0) say "Done. Open the dashboard address shown above and create the admin account." ;;
+	0) say "Done." ;;
 	255) die "could not connect to the router over SSH" ;;
 	7) die "AdGuard Home is still using port 53, so nothing was changed" ;;
 	*) die "the router install stopped (code $code); see the messages above. The router's own DNS setup was left working." ;;

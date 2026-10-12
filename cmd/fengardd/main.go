@@ -26,8 +26,6 @@ import (
 
 	"golang.org/x/net/netutil"
 
-	// routers often have no ca bundle so tls downloads need these
-	_ "golang.org/x/crypto/x509roots/fallback"
 	// routers have no timezone database so named zones in settings would not load
 	_ "time/tzdata"
 
@@ -81,6 +79,7 @@ func main() {
 		logFileMB    = flag.Int("log-file-mb", 16, "database high-water threshold in MiB for suspending log writes")
 		logReserveMB = flag.Int("log-space-reserve-mb", 4, "free-space reserve in MiB for critical state")
 		memMB        = flag.Int("mem-limit", 96, "soft memory limit in MB")
+		gcPercent    = flag.Int("gc-percent", 50, "how far the heap grows past live data before collecting (go defaults to 100)")
 		noUpdate     = flag.Bool("no-list-updates", false, "don't download blocklists (use cached copies only)")
 		updateURL    = flag.String("update-url", "https://api.github.com/repos/masaleem-oss/Fengard/releases/latest", "where to check for new Fengard releases (empty to turn checks off)")
 		speedURL     = flag.String("speedtest-url", "", "your own speed test server with /__down and /__up (default: fast.com, then LibreSpeed)")
@@ -89,6 +88,9 @@ func main() {
 	if *logMB < 1 || *logRecords < 1 || *logFileMB < *logMB+4 || *logReserveMB < 1 {
 		log.Fatal("invalid logging storage limits")
 	}
+	if fallbackRoots() {
+		log.Printf("no ca bundle on the router, using Fengard's own root certificates")
+	}
 	if z := sysinfo.UseRouterTimezone(); z != "" {
 		log.Printf("timezone %s from the router settings", z)
 	}
@@ -96,6 +98,10 @@ func main() {
 		*blockIP = lanIPv4()
 	}
 	debug.SetMemoryLimit(int64(*memMB) << 20)
+	// routers have cpu to spare and not memory, an explicit GOGC still wins
+	if os.Getenv("GOGC") == "" {
+		debug.SetGCPercent(*gcPercent)
+	}
 	log.SetFlags(log.LstdFlags | log.Lmsgprefix)
 
 	ip := net.ParseIP(*blockIP)

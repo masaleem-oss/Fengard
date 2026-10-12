@@ -5,6 +5,9 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -103,7 +106,7 @@ func TestCheckOffline(t *testing.T) {
 func TestOddVersion(t *testing.T) {
 	u := &Updater{Current: "1.2.0"}
 	for _, v := range []string{"1.3.0$(reboot)", "1.3.0;rm", "1.3.0 x", ""} {
-		if err := u.install(context.Background(), &release{}, v); err == nil || !strings.Contains(err.Error(), "odd version") {
+		if err := u.install(context.Background(), &release{}, v, false); err == nil || !strings.Contains(err.Error(), "odd version") {
 			t.Errorf("%q: %v", v, err)
 		}
 	}
@@ -188,6 +191,108 @@ func TestPreviewToStable(t *testing.T) {
 		u := &Updater{API: srv.URL + "/latest", Current: "1.3.0.1", Client: srv.Client(), Preview: func() bool { return preview }}
 		if st := u.Check(context.Background()); !st.Newer || st.Latest != "1.3.1" || st.Prerelease {
 			t.Fatalf("preview %v: %+v", preview, st)
+		}
+	}
+}
+
+func TestOlder(t *testing.T) {
+	list := []release{
+		{Tag: "v1.3.1.2"},
+		{Tag: "v1.3.1.1", Prerelease: true},
+		{Tag: "v1.3.1"},
+		{Tag: "v1.3.0"},
+		{Tag: "v1.2.6"}, // older than OldestRollback
+		{Tag: "v1.3.0.5", Prerelease: true, Draft: true},
+	}
+	srv := fakeReleases(t, "v1.3.1", list)
+	preview := false
+	u := &Updater{API: srv.URL + "/latest", Current: "1.3.1.2", Client: srv.Client(), Preview: func() bool { return preview }}
+	versions := func() string {
+		got, err := u.Older(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		var v []string
+		for _, o := range got {
+			v = append(v, o.Version)
+		}
+		return strings.Join(v, " ")
+	}
+	if got := versions(); got != "1.3.1 1.3.0" {
+		t.Fatalf("previews off: %q", got)
+	}
+	preview = true
+	if got := versions(); got != "1.3.1.1 1.3.1 1.3.0" {
+		t.Fatalf("previews on: %q", got)
+	}
+}
+
+// a router install as far as canInstall can tell
+func fakeRouter(t *testing.T) (initScript, state string) {
+	t.Helper()
+	dir := t.TempDir()
+	initScript = filepath.Join(dir, "fengard")
+	os.WriteFile(initScript, []byte("#!/bin/sh\n"), 0o755)
+	os.WriteFile(filepath.Join(dir, "install.env"), nil, 0o644)
+	return initScript, dir
+}
+
+func TestRollbackRefuses(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("only routers can switch versions")
+	}
+	srv := fakeReleases(t, "v1.3.1", []release{{Tag: "v1.3.1"}, {Tag: "v1.2.6"}})
+	initScript, state := fakeRouter(t)
+	u := &Updater{API: srv.URL + "/latest", Current: "1.3.1.2", Client: srv.Client(), InitScript: initScript, StateDir: state, WorkDir: t.TempDir()}
+	for _, v := range []string{"1.2.6", "1.3.2", "1.3.1.2", "9.9.9"} {
+		if err := u.Rollback(context.Background(), v); err == nil || !strings.Contains(err.Error(), "isn't one this router can go back to") {
+			t.Errorf("%s: %v", v, err)
+		}
+	}
+	// a real choice gets as far as the download, which this fake server doesn't have
+	if err := u.Rollback(context.Background(), "1.3.1"); err == nil {
+		t.Fatal("expected the missing download to fail")
+	}
+	if st := u.Status(); st.Installing || st.To != "" {
+		t.Fatalf("a failed rollback left %+v", st)
+	}
+}
+
+func TestHold(t *testing.T) {
+	_, state := fakeRouter(t)
+	u := &Updater{Current: "1.3.1", StateDir: state}
+	if u.held("1.3.1.2") {
+		t.Fatal("held with no hold file")
+	}
+	os.WriteFile(filepath.Join(state, "update-hold"), []byte("1.3.1.2\n"), 0o644)
+	if !u.held("1.3.1.2") || !u.held("1.3.1.1") || u.held("1.3.1.3") || u.held("1.3.2") {
+		t.Fatal("hold should skip 1.3.1.2 and older only")
+	}
+	if u.Status().Held != "1.3.1.2" {
+		t.Fatal("hold ahead of this version should show")
+	}
+	os.WriteFile(filepath.Join(state, "update-hold"), []byte("1.3.1;reboot"), 0o644)
+	if u.Status().Held != "" {
+		t.Fatal("an odd hold file was trusted")
+	}
+	os.WriteFile(filepath.Join(state, "update-hold"), []byte("1.3.1"), 0o644)
+	if u.Status().Held != "" {
+		t.Fatal("a hold at the version running now isn't shown")
+	}
+}
+
+func TestApplyScriptHold(t *testing.T) {
+	back := applyScript("/usr/bin/fengardd", "/tmp/n", "/etc/init.d/fengard", "/etc/fengard", "1.3.1", "1.3.1.2", true)
+	fwd := applyScript("/usr/bin/fengardd", "/tmp/n", "/etc/init.d/fengard", "/etc/fengard", "1.3.1.2", "1.3.1", false)
+	if !strings.Contains(back, `echo "1.3.1.2" >"$STATE/update-hold"`) || strings.Contains(back, "rm -f \"$STATE/update-hold\"") {
+		t.Fatalf("going back should hold at 1.3.1.2:\n%s", back)
+	}
+	if !strings.Contains(fwd, `rm -f "$STATE/update-hold"`) {
+		t.Fatal("going forward should clear the hold")
+	}
+	for _, s := range []string{back, fwd} {
+		if !strings.Contains(s, `config.json" "$D/config.`) || !strings.Contains(s, `>"$STATE/previous-version"`) {
+			t.Fatal("settings backup or previous version missing")
 		}
 	}
 }

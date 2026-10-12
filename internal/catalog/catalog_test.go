@@ -1,6 +1,7 @@
 package catalog
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -90,5 +91,54 @@ func TestParseTorRelays(t *testing.T) {
 	}
 	if Index("tor") < 0 || MaskOf([]string{"tor"}) == 0 {
 		t.Fatal("tor category not registered")
+	}
+}
+
+// enough domains to fill many blocks, lots of them repeated across "lists"
+func TestBuilderMatchesMap(t *testing.T) {
+	b := NewBuilder()
+	want := map[string]Mask{}
+	x := uint32(1)
+	for i := range 120000 {
+		x ^= x << 13
+		x ^= x >> 17
+		x ^= x << 5
+		d := fmt.Sprintf("h%d.site%d.com", x%40000, x%7)
+		if i%9 == 0 {
+			d = strings.Repeat("long", 55) + d // near the 253 limit
+		}
+		m := Mask(1) << (x % 20)
+		b.Add(d, m)
+		want[d] |= m
+	}
+	s := b.Build()
+	if s.Len() != len(want) {
+		t.Fatalf("Len = %d, want %d", s.Len(), len(want))
+	}
+	for i := 1; i < s.Len(); i++ {
+		if s.at(i-1) >= s.at(i) {
+			t.Fatalf("not sorted at %d: %q then %q", i, s.at(i-1), s.at(i))
+		}
+	}
+	for d, m := range want {
+		if got := s.Get(d); got != m {
+			t.Fatalf("Get(%q) = %b, want %b", d, got, m)
+		}
+	}
+	if NewBuilder().Build().Len() != 0 {
+		t.Fatal("empty builder should give an empty set")
+	}
+}
+
+func BenchmarkMatch(b *testing.B) {
+	bl := NewBuilder()
+	for i := range 500000 {
+		bl.Add(fmt.Sprintf("ads%d.tracker%d.com", i, i%997), Mask(1)<<(i%16))
+	}
+	s := bl.Build()
+	names := []string{"cdn.ads123.tracker123.com", "www.example.org", "a.b.c.d.ads99999.tracker300.com", "nothing.net"}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		s.Match(names[i%len(names)])
 	}
 }
