@@ -11,18 +11,19 @@ import (
 
 type updateView struct {
 	update.Status
-	Available  bool `json:"available"`
-	AutoUpdate bool `json:"autoUpdate"`
-	Disabled   bool `json:"disabled,omitempty"`
+	Available     bool `json:"available"`
+	AutoUpdate    bool `json:"autoUpdate"`
+	PreviewBuilds bool `json:"previewBuilds"`
+	Disabled      bool `json:"disabled,omitempty"`
 }
 
 func (s *Server) updateView() updateView {
-	auto := s.Config.Get().Settings.AutoUpdate
+	set := s.Config.Get().Settings
 	if s.Updater == nil || s.Updater.API == "" {
-		return updateView{Status: update.Status{Current: s.Version}, AutoUpdate: auto, Disabled: true}
+		return updateView{Status: update.Status{Current: s.Version}, AutoUpdate: set.AutoUpdate, PreviewBuilds: set.PreviewBuilds, Disabled: true}
 	}
 	st := s.Updater.Status()
-	return updateView{Status: st, Available: st.Available(), AutoUpdate: auto}
+	return updateView{Status: st, Available: st.Available(), AutoUpdate: set.AutoUpdate, PreviewBuilds: set.PreviewBuilds}
 }
 
 func (s *Server) updateStatus(w http.ResponseWriter, r *http.Request) {

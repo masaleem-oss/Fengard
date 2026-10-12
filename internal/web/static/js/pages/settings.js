@@ -35,6 +35,15 @@ async function saveSettings(patch, msg = 'Settings saved') {
 
 // updates
 
+// newer says whether a is ahead of b, versions like 1.3.0.1
+function newer(a, b) {
+  const pa = String(a).split('.').map((x) => parseInt(x, 10) || 0), pb = String(b).split('.').map((x) => parseInt(x, 10) || 0);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    if ((pa[i] || 0) !== (pb[i] || 0)) return (pa[i] || 0) > (pb[i] || 0);
+  }
+  return false;
+}
+
 async function updates(box) {
   const draw = async () => {
     const u = await get('/api/update').catch(() => null);
@@ -43,13 +52,14 @@ async function updates(box) {
     let line = 'Not checked yet.';
     if (u.disabled) line = 'Update checks are turned off.';
     else if (u.installing) line = `Updating to ${esc(u.latest)}. Fengard restarts in a moment and DNS keeps working while it does.`;
-    else if (u.available) line = `<b>Fengard ${esc(u.latest)} is available.</b>${u.canInstall ? '' : ' Download the new kit from GitHub to install it.'}`;
+    else if (u.available) line = `<b>Fengard ${esc(u.latest)}${u.prerelease ? ' preview' : ''} is available.</b>${u.canInstall ? '' : ' Download the new kit from GitHub to install it.'}`;
     else if (u.newer && !u.supported) line = `Fengard ${esc(u.latest)} is out but doesn't support this router. ${esc(u.reason || '')}`;
+    else if (isSet(u.checkedAt) && u.latest && newer(u.current, u.latest)) line = "You're on a preview build. The next release replaces it.";
     else if (isSet(u.checkedAt) && u.latest) line = 'You have the latest version.';
     box.innerHTML = `<div class="section-title">Updates</div>
       <dl class="kv" style="margin-bottom:10px">
         <dt>This router</dt><dd>Fengard ${esc(u.current)}${codename(u.current) ? ` <span class="t-2">· ${codename(u.current)}</span>` : ''} <span class="t-3 mono t-xs">${esc(u.target || '')}</span></dd>
-        <dt>Latest</dt><dd>${u.latest ? esc(u.latest) + (codename(u.latest) ? ` · ${codename(u.latest)}` : '') : '<span class="t-3">unknown</span>'}${u.url ? ` · <a href="${esc(u.url)}" target="_blank" rel="noopener">what's new</a>` : ''}${isSet(u.checkedAt) ? ` <span class="t-3 t-xs">checked ${ago(u.checkedAt).toLowerCase()}</span>` : ''}</dd>
+        <dt>Latest</dt><dd>${u.latest ? esc(u.latest) + (codename(u.latest) ? ` · ${codename(u.latest)}` : '') + (u.prerelease ? ' <span class="tag">Preview</span>' : '') : '<span class="t-3">unknown</span>'}${u.url ? ` · <a href="${esc(u.url)}" target="_blank" rel="noopener">what's new</a>` : ''}${isSet(u.checkedAt) ? ` <span class="t-3 t-xs">checked ${ago(u.checkedAt).toLowerCase()}</span>` : ''}</dd>
       </dl>
       <p class="t-2 t-sm">${line}</p>
       ${u.error ? `<p class="t-sm" style="color:var(--danger)">${esc(u.error)}</p>` : ''}
@@ -58,11 +68,19 @@ async function updates(box) {
           ${u.available && u.canInstall && !u.installing ? `<button class="btn btn-sm btn-primary" type="button" id="up-go">${icon('download', 'icon-sm')}Update to ${esc(u.latest)}</button>` : ''}
         </div>
         <div class="setting" style="padding-left:0;padding-right:0"><div class="setting-text"><b>Install updates automatically</b><small>New releases install overnight, between 3 and 5 am, once Fengard has checked they support this router. If a new version doesn't start, the old one comes back on its own.</small></div>
-          ${switchInput('id="up-auto"', u.autoUpdate, 'Install updates automatically')}</div>` : ''}`;
+          ${switchInput('id="up-auto"', u.autoUpdate, 'Install updates automatically')}</div>
+        <div class="setting" style="padding-left:0;padding-right:0"><div class="setting-text"><b>Preview builds</b><small>Get pre-releases before everyone else, to try new things early. They're tested the same way but haven't had as long in real homes. Off means only full releases, and a preview you're on is replaced by the next full release.</small></div>
+          ${switchInput('id="up-preview"', u.previewBuilds, 'Preview builds')}</div>` : ''}`;
     $('#up-check', box)?.addEventListener('click', (e) => busy(e.currentTarget, () => attempt(async () => { await post('/api/update/check'); await draw(); })));
     $('#up-go', box)?.addEventListener('click', () => startUpdate(u, draw));
     $('#up-auto', box)?.addEventListener('change', (e) => attempt(() => saveSettings({ autoUpdate: e.target.checked },
       e.target.checked ? 'Updates will install automatically' : 'Automatic updates turned off')));
+    $('#up-preview', box)?.addEventListener('change', async (e) => {
+      if (await attempt(() => saveSettings({ previewBuilds: e.target.checked }, e.target.checked ? 'Preview builds turned on' : 'Preview builds turned off'))) {
+        await post('/api/update/check').catch(() => {});
+        await draw();
+      }
+    });
   };
   await draw();
 }
