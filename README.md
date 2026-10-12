@@ -673,12 +673,10 @@ private port and only then swaps it in. If the new version doesn't answer DNS, t
 its own. Turn on **Settings → Install updates automatically** to have this happen overnight, between 3 and 5 am.
 
 **What are preview builds?**
-Pre-releases with a fourth number, like 1.3.0.1, that come out between full releases so new things can be
+Pre-releases with a fourth number, like 1.3.1.1, that come out between full releases so new things can be
 tried early. They go through the same router lab and tests. Nobody gets one unless they turn on
-**Settings → Updates → Preview builds**, and routers from before 1.3.0.1 never see them at all. A preview
-is replaced by the next full release once that's out. To try the first one, install it from its
-[release page](https://github.com/masaleem-oss/Fengard/releases) with the kit, the package, or the
-`router-install.sh` attached there.
+**Settings → Updates → Preview builds** (from 1.3.1), and a preview you're on is replaced by the next full
+release once that's out.
 
 **Is it free?**
 Yes. Fengard is open source under the Apache 2.0 license, with no accounts, cloud or subscription.

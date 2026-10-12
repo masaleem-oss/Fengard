@@ -1,5 +1,5 @@
 // go run ./tools/release -version 1.0.0 -repo owner/name
-// go run ./tools/release -version 1.3.0.1 -prerelease    for a preview build
+// go run ./tools/release -version 1.3.1.1 -prerelease    for a preview build
 // output goes to dist
 package main
 
