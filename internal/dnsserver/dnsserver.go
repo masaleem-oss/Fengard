@@ -11,6 +11,7 @@ import (
 	"net/netip"
 	"runtime"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -19,6 +20,7 @@ import (
 
 	"github.com/masaleem-oss/Fengard/internal/config"
 	"github.com/masaleem-oss/Fengard/internal/devices"
+	h3 "github.com/masaleem-oss/Fengard/internal/fengard-h3"
 	"github.com/masaleem-oss/Fengard/internal/localdns"
 	"github.com/masaleem-oss/Fengard/internal/policy"
 	"github.com/masaleem-oss/Fengard/internal/querylog"
@@ -46,6 +48,9 @@ type Server struct {
 	dnssec    atomic.Bool
 	boot      atomic.Pointer[[]string] // plain dns for looking up doh server names
 	doh       *http.Client
+	doh3      atomic.Bool
+	h3        *h3.Client
+	h3Health  sync.Map // url to *h3Health
 	cache     *cache
 	flight    singleflight.Group
 	sem       chan struct{}
@@ -68,6 +73,8 @@ type Counters struct {
 	UpstreamErr atomic.Uint64
 	Stale       atomic.Uint64
 	Overloaded  atomic.Uint64
+	DoH3        atomic.Uint64 // answered over http/3
+	DoH3Fell    atomic.Uint64 // http/3 failed and http/2 took over
 }
 
 const (
@@ -115,6 +122,9 @@ func (s *Server) Init() {
 		return nil, err
 	}}
 	dial := &net.Dialer{Timeout: 5 * time.Second, Resolver: boot}
+	s.h3 = &h3.Client{TLSConfig: &tls.Config{}, Resolve: func(ctx context.Context, host string) ([]netip.Addr, error) {
+		return boot.LookupNetIP(ctx, "ip", host)
+	}}
 	s.doh = &http.Client{Timeout: 5 * time.Second, Transport: &http.Transport{
 		DialContext:  dial.DialContext,
 		MaxIdleConns: 8, IdleConnTimeout: 90 * time.Second, TLSHandshakeTimeout: 5 * time.Second,
@@ -165,6 +175,11 @@ func (s *Server) Configure(set config.Settings) {
 	s.boot.Store(&boot)
 	s.bypass.Store(set.BlockBypass)
 	s.dnssec.Store(set.DNSSEC)
+	// off means no connections and nothing held in memory
+	if !set.DoH3 && s.doh3.Swap(false) && s.h3 != nil {
+		go s.h3.Close()
+	}
+	s.doh3.Store(set.DoH3)
 	if s.perClient != nil {
 		s.perClient.SetRate(float64(set.ClientRateQPS), float64(set.ClientRateQPS*3))
 	}
@@ -571,6 +586,11 @@ func (s *Server) exchangeDoH(req *dns.Msg, url string) (*dns.Msg, error) {
 	if err != nil {
 		return nil, err
 	}
+	if s.doh3.Load() {
+		if m, err := s.exchangeDoH3(body, url); err == nil {
+			return m, nil
+		}
+	}
 	hreq, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
 		return nil, err
@@ -594,6 +614,114 @@ func (s *Server) exchangeDoH(req *dns.Msg, url string) (*dns.Msg, error) {
 		return nil, err
 	}
 	return m, nil
+}
+
+// h3Health remembers how http/3 is going for one server so a path that blocks udp only costs one timeout
+type h3Health struct {
+	mu        sync.Mutex
+	worked    bool
+	fails     int
+	round     int // bumped on every failure so lookups that shared one bad connection count once
+	probing   bool
+	waitUntil time.Time
+	lastErr   string
+	lastOK    time.Time
+}
+
+const (
+	h3FirstTry   = 1500 * time.Millisecond // handshake and answer, a server that's never answered
+	h3Try        = 2 * time.Second
+	h3MinBackoff = 30 * time.Second
+	h3MaxBackoff = 30 * time.Minute
+)
+
+func (s *Server) health(url string) *h3Health {
+	h, _ := s.h3Health.LoadOrStore(url, &h3Health{})
+	return h.(*h3Health)
+}
+
+func (s *Server) exchangeDoH3(body []byte, url string) (*dns.Msg, error) {
+	h := s.health(url)
+	h.mu.Lock()
+	now := time.Now()
+	// after a failure one lookup at a time finds out whether http/3 is back, the rest use http/2 meanwhile
+	if now.Before(h.waitUntil) || h.probing {
+		h.mu.Unlock()
+		return nil, errors.New("http/3 backing off")
+	}
+	probe := h.fails > 0
+	h.probing = probe
+	round := h.round
+	wait := h3FirstTry
+	if h.worked {
+		wait = h3Try
+	}
+	h.mu.Unlock()
+	ctx, cancel := context.WithTimeout(context.Background(), wait)
+	defer cancel()
+	data, err := s.h3.Exchange(ctx, url, body)
+	var m *dns.Msg
+	if err == nil {
+		m = new(dns.Msg)
+		err = m.Unpack(data)
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if probe {
+		h.probing = false
+	}
+	if err != nil {
+		s.Counters.DoH3Fell.Add(1)
+		if h.round != round {
+			return nil, err // another lookup on the same connection already counted this
+		}
+		h.round++
+		h.fails++
+		h.lastErr = err.Error()
+		// one slow answer from a server that works is the resolver, not http/3
+		if !h.worked || h.fails >= 2 {
+			h.waitUntil = time.Now().Add(min(h3MinBackoff<<min(h.fails-1, 10), h3MaxBackoff))
+		}
+		return nil, err
+	}
+	s.Counters.DoH3.Add(1)
+	h.worked, h.fails, h.lastErr, h.lastOK = true, 0, "", time.Now()
+	return m, nil
+}
+
+// Transport is how a dns-over-https upstream is being reached
+type Transport struct {
+	URL       string    `json:"url"`
+	Using     string    `json:"using"` // HTTP/3, HTTP/2, or empty before the first lookup
+	Error     string    `json:"error,omitempty"`
+	RetryAt   time.Time `json:"retryAt,omitzero"`
+	LastHTTP3 time.Time `json:"lastHttp3,omitzero"`
+}
+
+func (s *Server) Transports() []Transport {
+	var out []Transport
+	for _, u := range *s.upstreams.Load() {
+		if u.Net != "https" {
+			continue
+		}
+		t := Transport{URL: u.URL, Using: "HTTP/2"}
+		if s.doh3.Load() {
+			h := s.health(u.URL)
+			h.mu.Lock()
+			switch {
+			case h.fails > 0:
+				t.Error, t.RetryAt = strings.TrimPrefix(h.lastErr, "h3: "), h.waitUntil
+			case h.worked:
+				t.Using = "HTTP/3"
+			default:
+				t.Using = ""
+			}
+			t.LastHTTP3 = h.lastOK
+			h.mu.Unlock()
+		}
+		out = append(out, t)
+	}
+	return out
 }
 
 func (s *Server) safeSearch(r *dns.Msg, q dns.Question, target string) *dns.Msg {

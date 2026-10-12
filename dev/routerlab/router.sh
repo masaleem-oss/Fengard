@@ -53,6 +53,18 @@ if [ "$wan" = yes ]; then
 	check "lan device resolves internet names" "until_ok 30 '$WORK/dnsq 127.0.0.1:$((15300 + slot)) example.com | grep -q NOERROR'"
 fi
 rss=$(r 'grep VmRSS /proc/$(pidof fengardd)/status' | awk '{ printf "%d MB", $2 / 1024 }')
+if [ "$wan" = yes ]; then
+	# dns over http/3 to cloudflare, switched on through the dashboard like a person would
+	api() { curl -s -m 20 -b "$WORK/jar-$slot" -c "$WORK/jar-$slot" -X "$1" -H 'X-Fengard: 1' -H 'Content-Type: application/json' ${3:+-d "$3"} "http://127.0.0.1:$((18300 + slot))$2"; }
+	rm -f "$WORK/jar-$slot"
+	api POST /api/setup '{"username":"admin","password":"lab-password-2026"}' >/dev/null
+	api POST /api/login '{"username":"admin","password":"lab-password-2026"}' >/dev/null
+	api PUT /api/settings "$(api GET /api/settings | python3 -c 'import json,sys; s=json.load(sys.stdin); s["upstreams"]=["https://1.1.1.1/dns-query"]; s["doh3"]=True; print(json.dumps(s))')" >/dev/null
+	h3_ok() { for n in openwrt.org wikipedia.org debian.org; do "$WORK/dnsq" 127.0.0.1:$((15300 + slot)) "$n" | grep -q NOERROR || return 1; done; api GET /api/dns | grep -q '"using":"HTTP/3"'; }
+	check "lookups go over dns over http/3" "until_ok 60 h3_ok"
+	step "http/3: $(api GET /api/dns | grep -o '"transports":\[[^]]*\]') answered $(api GET /api/overview | grep -o '"doh3":[0-9]*')"
+	step "memory with http/3 on: $(r 'grep VmRSS /proc/$(pidof fengardd)/status' | awk '{ printf "%d MB", $2 / 1024 }')"
+fi
 build=$(r '. /etc/fengard/install.env; echo linux-$ARCH')
 step "memory: $rss"
 if [ "$reboot" = yes ]; then

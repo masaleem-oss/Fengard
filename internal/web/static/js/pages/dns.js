@@ -1,5 +1,5 @@
 import { get, post, put, del } from '../api.js';
-import { $, $$, esc, icon, attempt, busy, empty, switchInput, copyText, exampleIP } from '../ui.js';
+import { $, $$, esc, icon, attempt, busy, empty, switchInput, copyText, exampleIP, dateTime, inFuture } from '../ui.js';
 import { isAdmin } from '../main.js';
 
 const PRESETS = [
@@ -9,7 +9,24 @@ const PRESETS = [
   { name: 'Cloudflare DoT', servers: ['tls://1.1.1.1:853@cloudflare-dns.com', 'tls://1.0.0.1:853@cloudflare-dns.com'] },
   { name: 'Cloudflare DoH', servers: ['https://cloudflare-dns.com/dns-query'] },
   { name: 'Quad9 DoH', servers: ['https://dns.quad9.net/dns-query'] },
+  { name: 'Google DoH', servers: ['https://dns.google/dns-query'] },
+  { name: 'AdGuard DoH', servers: ['https://unfiltered.adguard-dns.com/dns-query'] },
 ];
+
+const hostOf = (u) => { try { return new URL(u).host; } catch { return u; } };
+
+// how each https:// resolver is being reached right now
+function transportLines(info) {
+  if (!info.doh3) return '';
+  if (!info.transports.length) return `<p class="t-xs t-3">HTTP/3 only applies to <code>https://</code> resolvers. Pick a DoH preset above.</p>`;
+  return info.transports.map((t) => {
+    const host = esc(hostOf(t.url));
+    if (t.using === 'HTTP/3') return `<p class="t-xs t-2">${icon('check', 'icon-sm')} ${host} over HTTP/3</p>`;
+    if (!t.error) return `<p class="t-xs t-3">${host} tries HTTP/3 the first time it's used</p>`;
+    const again = inFuture(t.retryAt) ? `, trying again ${dateTime(t.retryAt)}` : '';
+    return `<p class="t-xs t-3">${host} over HTTP/2 for now. HTTP/3 didn't work (${esc(t.error)})${again}.</p>`;
+  }).join('');
+}
 
 export async function render(el, ctx) {
   const admin = isAdmin();
@@ -28,6 +45,11 @@ export async function render(el, ctx) {
             <div class="setting-text"><b>Request DNSSEC records</b><small>Send the DNSSEC OK bit. Fengard does not validate signatures locally. Protection requires a validating upstream over trusted DoH or DoT; plain DNS can be altered in transit.</small></div>
             ${switchInput(`name="dnssec" ${ro}`, false, 'DNSSEC')}
           </div>
+          <div class="setting" style="padding:12px 0;border-top:1px solid var(--border);border-bottom:0">
+            <div class="setting-text"><b>Use HTTP/3</b><small>Send lookups to <code>https://</code> resolvers over HTTP/3 (QUIC), which copes better with patchy connections. If UDP is blocked on the way, Fengard goes back to HTTP/2 by itself. Off uses no extra memory.</small></div>
+            ${switchInput(`name="doh3" ${ro}`, false, 'HTTP/3')}
+          </div>
+          <div id="doh3-status" class="stack" style="gap:4px"></div>
           ${admin ? `<div><button class="btn btn-primary" type="submit">Save resolvers</button></div>` : ''}
         </form>
       </div>
@@ -53,6 +75,8 @@ export async function render(el, ctx) {
     const up = $('#up', el);
     if (document.activeElement !== up.upstreams) up.upstreams.value = info.upstreams.join('\n');
     up.dnssec.checked = info.dnssec;
+    up.doh3.checked = info.doh3;
+    $('#doh3-status', el).innerHTML = transportLines(info);
     const z = $('#zone', el);
     if (document.activeElement !== z.localZone) z.localZone.value = info.zone;
     $('#zone-eg', el).textContent = `leos-ipad.${info.zone}`;
@@ -84,7 +108,7 @@ export async function render(el, ctx) {
     const f = e.target;
     await busy(f.querySelector('[type=submit]'), () => attempt(async () => {
       const s = await get('/api/settings');
-      await put('/api/settings', { ...s, upstreams: f.upstreams.value.split('\n').map((x) => x.trim()).filter(Boolean), dnssec: f.dnssec.checked });
+      await put('/api/settings', { ...s, upstreams: f.upstreams.value.split('\n').map((x) => x.trim()).filter(Boolean), dnssec: f.dnssec.checked, doh3: f.doh3.checked });
     }, 'Resolvers saved'));
     load();
   });

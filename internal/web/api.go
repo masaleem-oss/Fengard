@@ -172,6 +172,7 @@ func (s *Server) overview(w http.ResponseWriter, r *http.Request) {
 			"queries": c.Queries.Load(), "rateLimited": c.RateLimited.Load(), "refused": c.Refused.Load(),
 			"cacheHits": c.CacheHits.Load(), "cacheSize": s.DNS.CacheLen(), "upstream": c.Upstream.Load(),
 			"upstreamErrors": c.UpstreamErr.Load(), "servedStale": c.Stale.Load(), "overloaded": c.Overloaded.Load(),
+			"doh3": c.DoH3.Load(), "doh3Fallbacks": c.DoH3Fell.Load(),
 		},
 		"devices":   map[string]int{"known": len(cfg.Devices), "online": online, "pending": pending},
 		"blocklist": s.Catalog.Set().Len(),

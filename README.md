@@ -87,6 +87,7 @@ network needs, enforced by the router's firewall:
 | Per-device profiles | ✅ | ✅ groups | ✅ per client |
 | Runs on the router itself | ✅ any OpenWrt router | ❌ needs a separate machine | ✅ |
 | Stops devices using another DNS server, DoH or DoT | ✅ in the kernel | ❌ needs your own firewall rules | ❌ needs your own firewall rules |
+| Encrypted upstream DNS | ✅ DoT, DoH, DoH over HTTP/3 | ❌ needs a separate proxy | ✅ DoT, DoH, DoQ, HTTP/3 |
 | Daily screen-time limits per person, across their devices | ✅ | ❌ | ❌ |
 | Block single apps (TikTok, Roblox, Fortnite...) | ✅ | lists only | ✅ |
 | Block page with a "request access" button | ✅ | ❌ | ❌ |
@@ -358,7 +359,7 @@ Computer mode filters every device by DNS but has limits:
   </tr>
   <tr>
     <td><img src="docs/screenshots/forwarding.png" alt="Port forwarding rules"><br><b>Port forwarding.</b> Open a port to one device, enforced in the kernel.</td>
-    <td><img src="docs/screenshots/dns.png" alt="DNS settings: upstreams and local records"><br><b>DNS.</b> Plain, DoT or DoH upstreams, DNSSEC and <code>.lan</code> records.</td>
+    <td><img src="docs/screenshots/dns.png" alt="DNS settings: upstreams and local records"><br><b>DNS.</b> Plain, DoT, DoH or HTTP/3 upstreams, DNSSEC and <code>.lan</code> records.</td>
   </tr>
   <tr>
     <td><img src="docs/screenshots/palette.png" alt="Command palette searching for tiktok"><br><b>Command palette.</b> <kbd>Ctrl</kbd> <kbd>K</kbd> jumps to pages, devices or a site check.</td>
@@ -396,7 +397,7 @@ flowchart TB
         end
         K[Kernel: Fengard's own<br/>nftables table or iptables chains]
     end
-    UP[Upstream DNS<br/>plain, DoT or DoH]
+    UP[Upstream DNS<br/>plain, DoT, DoH or DoH3]
     NET((Internet))
 
     P -- DHCP --> DHCP
@@ -428,7 +429,7 @@ sequenceDiagram
         F-->>D: address of the block page
     else allowed
         F->>F: cache hit?
-        F->>U: forward over DoH/DoT if not cached
+        F->>U: forward over DoH, DoH3 or DoT if not cached
         U-->>F: answer
         F-->>D: answer
     end
@@ -489,6 +490,7 @@ Design choices:
 | Pause protection | Turn all filtering off for a few minutes when something breaks. Device pauses still apply |
 | Local DNS | Every device answers as `<name>.lan`, with custom A, AAAA and CNAME records and reverse lookups. `.lan` never leaks upstream |
 | Upstreams | Plain, DNS-over-TLS and DNS-over-HTTPS (by name or IP), with an optional DNSSEC-record request (validation depends on the upstream) |
+| DNS over HTTP/3 | One switch sends DoH over HTTP/3 with [fengard-h3](#dns-over-http3), Fengard's own small QUIC client. Falls back to HTTP/2 by itself when UDP is blocked |
 | Block page | Branded, over HTTP and HTTPS (a per-router CA with signing restricted in software to blocked names and the dashboard), with an access-request form |
 | Firewall | Port forwards, WAN hardening (service ports closed, SYN and ICMP limits, invalid packets dropped), per-device DNS flood limit, quarantine for new devices |
 | Returning devices | Phones and laptops that rejoin with a new private Wi-Fi address are matched to the device they were, by DHCP name and fingerprint, the old address going quiet as the new one appears, and the sites they use. Sure matches keep their profile automatically, others are suggested on the Devices page. A copied name alone is never enough |
@@ -620,6 +622,15 @@ address going quiet at the same moment, and the sites it uses, and puts it back 
 it isn't sure about wait for you on the Devices page, and **Same device as…** links any two by hand. Two
 devices online at once are never merged, and copying a name isn't enough to get someone else's profile.
 
+<a id="dns-over-http3"></a>
+**Does Fengard do DNS over HTTP/3?**
+Yes. Turn on **DNS → Use HTTP/3** and pick a DoH upstream (Cloudflare, Google, Quad9 and AdGuard all
+work). It's done by [fengard-h3](internal/fengard-h3), a QUIC and HTTP/3 client written for Fengard that
+only does what DNS needs, so it adds about 0.1 to 0.3 MB to the program instead of the several MB a general
+purpose QUIC library would. The TLS 1.3 handshake comes from Go's standard library. With the switch off it
+uses no memory at all, and if UDP is blocked on the way Fengard goes back to HTTP/2 by itself and tries
+HTTP/3 again later. The DNS page shows which one each upstream is using.
+
 **Do I have to flash my router?**
 No. If it already runs OpenWrt or GL.iNet firmware, Fengard installs next to it and uninstalls cleanly.
 If it runs stock firmware that isn't OpenWrt-based, use computer mode or flash OpenWrt.
@@ -662,6 +673,12 @@ go run ./tools/release -version 1.0.0      # the full kit for every platform, in
 The tests cover DNS end to end against fake plain and DoH upstreams, policy, local DNS, two-factor, API keys,
 web auth and firewall rendering for both backends.
 
+**HTTP/3 lab.** [`dev/h3lab/run.sh`](dev/h3lab) runs fengard-h3 against [quic-go](https://github.com/quic-go/quic-go),
+a separate QUIC implementation, through a proxy that loses, reorders, duplicates and delays packets: up to 30%
+loss, Retry, 60 KB answers, server restarts, NAT rebinding, key updates, GOAWAY and stream limits, in under a
+minute. `run.sh long` adds a 250,000 query soak and fuzzes every parser, and `run.sh live` asks Cloudflare,
+Google, Quad9 and AdGuard for real. It's its own Go module so quic-go never becomes a Fengard dependency.
+
 **Try it on Windows.** Build `bin/fengardd.exe`, run `dev\run.ps1`, and open http://127.0.0.1. State lives in
 `dev\data`, and `dev\leases.txt` makes this PC appear as a device. To filter this PC's own browsing, run
 `dev\test-mode-on.ps1` as Administrator; `dev\test-mode-off.ps1` undoes it. The firewall isn't applied on
@@ -698,7 +715,8 @@ release, which is what makes the one-line install work.
 | [`internal/config`](internal/config) | config model, validation, versioned store with rollback |
 | [`internal/catalog`](internal/catalog) | category blocklists, custom lists, app catalog, compact domain set |
 | [`internal/policy`](internal/policy) | compiled per-device decision engine |
-| [`internal/dnsserver`](internal/dnsserver) | resolver, cache, rate limiting, DoH and DoT upstreams, local answers |
+| [`internal/dnsserver`](internal/dnsserver) | resolver, cache, rate limiting, DoH, DoH3 and DoT upstreams, local answers |
+| [`internal/fengard-h3`](internal/fengard-h3) | fengard-h3: QUIC v1, HTTP/3 and QPACK, just enough for DNS over HTTP/3 |
 | [`internal/localdns`](internal/localdns) | `.lan` names, records, reverse lookups |
 | [`internal/devices`](internal/devices) | IP to device tracking, MAC vendor table, Wake-on-LAN |
 | [`internal/firewall`](internal/firewall) | ruleset generation and atomic apply, nftables and iptables |
