@@ -27,6 +27,9 @@ const (
 	aeadFailLimit    = 1 << 20
 	idleMargin       = 5 * time.Second // stop using a connection a little before the server forgets it
 	maxUndecryptable = 4
+	// a connection used in the last few minutes gets pinged before the server would forget it,
+	// so a lookup after a quiet spell doesn't wait for a new handshake
+	keepWarm = 5 * time.Minute
 )
 
 type request struct {
@@ -148,6 +151,9 @@ type Conn struct {
 	start              time.Time
 	idle               time.Duration
 	lastActive         time.Time
+	lastUse            time.Time // last lookup, or when the connection was opened
+	lastPing           time.Time
+	ping               bool
 	elicitingSinceRecv bool
 
 	rtt      rttStats
@@ -208,14 +214,15 @@ func newConn(key, host string, port uint16, pick int, conf *tls.Config, resolve 
 
 // Status is what a connection is doing, for the dashboard
 type Status struct {
-	Server string        `json:"server"`
-	State  string        `json:"state"`
-	RTT    time.Duration `json:"rtt"`
-	Since  time.Time     `json:"since"`
-	Error  string        `json:"error,omitempty"`
-	Sent   uint64        `json:"sent"`
-	Lost   uint64        `json:"lost"`
-	PTOs   uint64        `json:"ptos"`
+	Server  string        `json:"server"`
+	State   string        `json:"state"`
+	RTT     time.Duration `json:"rtt"`
+	Since   time.Time     `json:"since"`
+	Error   string        `json:"error,omitempty"`
+	Resumed bool          `json:"resumed"` // the handshake reused an earlier session and skipped the certificate check
+	Sent    uint64        `json:"sent"`
+	Lost    uint64        `json:"lost"`
+	PTOs    uint64        `json:"ptos"`
 	// how often the server rotated its keys
 	KeyUpdates uint64 `json:"keyUpdates"`
 }
@@ -303,6 +310,7 @@ func (c *Conn) closedErr() error {
 
 func (c *Conn) run() {
 	c.start = time.Now()
+	c.lastUse = c.start
 	defer func() {
 		if c.udp != nil {
 			c.udp.Close()
@@ -544,7 +552,8 @@ func (c *Conn) onHandshakeDone(now time.Time) error {
 	c.ready.Store(true)
 	c.lastActive = now
 	c.lastActivity.Store(now.UnixNano())
-	c.setStatus(func(s *Status) { s.State, s.Since = "connected", now })
+	resumed := c.tls.ConnectionState().DidResume
+	c.setStatus(func(s *Status) { s.State, s.Since, s.Resumed = "connected", now, resumed })
 	// our control stream with an almost empty settings frame
 	settings := appendVarint(appendVarint(nil, 0x06), maxFieldSection) // max field section size
 	c.control = newStream(2, kindControl, 0)
@@ -1463,7 +1472,20 @@ func (c *Conn) queue(r *request) {
 		return
 	}
 	c.waiting = append(c.waiting, r)
+	c.lastUse = time.Now()
 	c.openWaiting()
+}
+
+// keepAliveAt is when to ping next, zero when the connection hasn't been used lately
+func (c *Conn) keepAliveAt(now time.Time) time.Time {
+	if !c.handshakeDone || c.goaway || now.Sub(c.lastUse) >= keepWarm {
+		return time.Time{}
+	}
+	last := c.lastActive
+	if c.lastPing.After(last) {
+		last = c.lastPing
+	}
+	return last.Add(c.idle / 2)
 }
 
 func (c *Conn) openWaiting() {
@@ -1595,6 +1617,7 @@ func (c *Conn) nextWake(now time.Time) time.Time {
 	}
 	t, _, _ := c.lossTimer(now)
 	set(t)
+	set(c.keepAliveAt(now))
 	if c.handshakeDone {
 		set(c.lastActive.Add(max(c.idle, 3*c.rtt.pto())))
 	} else {
@@ -1668,6 +1691,9 @@ func (c *Conn) onTimer(now time.Time) {
 	if c.handshakeDone && !now.Before(c.lastActive.Add(max(c.idle, 3*c.rtt.pto()))) {
 		c.fail(ErrIdle)
 		return
+	}
+	if k := c.keepAliveAt(now); !k.IsZero() && !now.Before(k) {
+		c.ping, c.lastPing = true, now
 	}
 	at, sp, isPTO := c.lossTimer(now)
 	if at.IsZero() || now.Before(at) {

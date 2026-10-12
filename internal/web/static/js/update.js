@@ -11,7 +11,7 @@ export function codename(version) {
 // shared by the dashboard banner and settings
 export async function startUpdate(u, after) {
   const ok = await confirmDialog({
-    title: `Update to Fengard ${u.latest}?`,
+    title: `Update to Fengard ${u.latest}${u.prerelease ? ' preview' : ''}?`,
     message: 'Fengard downloads the update, checks it and restarts. DNS keeps working the whole time, and if the new version doesn\'t start the current one comes back on its own. It takes about a minute.',
     confirm: 'Update now',
   });
@@ -27,7 +27,7 @@ export function updateBanner(u, admin, esc, icon) {
   }
   const whatsNew = u.url ? `<a class="btn btn-sm" href="${esc(u.url)}" target="_blank" rel="noopener">What's new</a>` : '';
   if (u.available) {
-    return `<div class="banner info">${icon('download')}<div class="banner-text"><b>Fengard ${esc(u.latest)} is available</b>
+    return `<div class="banner info">${icon('download')}<div class="banner-text"><b>Fengard ${esc(u.latest)}${u.prerelease ? ' preview' : ''} is available</b>
       <p>${u.canInstall ? `You're on ${esc(u.current)}. It supports this router and installs in about a minute.` : 'Download the new kit from GitHub to install it.'}</p></div>
       ${admin && u.canInstall ? `<button class="btn btn-sm btn-primary" data-update>Update now</button>` : ''}${whatsNew}</div>`;
   }

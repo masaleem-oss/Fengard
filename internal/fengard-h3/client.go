@@ -73,19 +73,34 @@ func (cl *Client) forget(c *Conn) {
 	}
 }
 
-// Exchange posts a dns message to a dns-over-https url over http/3 and returns the answer
-func (cl *Client) Exchange(ctx context.Context, rawURL string, msg []byte) ([]byte, error) {
+func parseURL(rawURL string) (*url.URL, uint16, error) {
 	u, err := url.Parse(rawURL)
 	if err != nil || u.Scheme != "https" || u.Host == "" {
-		return nil, errors.New("h3: not an https url")
+		return nil, 0, errors.New("h3: not an https url")
 	}
 	port := uint16(443)
 	if p := u.Port(); p != "" {
 		n, err := strconv.ParseUint(p, 10, 16)
 		if err != nil || n == 0 {
-			return nil, errors.New("h3: bad port")
+			return nil, 0, errors.New("h3: bad port")
 		}
 		port = uint16(n)
+	}
+	return u, port, nil
+}
+
+// Warm opens the connection to a server ahead of the first lookup
+func (cl *Client) Warm(rawURL string) {
+	if u, port, err := parseURL(rawURL); err == nil {
+		cl.conn(u.Hostname(), port, time.Now())
+	}
+}
+
+// Exchange posts a dns message to a dns-over-https url over http/3 and returns the answer
+func (cl *Client) Exchange(ctx context.Context, rawURL string, msg []byte) ([]byte, error) {
+	u, port, err := parseURL(rawURL)
+	if err != nil {
+		return nil, err
 	}
 	path := u.EscapedPath()
 	if path == "" {

@@ -2,9 +2,13 @@ package h3
 
 import (
 	"bytes"
+	"crypto/rand"
 	"crypto/tls"
+	"encoding/binary"
 	"encoding/hex"
 	"testing"
+
+	"golang.org/x/crypto/chacha20"
 )
 
 func unhex(t testing.TB, s string) []byte {
@@ -86,5 +90,38 @@ func TestVarint(t *testing.T) {
 	}
 	if _, _, err := readVarint(unhex(t, "c2197c")); err == nil {
 		t.Fatal("truncated varint accepted")
+	}
+}
+
+// the hand written chacha20 block has to match the library for any key and sample
+func TestChaChaMaskMatchesLibrary(t *testing.T) {
+	for i := range 10000 {
+		key, sample := make([]byte, 32), make([]byte, 16)
+		rand.Read(key)
+		rand.Read(sample)
+		var k [8]uint32
+		for j := range k {
+			k[j] = binary.LittleEndian.Uint32(key[4*j:])
+		}
+		var want [5]byte
+		c, _ := chacha20.NewUnauthenticatedCipher(key, sample[4:16])
+		c.SetCounter(binary.LittleEndian.Uint32(sample[:4]))
+		c.XORKeyStream(want[:], want[:])
+		if got := chachaMask(&k, sample); got != want {
+			t.Fatalf("case %d: %x want %x", i, got, want)
+		}
+	}
+}
+
+func BenchmarkHeaderProtection(b *testing.B) {
+	for _, suite := range []uint16{tls.TLS_CHACHA20_POLY1305_SHA256, tls.TLS_AES_128_GCM_SHA256} {
+		k, _ := newKeys(suite, make([]byte, 32))
+		sample := make([]byte, 16)
+		b.Run(tls.CipherSuiteName(suite), func(b *testing.B) {
+			b.ReportAllocs()
+			for b.Loop() {
+				k.hp(sample)
+			}
+		})
 	}
 }

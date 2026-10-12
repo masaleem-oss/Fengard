@@ -180,6 +180,15 @@ func (s *Server) Configure(set config.Settings) {
 		go s.h3.Close()
 	}
 	s.doh3.Store(set.DoH3)
+	// the first lookup shouldn't have to wait for the handshake
+	if set.DoH3 && s.h3 != nil {
+		for _, u := range ups {
+			if u.Net == "https" {
+				go s.h3.Warm(u.URL)
+				break
+			}
+		}
+	}
 	if s.perClient != nil {
 		s.perClient.SetRate(float64(set.ClientRateQPS), float64(set.ClientRateQPS*3))
 	}

@@ -626,3 +626,57 @@ func BenchmarkQuery(b *testing.B) {
 		}
 	}
 }
+
+// a connection used lately is kept open across a quiet spell longer than the server's idle timeout
+func TestKeepWarm(t *testing.T) {
+	s := startServer(t, serverOpts{idle: time.Second})
+	defer s.stop()
+	cl := newClient(s.pool)
+	defer cl.Close()
+	if err := ask(cl, url(s.addr()), "one.test", 5*time.Second); err != nil {
+		t.Fatal(err)
+	}
+	before := cl.Status()
+	time.Sleep(3 * time.Second)
+	start := time.Now()
+	if err := ask(cl, url(s.addr()), "two.test", 5*time.Second); err != nil {
+		t.Fatal(err)
+	}
+	after := cl.Status()
+	if len(after) != 1 || !after[0].Since.Equal(before[0].Since) {
+		t.Fatalf("connection was replaced: before %+v after %+v", before, after)
+	}
+	t.Logf("lookup after 3 s quiet (server forgets after 1 s) took %v on the same connection", time.Since(start).Round(time.Microsecond))
+}
+
+// a second connection to the same server resumes the tls session and skips the certificate check
+func TestResumption(t *testing.T) {
+	s := startServer(t, serverOpts{})
+	defer s.stop()
+	cl := newClient(s.pool)
+	defer cl.Close()
+	for i := range 2 {
+		if err := ask(cl, url(s.addr()), names(i), 5*time.Second); err != nil {
+			t.Fatal(err)
+		}
+		st := cl.Status()
+		if len(st) != 1 || st[0].Resumed != (i == 1) {
+			t.Fatalf("connection %d resumed %+v", i, st)
+		}
+		time.Sleep(50 * time.Millisecond) // the ticket comes after the handshake
+		cl.Close()
+	}
+}
+
+// warm opens the connection before anyone asks
+func TestWarm(t *testing.T) {
+	s := startServer(t, serverOpts{})
+	defer s.stop()
+	cl := newClient(s.pool)
+	defer cl.Close()
+	cl.Warm(url(s.addr()))
+	time.Sleep(200 * time.Millisecond)
+	if st := cl.Status(); len(st) != 1 || st[0].State != "connected" {
+		t.Fatalf("not connected after warm: %+v", st)
+	}
+}

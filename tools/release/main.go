@@ -1,4 +1,5 @@
 // go run ./tools/release -version 1.0.0 -repo owner/name
+// go run ./tools/release -version 1.3.0.1 -prerelease    for a preview build
 // output goes to dist
 package main
 
@@ -60,6 +61,7 @@ func main() {
 	repo := flag.String("repo", "masaleem-oss/Fengard", "github owner/name for the one line router install")
 	only := flag.String("only", "", "comma-separated targets to build (for testing), e.g. linux-amd64,windows-amd64")
 	out := flag.String("out", "dist", "output directory")
+	pre := flag.Bool("prerelease", false, "a preview build, its web installer fetches this release instead of the latest one")
 	flag.Parse()
 	if *version == "" {
 		log.Fatal("-version is required")
@@ -116,6 +118,10 @@ func main() {
 	releaseURL := "@RELEASE_URL@"
 	if *repo != "" {
 		releaseURL = "https://github.com/" + *repo + "/releases/latest/download"
+		// latest never points at a pre-release so a preview's installer would quietly fetch the stable build
+		if *pre {
+			releaseURL = "https://github.com/" + *repo + "/releases/download/v" + *version
+		}
 	}
 	routerInstall := lf(read(root, "install/router-install.sh"))
 	routerInstall = bytes.Replace(routerInstall, []byte("RELEASE_URL='@RELEASE_URL@'"), []byte("RELEASE_URL='"+releaseURL+"'"), 1)

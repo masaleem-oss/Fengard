@@ -47,6 +47,7 @@ type Status struct {
 	CanInstall bool      `json:"canInstall"`
 	Installing bool      `json:"installing"`
 	Target     string    `json:"target"`
+	Prerelease bool      `json:"prerelease"` // the newest one found is a preview build
 }
 
 // newer and runs here
@@ -58,9 +59,11 @@ type asset struct {
 }
 
 type release struct {
-	Tag    string  `json:"tag_name"`
-	Page   string  `json:"html_url"`
-	Assets []asset `json:"assets"`
+	Tag        string  `json:"tag_name"`
+	Page       string  `json:"html_url"`
+	Assets     []asset `json:"assets"`
+	Prerelease bool    `json:"prerelease"`
+	Draft      bool    `json:"draft"`
 }
 
 type Updater struct {
@@ -68,6 +71,8 @@ type Updater struct {
 	Current string
 	Client  *http.Client
 	Auto    func() bool
+	// preview builds are github pre-releases, nobody gets one without switching this on
+	Preview func() bool
 	Loc     func() *time.Location
 	// called once per new version found and after an install finishes
 	OnNotice func(kind, title, detail string)
@@ -107,14 +112,44 @@ func (u *Updater) canInstall() bool {
 	return e1 == nil && e2 == nil
 }
 
+func (u *Updater) preview() bool { return u.Preview != nil && u.Preview() }
+
 func (u *Updater) Status() Status {
 	u.mu.Lock()
 	defer u.mu.Unlock()
+	return u.view()
+}
+
+// view hides a preview build the moment preview builds are switched off, call with mu held
+func (u *Updater) view() Status {
 	s := u.st
+	if s.Prerelease && !u.preview() {
+		s.Latest, s.URL, s.Newer, s.Supported, s.Reason, s.Prerelease = "", "", false, false, "", false
+	}
 	s.Current = u.Current
 	s.Target = Target()
 	s.CanInstall = u.canInstall()
 	return s
+}
+
+// listURL is every release rather than just the latest, which github never fills with a pre-release
+func listURL(api string) string {
+	return strings.TrimSuffix(api, "/latest") + "?per_page=20"
+}
+
+// newest picks the highest version, pre-releases only when asked for
+func newest(rels []release, previews bool) (release, bool) {
+	var best release
+	found := false
+	for _, r := range rels {
+		if r.Draft || r.Prerelease && !previews || r.Tag == "" {
+			continue
+		}
+		if !found || Compare(r.Tag, best.Tag) > 0 {
+			best, found = r, true
+		}
+	}
+	return best, found
 }
 
 func (u *Updater) get(ctx context.Context, url string, limit int64) ([]byte, error) {
@@ -149,9 +184,21 @@ func (u *Updater) Check(ctx context.Context) Status {
 	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
 	st := Status{CheckedAt: time.Now()}
-	body, err := u.get(ctx, u.API, 1<<20)
+	previews := u.preview()
 	var rel release
-	if err == nil {
+	var body []byte
+	var err error
+	if previews {
+		var rels []release
+		if body, err = u.get(ctx, listURL(u.API), 4<<20); err == nil {
+			if err = json.Unmarshal(body, &rels); err == nil {
+				var ok bool
+				if rel, ok = newest(rels, true); !ok {
+					err = errors.New("no releases found")
+				}
+			}
+		}
+	} else if body, err = u.get(ctx, u.API, 1<<20); err == nil {
 		err = json.Unmarshal(body, &rel)
 	}
 	if err != nil {
@@ -163,7 +210,9 @@ func (u *Updater) Check(ctx context.Context) Status {
 	}
 	st.Latest = strings.TrimPrefix(rel.Tag, "v")
 	st.URL = rel.Page
-	st.Newer = Compare(st.Latest, u.Current) > 0
+	st.Prerelease = rel.Prerelease
+	// github's latest never hands out a pre-release, this is the belt to that braces
+	st.Newer = Compare(st.Latest, u.Current) > 0 && (!rel.Prerelease || previews)
 
 	var m *Manifest
 	if a := rel.find("fengard-release.json"); a != nil {
@@ -181,10 +230,14 @@ func (u *Updater) Check(ctx context.Context) Status {
 	u.st, u.rel = st, &rel
 	u.mu.Unlock()
 	if notify && u.OnNotice != nil {
+		name := "Fengard " + st.Latest
+		if st.Prerelease {
+			name += " preview"
+		}
 		if st.Supported {
-			u.OnNotice("update", "Fengard "+st.Latest+" is available", "You're on "+u.Current+". Update from the dashboard.")
+			u.OnNotice("update", name+" is available", "You're on "+u.Current+". Update from the dashboard.")
 		} else {
-			u.OnNotice("update", "Fengard "+st.Latest+" doesn't support this router", st.Reason)
+			u.OnNotice("update", name+" doesn't support this router", st.Reason)
 		}
 	}
 	return u.Status()
@@ -249,13 +302,15 @@ func ramMB() int {
 	return 0
 }
 
-// compares versions like 1.0.10 and 1.0.2-rc1, a plain release beats its prereleases
+// compares versions like 1.0.10, 1.3.0.1 and 1.0.2-rc1, a plain release beats its prereleases
+// and missing parts count as 0 so 1.3.0.1 sits between 1.3.0 and 1.3.1
 func Compare(a, b string) int {
 	pa, ra := parse(a)
 	pb, rb := parse(b)
-	for i := 0; i < 3; i++ {
-		if pa[i] != pb[i] {
-			if pa[i] < pb[i] {
+	for i := range max(len(pa), len(pb)) {
+		x, y := part(pa, i), part(pb, i)
+		if x != y {
+			if x < y {
 				return -1
 			}
 			return 1
@@ -274,15 +329,23 @@ func Compare(a, b string) int {
 	return 1
 }
 
-func parse(v string) ([3]int, string) {
+func parse(v string) ([]int, string) {
 	v = strings.TrimPrefix(strings.TrimSpace(v), "v")
 	v, pre, _ := strings.Cut(v, "-")
-	var n [3]int
-	for i, p := range strings.SplitN(v, ".", 3) {
+	var n []int
+	for _, p := range strings.Split(v, ".") {
 		digits := strings.TrimRightFunc(p, func(r rune) bool { return r < '0' || r > '9' })
-		n[i], _ = strconv.Atoi(digits)
+		x, _ := strconv.Atoi(digits)
+		n = append(n, x)
 	}
 	return n, pre
+}
+
+func part(n []int, i int) int {
+	if i < len(n) {
+		return n[i]
+	}
+	return 0
 }
 
 var ErrBusy = errors.New("an update is already running")
@@ -295,7 +358,7 @@ func (u *Updater) Install(ctx context.Context) error {
 		return errors.New("this install can't update itself, download the new kit from GitHub")
 	}
 	u.mu.Lock()
-	st, rel := u.st, u.rel
+	st, rel := u.view(), u.rel
 	if st.Installing {
 		u.mu.Unlock()
 		return ErrBusy

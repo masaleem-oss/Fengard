@@ -45,9 +45,10 @@ type Settings struct {
 	LogRetentionDay int       `json:"logRetentionDays"`
 	ClientRateQPS   int       `json:"clientRateQps"`
 	Timezone        string    `json:"timezone"`
-	AutoUpdate      bool      `json:"autoUpdate"`   // install new releases overnight
-	RequireHTTPS    bool      `json:"requireHttps"` // off means plain http still works from the lan
-	WelcomePage     bool      `json:"welcomePage"`  // new iphones see a page when they join
+	AutoUpdate      bool      `json:"autoUpdate"`    // install new releases overnight
+	PreviewBuilds   bool      `json:"previewBuilds"` // offer github pre-releases too
+	RequireHTTPS    bool      `json:"requireHttps"`  // off means plain http still works from the lan
+	WelcomePage     bool      `json:"welcomePage"`   // new iphones see a page when they join
 	WelcomeSince    time.Time `json:"welcomeSince,omitzero"`
 	SpeedTestOff    bool      `json:"speedTestOff,omitempty"` // skips the nightly speed test
 	PortalHTML      string    `json:"portalHtml,omitempty"`   // shown on the captive portal instead of the default

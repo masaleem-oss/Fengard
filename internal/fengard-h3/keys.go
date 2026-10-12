@@ -10,8 +10,8 @@ import (
 	"encoding/binary"
 	"errors"
 	"hash"
+	"math/bits"
 
-	"golang.org/x/crypto/chacha20"
 	"golang.org/x/crypto/chacha20poly1305"
 )
 
@@ -68,15 +68,11 @@ func newKeys(suite uint16, secret []byte) (*keys, error) {
 	}
 	hpKey := expandLabel(h, secret, "quic hp", keyLen)
 	if suite == tls.TLS_CHACHA20_POLY1305_SHA256 {
-		k.hp = func(sample []byte) [5]byte {
-			var mask [5]byte
-			c, err := chacha20.NewUnauthenticatedCipher(hpKey, sample[4:16])
-			if err == nil {
-				c.SetCounter(binary.LittleEndian.Uint32(sample[:4]))
-				c.XORKeyStream(mask[:], mask[:])
-			}
-			return mask
+		var key [8]uint32
+		for i := range key {
+			key[i] = binary.LittleEndian.Uint32(hpKey[4*i:])
 		}
+		k.hp = func(sample []byte) [5]byte { return chachaMask(&key, sample) }
 	} else {
 		block, err := aes.NewCipher(hpKey)
 		if err != nil {
@@ -140,4 +136,36 @@ func (k *keys) seal(dst []byte, pn uint64, header, payload []byte) []byte {
 
 func (k *keys) open(dst []byte, pn uint64, header, ciphertext []byte) ([]byte, error) {
 	return k.aead.Open(dst, k.nonce(pn), ciphertext, header)
+}
+
+// chachaMask is the first 5 bytes of one chacha20 block, rfc 9001 section 5.4.4. done by hand since
+// a router without aes hardware uses this on every packet and the library version allocates each time
+func chachaMask(key *[8]uint32, sample []byte) [5]byte {
+	s := [16]uint32{0x61707865, 0x3320646e, 0x79622d32, 0x6b206574,
+		key[0], key[1], key[2], key[3], key[4], key[5], key[6], key[7],
+		binary.LittleEndian.Uint32(sample[0:]), binary.LittleEndian.Uint32(sample[4:]),
+		binary.LittleEndian.Uint32(sample[8:]), binary.LittleEndian.Uint32(sample[12:])}
+	x := s
+	qr := func(a, b, c, d int) {
+		x[a] += x[b]
+		x[d] = bits.RotateLeft32(x[d]^x[a], 16)
+		x[c] += x[d]
+		x[b] = bits.RotateLeft32(x[b]^x[c], 12)
+		x[a] += x[b]
+		x[d] = bits.RotateLeft32(x[d]^x[a], 8)
+		x[c] += x[d]
+		x[b] = bits.RotateLeft32(x[b]^x[c], 7)
+	}
+	for range 10 {
+		qr(0, 4, 8, 12)
+		qr(1, 5, 9, 13)
+		qr(2, 6, 10, 14)
+		qr(3, 7, 11, 15)
+		qr(0, 5, 10, 15)
+		qr(1, 6, 11, 12)
+		qr(2, 7, 8, 13)
+		qr(3, 4, 9, 14)
+	}
+	w0, w1 := x[0]+s[0], x[1]+s[1]
+	return [5]byte{byte(w0), byte(w0 >> 8), byte(w0 >> 16), byte(w0 >> 24), byte(w1)}
 }

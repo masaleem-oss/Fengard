@@ -67,7 +67,7 @@ func (c *Conn) hasData(sp space) bool {
 	if sp != spApp || !c.handshakeDone {
 		return false
 	}
-	if c.sendMaxData || c.sendMaxUni || len(c.retireQ) > 0 || len(c.newCIDQ) > 0 || len(c.pathResp) > 0 || len(c.ctrl) > 0 {
+	if c.ping || c.sendMaxData || c.sendMaxUni || len(c.retireQ) > 0 || len(c.newCIDQ) > 0 || len(c.pathResp) > 0 || len(c.ctrl) > 0 {
 		return true
 	}
 	for _, st := range c.sendQ {
@@ -159,6 +159,10 @@ func (c *Conn) gatherControl(b []byte, room int, p *part) []byte {
 		p.eliciting = true
 	}
 	var tmp [most]byte
+	if c.ping {
+		add([]byte{0x01}, sentFrame{}, false)
+		c.ping = false
+	}
 	if c.sendMaxData && room-len(b) >= most {
 		add(appendVarint(append(tmp[:0], 0x10), c.maxData), sentFrame{kind: sfMaxData}, true)
 		c.sendMaxData = false

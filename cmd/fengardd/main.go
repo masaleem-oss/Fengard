@@ -396,8 +396,9 @@ func main() {
 
 	updater := &update.Updater{
 		API: *updateURL, Current: version, Client: cat.HTTPClient(),
-		Auto: func() bool { return cfgStore.Get().Settings.AutoUpdate },
-		Loc:  func() *time.Location { return location(cfgStore.Get().Settings.Timezone) },
+		Auto:    func() bool { return cfgStore.Get().Settings.AutoUpdate },
+		Preview: func() bool { return cfgStore.Get().Settings.PreviewBuilds },
+		Loc:     func() *time.Location { return location(cfgStore.Get().Settings.Timezone) },
 		OnNotice: func(kind, title, detail string) {
 			sev := alerts.Info
 			if kind == "update_failed" {

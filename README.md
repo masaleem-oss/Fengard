@@ -631,6 +631,21 @@ purpose QUIC library would. The TLS 1.3 handshake comes from Go's standard libra
 uses no memory at all, and if UDP is blocked on the way Fengard goes back to HTTP/2 by itself and tries
 HTTP/3 again later. The DNS page shows which one each upstream is using.
 
+Against [quic-go](https://github.com/quic-go/quic-go)'s HTTP/3 client with its default settings, on the same
+server ([`dev/h3lab`](dev/h3lab), `go test -bench Vs`):
+
+| | fengard-h3 | quic-go |
+|---|---|---|
+| Lookup on an open connection | 415 µs | 477 µs |
+| CPU per lookup, 64 at a time | 60 µs | 124 µs |
+| First lookup on a new connection | 2.65 ms | 2.86 ms |
+| Memory an open connection holds | 104 KB | 190 KB |
+| Memory allocated per lookup | 1.2 KB | 15.5 KB |
+| Lookup after a quiet spell longer than the server's idle timeout | 0.9 ms | 5 s, first try fails |
+
+fengard-h3 pings a connection that's been used in the last five minutes before the server would drop it,
+connects as soon as HTTP/3 is switched on, and resumes the TLS session when it does have to reconnect.
+
 **Do I have to flash my router?**
 No. If it already runs OpenWrt or GL.iNet firmware, Fengard installs next to it and uninstalls cleanly.
 If it runs stock firmware that isn't OpenWrt-based, use computer mode or flash OpenWrt.
@@ -655,6 +670,14 @@ the oldest OpenWrt it runs on and the memory it needs, and only offers it if thi
 an alert and a banner with **Update now**. It downloads the update, checks its checksum, test-runs it on a
 private port and only then swaps it in. If the new version doesn't answer DNS, the old one comes back on
 its own. Turn on **Settings → Install updates automatically** to have this happen overnight, between 3 and 5 am.
+
+**What are preview builds?**
+Pre-releases with a fourth number, like 1.3.0.1, that come out between full releases so new things can be
+tried early. They go through the same router lab and tests. Nobody gets one unless they turn on
+**Settings → Updates → Preview builds**, and routers from before 1.3.0.1 never see them at all. A preview
+is replaced by the next full release once that's out. To try the first one, install it from its
+[release page](https://github.com/masaleem-oss/Fengard/releases) with the kit, the package, or the
+`router-install.sh` attached there.
 
 **Is it free?**
 Yes. Fengard is open source under the Apache 2.0 license, with no accounts, cloud or subscription.
