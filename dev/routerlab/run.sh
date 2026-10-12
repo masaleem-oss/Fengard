@@ -48,6 +48,15 @@ only=${2:-}
 [ -n "$only" ] || rm -f "$WORK/results/"*.log "$WORK/results/"edge-*.out
 rm -f "$WORK/kit.ok" "$WORK/kit.fail"
 
+# dns over http/3 for the routers' http/3 check, on this machine so it doesn't matter what the internet allows
+rm -f "$WORK/doh3-ca.pem"
+pkill -f "$WORK/dohserver" 2>/dev/null
+if (cd "$ROOT/dev/h3lab" && go build -o "$WORK/dohserver" ./dohserver) >"$WORK/dohserver.log" 2>&1; then
+	# in a subshell so the wait below doesn't wait for it
+	("$WORK/dohserver" -addr :8853 -ca "$WORK/doh3-ca.pem" >>"$WORK/dohserver.log" 2>&1 &)
+	trap 'pkill -f "$WORK/dohserver"' EXIT
+fi
+
 # the routers and edge cases wait for kit.ok before installing
 (
 	if [ -z "$KIT" ]; then

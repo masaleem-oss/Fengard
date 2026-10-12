@@ -191,8 +191,9 @@ The installer checks memory and storage first and stops cleanly if the router is
 Every release goes through the [router lab](dev/routerlab), which boots real OpenWrt images in QEMU for each
 CPU type and runs the actual installer on them. Each router is checked for the right CPU build, DNS
 answering, catching a DHCP request from the LAN, LAN devices resolving and reaching the dashboard, SSH still working, full blocklists loading,
-internet names resolving, lookups over DNS over HTTP/3 to Cloudflare, and an uninstall that gives DNS back
-with no Fengard firewall rules left. The x86 ones get rebooted too.
+internet names resolving, lookups over DNS over HTTP/3 to a quic-go server the lab runs itself (so no
+network in between can get in the way), and an uninstall that gives DNS back with no Fengard firewall rules
+left. The x86 ones get rebooted too.
 
 Results for 1.3.0:
 
