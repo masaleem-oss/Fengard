@@ -8,6 +8,24 @@ are on the [releases page](https://github.com/masaleem-oss/Fengard/releases).
 
 Nothing yet.
 
+## 1.3.1.4 - 2026-10-13 (preview)
+
+### Added
+- **Add-ons.** The VPN, manufacturer names, speed test, device check, who's home and the captive portal can each
+  be installed or removed in **Settings → Add-ons**, and setup asks which ones you want. One that isn't installed
+  doesn't run and takes no memory or space. They download from the release (under 1 KB to 332 KB each), or come from
+  the kit when the router has no internet. Pages of add-ons that aren't installed show in the sidebar with a
+  download icon and their size
+- **Customise the overview.** Drag cards around, make them wider or narrower, remove them or add them back.
+  The layout is saved on the router for each user, so it's the same on your phone and your computer
+
+### Changed
+- Manufacturer names take 0.65 MB of memory instead of 2.4 MB, and none at all without the add-on
+- Existing installs keep every add-on when they update, nothing gets removed on its own
+
+### Fixed
+- The DNS page didn't load with HTTP/3 on and no `https://` resolver
+
 ## 1.3.1.3 - 2026-10-13 (preview)
 
 ### Added
