@@ -31,6 +31,19 @@ fg_ok() { r '. /etc/fengard/install.env; pidof fengardd >/dev/null && nslookup f
 until_ok 600 "[ -f '$WORK/kit.ok' ] || [ -f '$WORK/kit.fail' ]"
 [ -f "$WORK/kit.ok" ] || { echo "ROW|$label|$firmware|$kind|no kit to test|"; exit 1; }
 KIT=$(cat "$WORK/kit.ok")
+# this router's own one cpu kit, same as what install.sh would unpack from the full one
+case "$(r '. /etc/openwrt_release; echo $DISTRIB_ARCH')" in
+aarch64*) t=arm64 ;; arm*) t=arm ;; x86_64*) t=amd64 ;; i?86*) t=386 ;; mips64el*) t=mips64le ;; mips64*) t=mips64 ;;
+mipsel*) t=mipsle ;; mips*) t=mips ;; riscv64*) t=riscv64 ;; loongarch64*) t=loong64 ;; *) t= ;;
+esac
+[ -n "$t" ] && [ -d "$KIT-linux-$t" ] && KIT=$KIT-linux-$t
+# a router with a ca bundle trusts the lab's http/3 server from the start, so the http/3 check needs no
+# restart and the slow cpus don't parse the blocklists twice. one without keeps using fengard's own roots
+preca=
+if [ -s "$WORK/doh3-ca.pem" ]; then
+	bundle=$(r 'for f in /etc/ssl/certs/ca-certificates.crt /etc/ssl/cert.pem; do [ -s $f ] && { echo $f; break; }; done')
+	[ -n "$bundle" ] && r "cat >>$bundle" <"$WORK/doh3-ca.pem" && preca=1
+fi
 # own known hosts per slot since parallel runs fight over one file, no terminal so a prompt fails not hangs
 kitsh() { mkdir -p "$WORK/home-$slot"; (cd "$KIT" && HOME="$WORK/home-$slot" SSH_PORT=$((2300 + slot)) setsid -w sh install.sh "$@" </dev/null 2>&1); }
 # a fresh vm has a new host key
@@ -48,7 +61,7 @@ check "lan device resolves and opens the dashboard" "lan_ok"
 check "ssh to the router still works" "r true"
 if [ "$wan" = yes ]; then
 	# emulated cpus parse the lists slowly
-	until_ok 600 "r 'logread -e fengardd | grep -q \"blocklists updated\"'"
+	until_ok 240 "r 'logread -e fengardd | grep -q \"blocklists updated\"'"
 	check "full blocklists loaded" "r 'logread -e fengardd | grep -q \"blocklists updated: [0-9][0-9][0-9][0-9][0-9]\"'"
 	check "lan device resolves internet names" "until_ok 30 '$WORK/dnsq 127.0.0.1:$((15300 + slot)) example.com | grep -q NOERROR'"
 fi
@@ -56,10 +69,12 @@ fi
 if [ -s "$WORK/doh3-ca.pem" ] && r 'ip route get 10.0.2.2' >/dev/null; then
 	# dns over http/3 to the lab's own server, switched on through the dashboard like a person would.
 	# fengard trusts the lab certificate only for this, through SSL_CERT_FILE
-	r 'cat >/etc/fengard/lab-ca.pem' <"$WORK/doh3-ca.pem"
-	r 'f=/etc/init.d/fengard; awk "!d && /procd_set_param respawn/ { print; print \"	procd_set_param env SSL_CERT_FILE=/etc/fengard/lab-ca.pem\"; d=1; next } 1" $f >$f.new && cat $f.new >$f && rm $f.new && $f restart'
-	# an emulated mips cpu takes a minute or two to reload the blocklists after the restart
-	until_ok 180 "fg_ok && lan_ok"
+	if [ -z "$preca" ]; then
+		r 'cat >/etc/fengard/lab-ca.pem' <"$WORK/doh3-ca.pem"
+		r 'f=/etc/init.d/fengard; awk "!d && /procd_set_param respawn/ { print; print \"	procd_set_param env SSL_CERT_FILE=/etc/fengard/lab-ca.pem\"; d=1; next } 1" $f >$f.new && cat $f.new >$f && rm $f.new && $f restart'
+		# an emulated mips cpu takes a minute or two to reload the blocklists after the restart
+		until_ok 180 "fg_ok && lan_ok"
+	fi
 	api() { curl -s -m 20 -b "$WORK/jar-$slot" -c "$WORK/jar-$slot" -X "$1" -H 'X-Fengard: 1' -H 'Content-Type: application/json' ${3:+-d "$3"} "http://127.0.0.1:$((18300 + slot))$2"; }
 	rm -f "$WORK/jar-$slot"
 	api POST /api/setup '{"username":"admin","password":"lab-password-2026"}' >/dev/null
