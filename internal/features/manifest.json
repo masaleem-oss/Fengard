@@ -1,0 +1,68 @@
+[
+  {
+    "id": "vpn",
+    "files": [
+      {
+        "path": "page.js",
+        "sha256": "17a58186cb29b90e86bfef472a3b625f5122e5620335d80c3c61d13612dd9ec6",
+        "size": 16630
+      }
+    ],
+    "download": 5764
+  },
+  {
+    "id": "vendors",
+    "files": [
+      {
+        "path": "oui.txt.gz",
+        "sha256": "f46233638b1499c8722ffcf975b1abf5097d61d6f7f7ef956473afc91d4223f0",
+        "size": 339539
+      }
+    ],
+    "download": 339792
+  },
+  {
+    "id": "speedtest",
+    "files": [
+      {
+        "path": "widget.js",
+        "sha256": "7d1c213d22ff6eb798d4d389e89ca6e0ac531817c461c529c630cad9ea93fa05",
+        "size": 5234
+      }
+    ],
+    "download": 2180
+  },
+  {
+    "id": "devicecheck",
+    "files": [
+      {
+        "path": "widget.js",
+        "sha256": "b79ea50a5cb0772c3b718650a78847c88a477fd6271c6a13040ebdf7e2eff44a",
+        "size": 2626
+      }
+    ],
+    "download": 1349
+  },
+  {
+    "id": "presence",
+    "files": [
+      {
+        "path": "widget.js",
+        "sha256": "fa54500adf50c941001ad4eeaec2233146f7add0d2b9f3254a039c8202fcf4d7",
+        "size": 1096
+      }
+    ],
+    "download": 740
+  },
+  {
+    "id": "welcome",
+    "files": [
+      {
+        "path": "welcome.html",
+        "sha256": "a074e93dda9a7e70b08133c8a6a002345615d4c7d074e6fb809ece5346db2cf2",
+        "size": 9137
+      }
+    ],
+    "download": 3215
+  }
+]

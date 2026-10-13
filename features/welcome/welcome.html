@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0c0b10" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#f6f6f9" media="(prefers-color-scheme: light)">
+<meta name="robots" content="noindex">
+<title>Welcome to {{.Network}}</title>
+<link rel="icon" href="/__fengard/img/logo.svg" type="image/svg+xml">
+<style>
+  @font-face { font-family: "IBM Plex Sans"; font-weight: 100 700; font-display: swap; src: url("/__fengard/fonts/plex-sans-latin.woff2") format("woff2"); }
+  :root {
+    color-scheme: dark;
+    --bg: #0c0b10; --surface: #131219; --surface-2: #1a1922; --border: #25232f; --border-strong: #34313f;
+    --text: #ecebf2; --text-2: #a9a6b8; --text-3: #78758b;
+    --accent: #8b6cff; --accent-soft: rgba(139,108,255,.14); --accent-text: #b8a6ff;
+    --warn: #f0b429; --warn-soft: rgba(240,180,41,.13); --ok: #3fcf8e; --ok-soft: rgba(63,207,142,.12); --danger: #f2555a;
+    --logo: invert(1);
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      color-scheme: light;
+      --bg: #f6f6f9; --surface: #fff; --surface-2: #f6f5fa; --border: #e4e3ea; --border-strong: #d3d1dc;
+      --text: #17161c; --text-2: #55536a; --text-3: #85839a;
+      --accent: #6d4cf0; --accent-soft: rgba(109,76,240,.1); --accent-text: #5a39dc;
+      --warn: #b97a00; --warn-soft: rgba(212,140,0,.12); --ok: #12a46a; --ok-soft: rgba(18,164,106,.1); --danger: #d9373d;
+      --logo: none;
+    }
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    min-height: 100vh; min-height: 100dvh; display: grid; grid-template-rows: auto 1fr auto;
+    padding: max(20px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(20px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+    font: 15px/1.55 "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif; color: var(--text);
+    background: radial-gradient(800px 420px at 50% -8%, var(--accent-soft), transparent 70%), var(--bg);
+    -webkit-font-smoothing: antialiased; -webkit-tap-highlight-color: transparent; -webkit-text-size-adjust: 100%;
+  }
+  .kind-paused, .kind-pending { --hue: var(--warn); --hue-soft: var(--warn-soft); }
+  .kind-blocked { --hue: var(--accent); --hue-soft: var(--accent-soft); }
+  .kind-allowed { --hue: var(--ok); --hue-soft: var(--ok-soft); }
+  header { display: flex; align-items: center; gap: 10px; justify-content: center; color: var(--text-2); font-size: 13px; }
+  header img { width: 22px; height: 22px; filter: var(--logo); }
+  header b { color: var(--text); font-weight: 700; letter-spacing: .14em; font-size: 12px; }
+  main { display: grid; place-items: center; padding: 32px 0; }
+  .card { width: 100%; max-width: 460px; background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 32px 28px 28px; box-shadow: 0 24px 64px rgba(0,0,0,.22); }
+  .badge { width: 52px; height: 52px; border-radius: 14px; display: grid; place-items: center; background: var(--hue-soft); color: var(--hue); margin-bottom: 20px; }
+  .badge svg { width: 26px; height: 26px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  h1 { font-size: 22px; font-weight: 650; letter-spacing: -.02em; line-height: 1.25; }
+  .lead { color: var(--text-2); margin-top: 6px; }
+  .site { display: flex; align-items: center; gap: 10px; margin: 22px 0 18px; padding: 11px 14px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px; font: 14px ui-monospace, "SF Mono", Consolas, monospace; word-break: break-all; }
+  .site svg { width: 16px; height: 16px; flex: none; fill: none; stroke: var(--text-3); stroke-width: 2; stroke-linecap: round; }
+  dl { display: grid; grid-template-columns: max-content 1fr; gap: 9px 20px; font-size: 14px; }
+  dt { color: var(--text-3); }
+  dd { text-align: right; overflow-wrap: anywhere; }
+  .reason { display: inline-flex; align-items: center; gap: 6px; padding: 1px 9px; border-radius: 99px; background: var(--hue-soft); color: var(--hue); font-weight: 550; font-size: 13px; }
+  .actions { display: flex; gap: 10px; margin-top: 26px; }
+  .btn { flex: 1; height: 42px; border-radius: 10px; font: 550 14px "IBM Plex Sans", system-ui, sans-serif; cursor: pointer; border: 1px solid var(--border-strong); background: var(--surface); color: var(--text); display: inline-flex; align-items: center; justify-content: center; gap: 8px; text-decoration: none; }
+  @media (hover: hover) { .btn:hover { background: var(--surface-2); } .btn.primary:hover { filter: brightness(1.08); } }
+  .btn:active { filter: brightness(.92); }
+  .btn.primary { background: var(--accent); border-color: transparent; color: #fff; }
+  .btn:disabled { opacity: .6; cursor: default; }
+  .btn:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  form { margin-top: 22px; padding-top: 22px; border-top: 1px solid var(--border); display: grid; gap: 10px; }
+  label { font-size: 13.5px; font-weight: 550; }
+  textarea { width: 100%; min-height: 84px; resize: vertical; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--border-strong); background: var(--bg); color: var(--text); font: 14px/1.5 "IBM Plex Sans", system-ui, sans-serif; }
+  .msg { font-size: 13.5px; padding: 10px 12px; border-radius: 10px; }
+  .msg.ok { background: var(--ok-soft); color: var(--ok); }
+  .msg.err { background: rgba(242,85,90,.12); color: var(--danger); }
+  footer { text-align: center; color: var(--text-3); font-size: 12.5px; }
+  footer a { color: var(--accent-text); text-decoration: none; }
+  [hidden] { display: none !important; }
+  /* phones get no floating card and big targets and no focus zoom */
+  @media (max-width: 520px) {
+    body { padding-top: max(14px, env(safe-area-inset-top)); }
+    main { padding: 20px 0 8px; align-items: start; }
+    .card { max-width: none; background: none; border: 0; border-radius: 0; box-shadow: none; padding: 8px 2px 0; }
+    .badge { width: 48px; height: 48px; margin-bottom: 18px; }
+    h1 { font-size: 24px; }
+    .lead { font-size: 16px; }
+    .site { margin: 20px 0 16px; padding: 12px 14px; }
+    dl { gap: 10px 16px; font-size: 15px; }
+    .actions { flex-direction: column-reverse; gap: 8px; margin-top: 24px; }
+    .btn { flex: none; height: 48px; font-size: 16px; }  /* flex 1 in a column would override the height */
+    textarea { font-size: 16px; min-height: 96px; }
+    footer { padding-top: 10px; }
+  }
+  @media (max-width: 520px) and (max-height: 600px) { main { padding-top: 8px; } .badge { margin-bottom: 12px; } }
+  .kind-welcome { --hue: var(--ok); --hue-soft: var(--ok-soft); }
+  .custom { overflow-wrap: anywhere; }
+  .custom img { max-width: 100%; height: auto; }
+  .custom h1, .custom h2 { margin-bottom: 8px; }
+  .custom p { color: var(--text-2); margin: 6px 0; }
+  .custom a { color: var(--accent-text); }
+  ul.shield { list-style: none; display: grid; gap: 10px; margin: 22px 0 4px; }
+  ul.shield li { display: flex; align-items: center; gap: 10px; font-size: 14.5px; }
+  ul.shield svg { width: 18px; height: 18px; flex: none; fill: none; stroke: var(--ok); stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+  input[type=text] { width: 100%; height: 44px; padding: 0 12px; border-radius: 10px; border: 1px solid var(--border-strong); background: var(--bg); color: var(--text); font: 15px "IBM Plex Sans", system-ui, sans-serif; }
+  input[type=text]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .fine { color: var(--text-3); font-size: 12.5px; margin-top: 2px; }
+  @media (max-width: 520px) { input[type=text] { font-size: 16px; height: 48px; } }
+</style>
+</head>
+<body class="kind-welcome">
+  <header><img src="/__fengard/img/logo.svg" alt=""><b>FENGARD</b><span>·</span><span>{{.Network}}</span></header>
+  <main>
+    <div class="card" role="main">
+      {{if or .Joined (not .Custom)}}<div class="badge" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/></svg></div>{{end}}
+      {{if .Joined}}
+      <h1>You're connected</h1>
+      <p class="lead">Enjoy the Wi-Fi. You can close this page.</p>
+      {{else}}
+      {{if .Custom}}<div class="custom">{{.Custom}}</div>
+      {{else}}
+      <h1>Welcome to {{.Network}}</h1>
+      <p class="lead">This network is protected by Fengard.</p>
+      <ul class="shield">
+        {{range .Blocks}}<li><svg viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg>{{.}}</li>
+        {{end}}
+      </ul>
+      {{end}}
+      <form method="post" action="/__fengard/welcome">
+        <button class="btn primary" type="submit">Join network</button>
+        {{if not .Custom}}<p class="fine">Blocked sites show a page where you can ask the host for access.</p>{{end}}
+      </form>
+      {{end}}
+    </div>
+  </main>
+  <footer>Protected by Fengard</footer>
+</body>
+</html>
