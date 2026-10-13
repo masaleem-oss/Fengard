@@ -2,7 +2,7 @@
 # fengard setup for mac and linux run sh install.sh for the menu
 # or sh install.sh router computer remove-router remove-computer
 # SSH_PORT=2222 if the router ssh isnt on 22
-# ADGUARD=off lets the router install turn AdGuard Home off when it holds port 53
+# ADGUARD=off lets the router install turn AdGuard Home off (when it holds port 53 or just runs beside it), keep leaves it
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 if [ -f "$HERE/install/linux-bundle.tar.gz" ]; then KIT=$HERE; else KIT=$(dirname "$HERE"); fi
@@ -74,7 +74,8 @@ install_router() {
 	remote=$remote'mips64el*) t=mips64le;; mips64*) t=mips64;; mipsel*) t=mipsle;; mips*) t=mips;; riscv64*) t=riscv64;; loongarch64*) t=loong64;; '
 	remote=$remote'*) echo Unsupported router CPU: $a; cat >/dev/null; exit 4;; esac; '
 	remote=$remote'tar -xzf - router-install.sh router-uninstall.sh bin/linux-$t/fengardd || { echo The upload failed: not enough free memory on the router?; exit 5; }; '
-	[ "$ADGUARD" = off ] && remote=$remote'ADGUARD=off '
+	case "$ADGUARD" in off | keep) remote=$remote"ADGUARD=$ADGUARD " ;; esac
+	remote=$remote'ADGUARD_ASK=1 '
 	remote=$remote'sh router-install.sh'
 	run_ssh_retry "$addr" "$remote" "$BUNDLE"
 	code=$?
@@ -87,6 +88,13 @@ install_router() {
 			install_router "$addr"
 			return ;;
 		esac
+	fi
+	# 8 means adguard home runs beside dns where fengard never uses it
+	if [ "$code" = 8 ]; then
+		ask "AdGuard Home is running, but Fengard does the filtering so it would only take up memory. Turn it off? Removing Fengard turns it back on. [y/N] "
+		case "$REPLY" in [yY]*) ADGUARD=off ;; *) ADGUARD=keep ;; esac
+		install_router "$addr"
+		return
 	fi
 	case $code in
 	0) say "Done." ;;

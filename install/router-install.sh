@@ -201,6 +201,27 @@ if agh_on_53; then
 		printf '\nERROR: AdGuard Home is using DNS port 53. Run the installer again and let it turn AdGuard Home off (ADGUARD=off), it comes back on when Fengard is removed. Nothing was changed.\n' >&2
 		exit 7
 	fi
+else
+	# a no is remembered so reinstalls don't ask again, ADGUARD=off still turns it off
+	AGH_KEEP=$(getstate AGH_KEEP "$STATE")
+	case "$ADGUARD" in keep) AGH_KEEP=1 ;; off) AGH_KEEP= ;; esac
+fi
+if [ -z "$AGH_INIT" ] && [ "$AGH_KEEP" != 1 ] && pidof AdGuardHome >/dev/null 2>&1 && ! agh_on_53; then
+	# gl.inet's own adguard toggle runs it behind dnsmasq on another port. fengard never asks it anything
+	# so it only takes up memory, ADGUARD=off turns it off and uninstall turns it back on
+	if [ "$ADGUARD" != off ] && ( : </dev/tty ) 2>/dev/null; then
+		printf '\nAdGuard Home is running, but Fengard does the filtering so it would only take up memory.\nTurn it off? Removing Fengard turns it back on. [y/N] ' >/dev/tty
+		read -r a </dev/tty
+		case "$a" in [yY]*) ADGUARD=off ;; esac
+	elif [ "$ADGUARD" != off ] && [ "$ADGUARD_ASK" = 1 ]; then
+		# the computer installers ask then run this again with ADGUARD=off or keep
+		printf '\nAdGuard Home is running beside DNS. Nothing was changed yet.\n' >&2
+		exit 8
+	fi
+	if [ "$ADGUARD" = off ]; then
+		AGH_INIT=$(grep -l AdGuardHome /etc/init.d/* 2>/dev/null | head -n 1)
+		[ -n "$AGH_INIT" ] || note "AdGuard Home has no service to turn it off with, leaving it running"
+	fi
 fi
 
 DONE='' TOUCHED=''
@@ -329,6 +350,7 @@ done
 	fi
 	echo "VPN_NET_CREATED='$v'"
 	echo "AGH_INIT='$AGH_INIT'"
+	echo "AGH_KEEP='${AGH_KEEP:-}'"
 } >"$STATE.new" && mv "$STATE.new" "$STATE" || die "can't write $STATE"
 rm -f "$STATE.prev"
 TOUCHED=1

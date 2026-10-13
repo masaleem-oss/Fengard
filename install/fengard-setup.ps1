@@ -125,14 +125,24 @@ function Install-Router {
             'mips64el*) t=mips64le;; mips64*) t=mips64;; mipsel*) t=mipsle;; mips*) t=mips;; riscv64*) t=riscv64;; loongarch64*) t=loong64;; ' +
             '*) echo Unsupported router CPU: $a; cat >/dev/null; exit 4;; esac; ' +
             'tar -xzf - router-install.sh router-uninstall.sh bin/linux-$t/fengardd || { echo The upload failed: not enough free memory on the router?; exit 5; }; ' +
-            $agh + 'sh router-install.sh'
+            $agh + 'ADGUARD_ASK=1 sh router-install.sh'
         $code = Invoke-SshWithRetry $address $remote $Bundle
         Write-Host ''
+        if ($agh) { break }
         # 7 means adguard home has port 53, ask here since the router has no terminal
-        if ($code -ne 7 -or $agh) { break }
-        $answer = Read-Host 'Turn AdGuard Home off so Fengard can take over port 53? Removing Fengard turns it back on. [y/N]'
-        if ($answer -notmatch '^[yY]') { break }
-        $agh = 'ADGUARD=off '
+        if ($code -eq 7) {
+            $answer = Read-Host 'Turn AdGuard Home off so Fengard can take over port 53? Removing Fengard turns it back on. [y/N]'
+            if ($answer -notmatch '^[yY]') { break }
+            $agh = 'ADGUARD=off '
+            continue
+        }
+        # 8 means adguard home runs beside dns where fengard never uses it
+        if ($code -eq 8) {
+            $answer = Read-Host 'AdGuard Home is running, but Fengard does the filtering so it would only take up memory. Turn it off? Removing Fengard turns it back on. [y/N]'
+            if ($answer -match '^[yY]') { $agh = 'ADGUARD=off ' } else { $agh = 'ADGUARD=keep ' }
+            continue
+        }
+        break
     }
     switch ($code) {
         0 { Say 'Done.' }
