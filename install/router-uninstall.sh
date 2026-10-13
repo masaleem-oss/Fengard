@@ -26,7 +26,11 @@ FG_DIR=${FG_DIR:-/etc/fengard}
 
 echo "== stopping Fengard"
 [ -x "$INIT" ] && { "$INIT" stop; "$INIT" disable; } >/dev/null 2>&1
-killall fengardd 2>/dev/null && sleep 1
+# a slow router can still be shutting fengard down here, and if its firewall code runs once more it
+# puts back the rules removed below. so wait until it's really gone, then make sure
+killall fengardd 2>/dev/null
+for _ in $(seq 30); do pidof fengardd >/dev/null || break; sleep 1; done
+killall -9 fengardd 2>/dev/null
 # the stand in dns from stopping the service, dnsmasq gets port 53 back below
 [ -f /var/run/fengard-rescue.pid ] && kill "$(cat /var/run/fengard-rescue.pid)" 2>/dev/null
 rm -f /var/run/fengard-rescue.pid /var/run/fengard-stopped
