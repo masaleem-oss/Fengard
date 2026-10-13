@@ -207,37 +207,54 @@ func (s *Server) ListenAndServe(ctx context.Context, addrs ...string) error {
 	if runtime.GOOS == "linux" {
 		readers = min(runtime.NumCPU(), 4)
 	}
-	var servers []*dns.Server
-	for _, addr := range addrs {
-		for _, network := range []string{"udp", "tcp"} {
-			n := 1
-			if network == "udp" {
-				n = readers
-			}
-			for range n {
-				servers = append(servers, &dns.Server{
-					Addr: addr, Net: network, Handler: s, ReusePort: n > 1,
-					ReadTimeout: 2 * time.Second, WriteTimeout: 2 * time.Second,
-					// cap idle tcp conns so they cant be hoarded
-					IdleTimeout:   func() time.Duration { return 8 * time.Second },
-					MaxTCPQueries: 100,
-				})
-			}
+	// udp sockets open first so a port someone else holds fails straight away
+	var conns []net.PacketConn
+	closeAll := func() {
+		for _, c := range conns {
+			c.Close()
 		}
 	}
-	errc := make(chan error, len(servers))
+	for _, addr := range addrs {
+		for range readers {
+			c, err := listenUDP(ctx, addr, readers > 1)
+			if err != nil {
+				closeAll()
+				return err
+			}
+			conns = append(conns, c)
+		}
+	}
+	var servers []*dns.Server
+	for _, addr := range addrs {
+		servers = append(servers, &dns.Server{
+			Addr: addr, Net: "tcp", Handler: s,
+			ReadTimeout: 2 * time.Second, WriteTimeout: 2 * time.Second,
+			// cap idle tcp conns so they cant be hoarded
+			IdleTimeout:   func() time.Duration { return 8 * time.Second },
+			MaxTCPQueries: 100,
+		})
+	}
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	errc := make(chan error, len(servers)+len(conns))
+	slots := make(chan struct{}, maxInFlight)
+	for _, c := range conns {
+		go func() { errc <- s.serveUDP(ctx, c, slots) }()
+	}
 	for _, srv := range servers {
 		go func() { errc <- srv.ListenAndServe() }()
 	}
+	var err error
 	select {
-	case err := <-errc:
-		return err
+	case err = <-errc:
 	case <-ctx.Done():
-		for _, srv := range servers {
-			srv.Shutdown()
-		}
-		return nil
 	}
+	cancel()
+	closeAll()
+	for _, srv := range servers {
+		srv.Shutdown()
+	}
+	return err
 }
 
 func (s *Server) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
