@@ -1,6 +1,6 @@
 #!/bin/bash
 # the situations that would hurt a household on openwrt 24.10 x86 squashfs which has the same layout as router flash
-#   edge.sh [test...]   tests lowram ram128 subnet nonet port53 power-dns power-start sysupgrade stopped missing crash lowflash adguard pkg-fw3 pkg-opkg pkg-apk glinet49 glinetdns
+#   edge.sh [test...]   tests lowram ram128 subnet nonet port53 power-dns power-start sysupgrade stopped missing crash lowflash adguard adguard-gl pkg-fw3 pkg-opkg pkg-apk glinet49 glinetdns
 # prints EDGE rows for the docs/routers.md table
 # each test has its own vm slot so they can all run at once
 WORK=${WORK:-/var/tmp/routerlab}
@@ -35,7 +35,7 @@ until_ok() { n=$1; shift; for _ in $(seq "$n"); do eval "$*" && return 0; sleep 
 # the guard checks every 20 s and waits 10 min before trying fengard again, this makes it 2 s and 1 min
 fast_guard() { r "$1" "echo \"GUARD_TICK='2'\" >>/etc/fengard/install.env; /etc/init.d/fengard restart"; until_ok 60 fg_ok "$1"; }
 
-[ $# -gt 0 ] || set -- lowram ram128 subnet nonet port53 power-dns power-start sysupgrade stopped missing crash lowflash adguard pkg-fw3 pkg-opkg pkg-apk glinet49 glinetdns
+[ $# -gt 0 ] || set -- lowram ram128 subnet nonet port53 power-dns power-start sysupgrade stopped missing crash lowflash adguard adguard-gl pkg-fw3 pkg-opkg pkg-apk glinet49 glinetdns
 for t in "$@"; do
 	case $t in
 	lowram)
@@ -144,6 +144,32 @@ for t in "$@"; do
 		r $slot "$del" >/dev/null
 		row "Removed with the $what: router back to stock" "until_ok 30 'untouched $slot && landns $slot' && r $slot '! [ -e /usr/bin/fengardd ] && ! [ -e /www/luci-static/resources/view/fengard.js ]'"
 		V stop "$t" ;;
+	adguard-gl)
+		# gl.inet's own adguard toggle runs it behind dnsmasq on 3053, so it holds nothing fengard needs
+		V start adguard-gl x86 "$IMG" 256 38 >/dev/null
+		r 38 'cp /usr/sbin/dnsmasq /usr/bin/AdGuardHome; cat >/etc/init.d/adguardhome; chmod 755 /etc/init.d/adguardhome
+			/etc/init.d/adguardhome enable; /etc/init.d/adguardhome start' <<-'EOF2'
+			#!/bin/sh /etc/rc.common
+			# lab stand in for gl.inet's AdGuardHome
+			START=95
+			USE_PROCD=1
+			start_service() {
+				procd_open_instance
+				procd_set_param command /usr/bin/AdGuardHome -k -p 3053 --conf-file=/dev/null --no-resolv --server=1.1.1.1 --pid-file=/var/run/agh.pid
+				procd_close_instance
+			}
+		EOF2
+		aghgl() { r 38 'pidof AdGuardHome >/dev/null && ls /etc/rc.d/ | grep -q adguardhome'; }
+		kit; until_ok 90 aghgl
+		# no terminal so the question gets no answer, which means no
+		inst 38 >/dev/null
+		row "GL.iNet style AdGuard Home beside DNS: asks, left running when the answer is no" "until_ok 60 fg_ok 38 && aghgl"
+		uninst 38 >/dev/null
+		rm -f "$WORK/home-38/.ssh/fengard_known_hosts"; (export ADGUARD=off; kitsh 38 router 127.0.0.1) >/dev/null
+		row "GL.iNet style AdGuard Home beside DNS: turned off when the answer is yes" "until_ok 60 fg_ok 38 && r 38 '! pidof AdGuardHome >/dev/null && ! ls /etc/rc.d/ | grep -q adguardhome'"
+		uninst 38 >/dev/null
+		row "Removing Fengard turns GL.iNet's AdGuard Home back on" "until_ok 30 aghgl && until_ok 30 landns 38"
+		V stop adguard-gl ;;
 	adguard)
 		V start adguard x86 "$IMG" 256 35 >/dev/null
 		# a stand in adguard home set up like the openwrt guide, dnsmasq moved to 54 and adguard on 53
