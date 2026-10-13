@@ -1,7 +1,7 @@
 #!/bin/bash
 # installs the kit on one emulated router and checks it the way a household would notice
 #   router.sh NAME KIND FILE RAM SLOT REBOOT LABEL FIRMWARE
-# writes $WORK/results/NAME.log and a ROW line for the readme table
+# writes $WORK/results/NAME.log and a ROW line for the docs/routers.md table
 WORK=${WORK:-/var/tmp/routerlab}
 LAB=$(cd "$(dirname "$0")" && pwd)
 name=$1 kind=$2 file=$3 ram=$4 slot=$5 reboot=$6 label=$7 firmware=$8

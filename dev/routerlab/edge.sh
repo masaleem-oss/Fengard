@@ -1,7 +1,7 @@
 #!/bin/bash
 # the situations that would hurt a household on openwrt 24.10 x86 squashfs which has the same layout as router flash
 #   edge.sh [test...]   tests lowram ram128 subnet nonet port53 power-dns power-start sysupgrade stopped missing crash lowflash adguard pkg-fw3 pkg-opkg pkg-apk glinet49 glinetdns
-# prints EDGE rows for the readme table
+# prints EDGE rows for the docs/routers.md table
 # each test has its own vm slot so they can all run at once
 WORK=${WORK:-/var/tmp/routerlab}
 LAB=$(cd "$(dirname "$0")" && pwd)

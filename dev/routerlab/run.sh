@@ -1,6 +1,6 @@
 #!/bin/bash
 # router lab installs fengard on emulated openwrt routers of every cpu type plus the edge cases
-# then prints the rows for the readme tables
+# then prints the rows for the docs/routers.md tables
 # needs linux or wsl2 with kvm plus qemu-system-x86 mips arm misc socat curl and ssh and runs as root
 #   dev/routerlab/run.sh            routers and edge cases
 #   dev/routerlab/run.sh routers    just the routers

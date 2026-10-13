@@ -26,7 +26,7 @@ go vet ./...
 ```
 
 - Keep it one static binary with no runtime dependencies on the router.
-- Anything on the DNS path has to stay bounded and non-blocking (see the design notes in the README).
+- Anything on the DNS path has to stay bounded and non-blocking (see [how it works](docs/how-it-works.md)).
 - The dashboard is plain ES modules and CSS, no build step. Keep it that way.
 - Changes to the router installer should be tried on both firewall types: OpenWrt 22+ (fw4, nftables) and
   OpenWrt 21 (fw3, iptables). OpenWrt x86 images run well in QEMU for this.
@@ -36,7 +36,7 @@ go vet ./...
 `dev/routerlab/run.sh` installs Fengard on emulated OpenWrt routers of every CPU type Fengard ships for,
 across firmware versions from 19.07 to 25.12. It also runs the situations that would hurt a household:
 low memory, a full flash, no internet, another DNS server on port 53, a power cut mid-install, a firmware
-upgrade, and Fengard crashing or going missing. At the end it prints the tables used in the README.
+upgrade, and Fengard crashing or going missing. At the end it prints the tables in [docs/routers.md](docs/routers.md).
 
 ```sh
 sudo dev/routerlab/run.sh              # everything, a few minutes
@@ -57,8 +57,8 @@ logs in `results/` show the time at each step.
 
 ## Releasing
 
-1. Run the router lab and paste its tables into the README's
-   [Supported routers](README.md#supported-routers) section. Try to add at least one new router type or
+1. Run the router lab and paste its tables into
+   [docs/routers.md](docs/routers.md). Add the release to CHANGELOG.md. Try to add at least one new router type or
    firmware version each release so the list keeps growing.
 2. Add rows for any router reports from real hardware.
 3. `go run ./tools/release -version X.Y.Z`, then attach everything in `dist/assets/` to a GitHub release.
