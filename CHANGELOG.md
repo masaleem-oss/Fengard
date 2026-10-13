@@ -8,6 +8,7 @@ are on the [releases page](https://github.com/masaleem-oss/Fengard/releases).
 
 ### Added
 - **DNS → Ask all at once** sends each lookup to every resolver at the same time and uses the first good answer
+- The installer offers to turn off GL.iNet's AdGuard Home when it runs beside DNS, where it only took up memory. Removing Fengard turns it back on
 
 ### Changed
 - A device flooding DNS can no longer push Fengard's memory up: about 24 MB after a flood instead of 64 MB
