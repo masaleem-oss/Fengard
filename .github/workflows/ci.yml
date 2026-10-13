@@ -1,0 +1,44 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: gofmt
+        run: |
+          out=$(gofmt -l $(git ls-files '*.go'))
+          [ -z "$out" ] || { echo "not gofmt'd:"; echo "$out"; exit 1; }
+      - name: vet
+        run: go vet ./...
+      - name: test
+        run: go test -race ./...
+      # most routers are 32 bit, a size that's fine on a pc can wrap on them
+      - name: test as 32 bit
+        run: GOARCH=386 go test ./...
+
+  routers:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: build for every router cpu
+        run: |
+          for a in arm64 arm mips mipsle mips64 mips64le amd64 386 riscv64 loong64; do
+            echo "linux-$a"
+            CGO_ENABLED=0 GOOS=linux GOARCH=$a go build -o /dev/null ./cmd/fengardd
+          done
