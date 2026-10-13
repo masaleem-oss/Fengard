@@ -114,3 +114,30 @@ func TestMergeDeviceKeepsProfileAndOldAddress(t *testing.T) {
 		t.Fatal("unlink")
 	}
 }
+
+func TestAddonDefaults(t *testing.T) {
+	c := Default()
+	if err := c.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if !c.Settings.Has("vendors") || c.Settings.Has("vpn") {
+		t.Errorf("new install add-ons %v", c.Settings.Features)
+	}
+	// a config from before add-ons keeps everything it had
+	c.Settings.Features = nil
+	c.Validate()
+	if len(c.Settings.Features) != len(Features) {
+		t.Errorf("old config add-ons %v", c.Settings.Features)
+	}
+	c.Settings.Features = []string{"vpn", "vpn", "nope"}
+	if c.Validate() == nil {
+		t.Error("an unknown add-on was accepted")
+	}
+	c.Settings.Features = []string{"vpn", "vpn"}
+	if c.Validate(); len(c.Settings.Features) != 1 {
+		t.Errorf("duplicates kept %v", c.Settings.Features)
+	}
+	if cl := c.Clone(); &cl.Settings.Features[0] == &c.Settings.Features[0] {
+		t.Error("clone shares the add-on list")
+	}
+}

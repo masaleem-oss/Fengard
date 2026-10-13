@@ -58,6 +58,8 @@ type Settings struct {
 	BlockHTML       string    `json:"blockHtml,omitempty"` // the admins own block page with {site} style placeholders
 	PausedTill      time.Time `json:"protectionPausedUntil,omitzero"`
 	Recognize       string    `json:"recognize,omitempty"` // devices with a new private address: auto, ask or off
+	// add-ons that are installed, null in configs from before there were any so they keep everything
+	Features []string `json:"features"`
 }
 
 type Group struct {
@@ -216,6 +218,7 @@ func Default() *Config {
 			LogRetentionDay: 14,
 			ClientRateQPS:   100,
 			Timezone:        "Local",
+			Features:        clone(DefaultFeatures),
 		},
 		Groups: []Group{
 			{ID: "default", Name: "Everyone", Categories: []string{"malware"}},
@@ -251,6 +254,9 @@ func (c *Config) Clone() *Config {
 	n.Channels = append([]Channel(nil), c.Channels...)
 	n.VPN.Peers = append([]VPNPeer(nil), c.VPN.Peers...)
 	n.Settings.Upstreams = clone(c.Settings.Upstreams)
+	if c.Settings.Features != nil {
+		n.Settings.Features = clone(c.Settings.Features)
+	}
 	return &n
 }
 
@@ -406,6 +412,18 @@ func (c *Config) Validate() error {
 	default:
 		bad("recognize must be auto, ask or off")
 	}
+	if s.Features == nil {
+		s.Features = clone(Features)
+	}
+	var feats []string
+	for _, f := range s.Features {
+		if !slices.Contains(Features, f) {
+			bad("unknown add-on %q", f)
+		} else if !slices.Contains(feats, f) {
+			feats = append(feats, f)
+		}
+	}
+	s.Features = append([]string{}, feats...)
 
 	if c.Devices == nil {
 		c.Devices = []Device{}
@@ -824,3 +842,11 @@ func (c *Config) UnlinkMAC(mac string) bool {
 	}
 	return false
 }
+
+// the add-ons a release knows, internal/features has what each one is
+var Features = []string{"vpn", "vendors", "speedtest", "devicecheck", "presence", "welcome"}
+
+// what a new install starts with before setup asks
+var DefaultFeatures = []string{"vendors", "speedtest", "devicecheck"}
+
+func (s *Settings) Has(feature string) bool { return slices.Contains(s.Features, feature) }
