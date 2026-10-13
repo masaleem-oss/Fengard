@@ -106,7 +106,12 @@ func TestAPIKeys(t *testing.T) {
 	if s == nil || s.Role != Viewer || s.Username != "key:home assistant" {
 		t.Fatalf("KeySession = %+v", s)
 	}
-	if a.KeySession("fg_nope") != nil || a.KeySession(plain[:len(plain)-1]+"x") != nil {
+	// a different last character, the real key ends in x about once in 60 runs
+	last := "x"
+	if strings.HasSuffix(plain, "x") {
+		last = "y"
+	}
+	if a.KeySession("fg_nope") != nil || a.KeySession(plain[:len(plain)-1]+last) != nil {
 		t.Fatal("bad key accepted")
 	}
 	if list := a.Keys(); len(list) != 1 || list[0].Hash != nil || list[0].LastUsed.IsZero() {
