@@ -6,8 +6,14 @@ are on the [releases page](https://github.com/masaleem-oss/Fengard/releases).
 
 ## Unreleased
 
+### Added
+- **DNS → Ask all at once** sends each lookup to every resolver at the same time and uses the first good answer
+
 ### Changed
 - A device flooding DNS can no longer push Fengard's memory up: about 24 MB after a flood instead of 64 MB
+
+### Fixed
+- With HTTP/3 on, resolvers after the first showed no status and looked unchecked; they now say they're standbys
 
 ## 1.3.1.2 - 2026-10-13 (preview)
 
