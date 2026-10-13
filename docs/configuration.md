@@ -25,6 +25,8 @@ The installers set everything up, so these are only needed to run `fengardd` by 
 | `-no-list-updates` | off | don't download blocklists, use cached copies only |
 | `-update-url` | the GitHub releases API | where to check for new Fengard releases, empty turns checks off |
 | `-speedtest-url` | fast.com, then LibreSpeed | your own speed test server instead, anything with `/__down?bytes=N` and `/__up` |
+| `-features-src` | `/tmp/fengard-features` | folders to install add-ons from before downloading them, the router installer unpacks the kit's copies there |
+| `-features-url` | `auto` | where add-ons download from, `auto` is this version's GitHub release, empty turns downloads off |
 
 `SIGUSR1` makes Fengard re-apply its firewall rules; the router installer wires this to firewall reloads.
 

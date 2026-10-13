@@ -66,6 +66,8 @@ release, which is what makes the one-line install work.
 | [`internal/auth`](../internal/auth) | accounts, sessions, TOTP two-factor, API keys |
 | [`internal/notify`](../internal/notify) | alert delivery to chat apps and webhooks |
 | [`internal/web`](../internal/web) | API, embedded dashboard (`static/`), asset server, block page |
+| [`internal/features`](../internal/features) | add-ons: the manifest, installing them from the kit or the release, checking their files |
+| [`features/`](../features) | the add-ons' own files, one folder each. After changing one run `go run ./tools/featurepack` |
 | [`internal/store`](../internal/store), [`querylog`](../internal/querylog), [`alerts`](../internal/alerts) | embedded database, query history and hourly series, alerts |
-| [`tools/`](../tools) | `release` (builds the kit), `dnsq` (test lookups), `dnsflood` (resilience test), `memcheck`, `genoui` (vendor table), `wgkey` |
+| [`tools/`](../tools) | `release` (builds the kit), `dnsq` (test lookups), `dnsflood` (resilience test), `memcheck`, `genoui` (vendor table), `featurepack` (add-on manifest), `wgkey` |
 | [`dev/`](../dev) | local test scripts, the network lab and the [router lab](../dev/routerlab) |

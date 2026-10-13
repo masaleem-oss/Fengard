@@ -334,6 +334,8 @@ takes DNS over and the house stays online. See [how it works](docs/how-it-works.
 | Accounts | Admin and viewer roles, two-factor (TOTP and recovery codes), API keys, idle and absolute session timeouts |
 | Dashboard HTTPS | Served with a CA-signed certificate for its names and IP, so installing the CA makes it green |
 | Certificate portability | The CA exports, imports and travels in backups, so a replacement router keeps the trust already installed on devices |
+| Add-ons | The VPN, manufacturer names, speed test, device check, who's home and the captive portal are add-ons you install or remove in Settings. One that isn't installed doesn't run, uses no memory and takes no space |
+| Overview | Drag the dashboard's cards around, resize or remove them. Each user's layout is saved on the router |
 | Admin | Audit log, config history with rollback, backup and restore |
 | Updates | Checks GitHub for new releases, makes sure a release still supports this router's CPU, firmware and memory, then updates from the dashboard in about a minute or overnight on its own. A new version is test-run before it replaces the old one, and the old one comes back if it doesn't start |
 | Monitoring | Live and historical activity per device, 24 h, 7 d and 30 d charts with comparison, top lists, alerts |
@@ -467,7 +469,7 @@ What changed in each release is in [CHANGELOG.md](CHANGELOG.md).
 
 Fengard is licensed under the [Apache License 2.0](LICENSE). Third-party components are listed in [NOTICE](NOTICE):
 IBM Plex Sans and Mono (OFL), Lucide icons (ISC), Simple Icons logos (CC0), qrcode-generator (MIT) and the
-IEEE MA-L vendor registry, all bundled so the dashboard works offline. Blocklists aren't distributed with
+IEEE MA-L vendor registry (the manufacturer names add-on), all bundled so the dashboard works offline. Blocklists aren't distributed with
 Fengard; each installation downloads them from their publishers under the publishers' licenses.
 
 ## Star goals
