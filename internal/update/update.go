@@ -48,7 +48,7 @@ type Status struct {
 	CanInstall bool      `json:"canInstall"`
 	Installing bool      `json:"installing"`
 	Target     string    `json:"target"`
-	Prerelease bool      `json:"prerelease"` // the newest one found is a preview build
+	Prerelease bool      `json:"prerelease"`         // the newest one found is a preview build
 	To         string    `json:"to,omitempty"`       // the version being installed, older when going back
 	Previous   string    `json:"previous,omitempty"` // what this router ran before its last update
 	Held       string    `json:"held,omitempty"`     // went back from this, so automatic updates skip it
