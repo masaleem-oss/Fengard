@@ -24,6 +24,7 @@ import (
 	"github.com/masaleem-oss/Fengard/internal/config"
 	"github.com/masaleem-oss/Fengard/internal/devices"
 	"github.com/masaleem-oss/Fengard/internal/dnsserver"
+	"github.com/masaleem-oss/Fengard/internal/features"
 	"github.com/masaleem-oss/Fengard/internal/firewall"
 	"github.com/masaleem-oss/Fengard/internal/identity"
 	"github.com/masaleem-oss/Fengard/internal/internet"
@@ -93,6 +94,7 @@ type Server struct {
 	Recognizer *identity.Recognizer
 	Presence   *presence.Watcher
 	Scanner    *netscan.Scanner
+	Features   *features.Manager
 
 	loginLimit   *ratelimit.Limiter
 	requestLimit *ratelimit.Limiter
@@ -127,16 +129,20 @@ func (s *Server) Handler() http.Handler {
 	view("GET /api/traffic", s.trafficNow)
 	view("GET /api/traffic/usage", s.trafficUsage)
 	view("GET /api/traffic/{mac}", s.trafficHistory)
-	view("GET /api/presence", s.presenceNow)
-	view("GET /api/scan", s.scanReport)
-	view("GET /api/portal/preview", s.portalPreview)
+	view("GET /api/presence", s.addon("presence", s.presenceNow))
+	view("GET /api/scan", s.addon("devicecheck", s.scanReport))
+	view("GET /api/portal/preview", s.addon("welcome", s.portalPreview))
 	view("GET /api/blockpage/preview", s.blockPreview)
 	view("GET /api/clock", s.clock)
 	view("GET /api/devices/{mac}/summary", s.deviceSummary)
 	view("GET /api/certificate", s.certificateInfo)
-	view("GET /api/vpn", s.vpnInfo)
+	view("GET /api/vpn", s.addon("vpn", s.vpnInfo))
+	view("GET /api/features", s.listFeatures)
+	view("GET /api/prefs/dashboard", s.getLayout)
+	mux.HandleFunc("PUT /api/prefs/dashboard", s.mutating(s.require(auth.Viewer, s.putLayout)))
+	mux.HandleFunc("GET /features/{id}/{file...}", s.featureFile)
 	view("GET /api/screentime", s.screenTime)
-	mux.HandleFunc("GET /api/vpn/peers/{id}/config", s.require(auth.Admin, s.vpnPeerConfig))
+	mux.HandleFunc("GET /api/vpn/peers/{id}/config", s.require(auth.Admin, s.addon("vpn", s.vpnPeerConfig)))
 	mux.HandleFunc("POST /api/alerts/read", s.mutating(s.require(auth.Viewer, s.markAlertsRead)))
 	view("GET /api/groups", s.listGroups)
 	view("GET /api/categories", s.listCategories)
@@ -179,8 +185,10 @@ func (s *Server) Handler() http.Handler {
 	admin("POST /api/update/install", s.updateInstall)
 	admin("GET /api/update/older", s.updateOlder)
 	admin("POST /api/update/rollback", s.updateRollback)
-	admin("POST /api/internet/speedtest", s.speedTest)
-	admin("POST /api/scan", s.scanNow)
+	admin("POST /api/internet/speedtest", s.addon("speedtest", s.speedTest))
+	admin("POST /api/scan", s.addon("devicecheck", s.scanNow))
+	admin("PUT /api/features/{id}", s.setFeature(true))
+	admin("DELETE /api/features/{id}", s.setFeature(false))
 	admin("POST /api/rules/temp", s.addTempAllow)
 	admin("DELETE /api/rules/temp", s.deleteTempAllow)
 	admin("POST /api/protection/pause", s.pauseProtection)
@@ -202,13 +210,13 @@ func (s *Server) Handler() http.Handler {
 	admin("POST /api/users/{name}/reset-2fa", s.adminReset2FA)
 	mux.HandleFunc("GET /api/certificate/export", s.require(auth.Admin, s.certificateExport))
 	admin("POST /api/certificate/import", s.certificateImport)
-	admin("PUT /api/vpn", s.vpnSettings)
+	admin("PUT /api/vpn", s.addon("vpn", s.vpnSettings))
 	admin("POST /api/groups/{id}/bonus", s.groupBonus)
 	// my time page redirects from the dashboard host too
 	mux.HandleFunc("GET /me", func(w http.ResponseWriter, r *http.Request) { http.Redirect(w, r, "/__fengard/me", http.StatusFound) })
-	admin("POST /api/vpn/peers", s.vpnAddPeer)
-	admin("PUT /api/vpn/peers/{id}", s.vpnUpdatePeer)
-	admin("DELETE /api/vpn/peers/{id}", s.vpnDeletePeer)
+	admin("POST /api/vpn/peers", s.addon("vpn", s.vpnAddPeer))
+	admin("PUT /api/vpn/peers/{id}", s.addon("vpn", s.vpnUpdatePeer))
+	admin("DELETE /api/vpn/peers/{id}", s.addon("vpn", s.vpnDeletePeer))
 	mux.HandleFunc("GET /api/config/history", s.require(auth.Admin, s.history))
 	admin("POST /api/config/rollback", s.rollback)
 	mux.HandleFunc("GET /api/config/export", s.require(auth.Admin, s.export))

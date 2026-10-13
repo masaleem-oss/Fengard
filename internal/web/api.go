@@ -8,6 +8,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"regexp"
 	"runtime"
 	"slices"
 	"sort"
@@ -653,6 +654,8 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 	} else if set.WelcomePage {
 		set.WelcomeSince = was.WelcomeSince
 	}
+	// add-ons change through their own api so an older tab never drops one
+	set.Features = s.Config.Get().Settings.Features
 	before := strings.Join(s.Config.Get().Settings.Upstreams, ",")
 	if s.update(w, r, "Changed settings", func(c *config.Config) error {
 		c.Settings = set
@@ -777,7 +780,13 @@ func (s *Server) listAudit(w http.ResponseWriter, r *http.Request) {
 }
 
 type prefs struct {
-	AlertsReadAt time.Time `json:"alertsReadAt"`
+	AlertsReadAt time.Time    `json:"alertsReadAt"`
+	Dashboard    []widgetPref `json:"dashboard,omitempty"` // their overview layout, empty is the default one
+}
+
+type widgetPref struct {
+	ID   string `json:"id"`
+	Size string `json:"size"`
 }
 
 func (s *Server) listAlerts(w http.ResponseWriter, r *http.Request) {
@@ -794,7 +803,10 @@ func (s *Server) listAlerts(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) markAlertsRead(w http.ResponseWriter, r *http.Request) {
-	s.Prefs.Put(sessionFrom(r).Username, prefs{AlertsReadAt: time.Now()})
+	var p prefs
+	s.Prefs.Get(sessionFrom(r).Username, &p)
+	p.AlertsReadAt = time.Now()
+	s.Prefs.Put(sessionFrom(r).Username, p)
 	writeJSON(w, map[string]bool{"ok": true})
 }
 
@@ -945,4 +957,41 @@ func alertLoginFail(ip string) alerts.Alert {
 func auditRecord(user, ip, action string) store.Record {
 	now := time.Now()
 	return store.Record{Time: now, Value: AuditEntry{Time: now, User: user, IP: ip, Action: action}}
+}
+
+var widgetID = regexp.MustCompile(`^[a-z0-9-]{1,32}$`)
+
+func (s *Server) getLayout(w http.ResponseWriter, r *http.Request) {
+	var p prefs
+	s.Prefs.Get(sessionFrom(r).Username, &p)
+	writeJSON(w, map[string]any{"widgets": p.Dashboard})
+}
+
+func (s *Server) putLayout(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Widgets []widgetPref `json:"widgets"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	if len(in.Widgets) > 40 {
+		httpError(w, http.StatusBadRequest, "too many widgets")
+		return
+	}
+	seen := map[string]bool{}
+	for _, x := range in.Widgets {
+		if !widgetID.MatchString(x.ID) || seen[x.ID] || !slices.Contains([]string{"sm", "md", "lg", "full"}, x.Size) {
+			httpError(w, http.StatusBadRequest, "odd widget "+x.ID)
+			return
+		}
+		seen[x.ID] = true
+	}
+	var p prefs
+	s.Prefs.Get(sessionFrom(r).Username, &p)
+	p.Dashboard = in.Widgets
+	if err := s.Prefs.Put(sessionFrom(r).Username, p); err != nil {
+		httpError(w, http.StatusInternalServerError, "couldn't save the layout")
+		return
+	}
+	writeJSON(w, map[string]any{"widgets": p.Dashboard})
 }

@@ -1,7 +1,6 @@
 package web
 
 import (
-	_ "embed"
 	"html/template"
 	"net/http"
 	"strings"
@@ -10,11 +9,6 @@ import (
 	"github.com/masaleem-oss/Fengard/internal/alerts"
 	"github.com/masaleem-oss/Fengard/internal/config"
 )
-
-//go:embed welcome.html
-var welcomeHTML string
-
-var welcomeTmpl = template.Must(template.New("welcome").Parse(welcomeHTML))
 
 // exactly what apple serves, anything else makes the phone show a login sheet
 const appleSuccess = "<HTML><HEAD><TITLE>Success</TITLE></HEAD><BODY>Success</BODY></HTML>"
@@ -60,12 +54,12 @@ func (s *Server) captiveCheck(w http.ResponseWriter, r *http.Request) {
 	if s.Welcome != nil && strings.Contains(r.UserAgent(), "Macintosh") && s.Welcome.Want(info.MAC, info.Hostname) {
 		s.Welcome.Accept(info.MAC)
 	}
-	if s.Welcome == nil || !s.Welcome.Want(info.MAC, info.Hostname) {
+	if s.Welcome == nil || s.welcomePage() == nil || !s.Welcome.Want(info.MAC, info.Hostname) {
 		w.Header().Set("Content-Type", "text/html")
 		w.Write([]byte(appleSuccess))
 		return
 	}
-	renderPortal(w, s.welcomeData(s.Config.Get()))
+	s.renderPortal(w, s.welcomeData(s.Config.Get()))
 }
 
 func (s *Server) welcomeJoin(w http.ResponseWriter, r *http.Request) {
@@ -88,20 +82,25 @@ func (s *Server) welcomeJoin(w http.ResponseWriter, r *http.Request) {
 	}
 	d := s.welcomeData(s.Config.Get())
 	d.Joined = true
-	renderPortal(w, d)
+	s.renderPortal(w, d)
 }
 
 // the admins html can style the page but never run anything
 const portalCSP = "default-src 'none'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; form-action 'self'; frame-ancestors 'none'"
 
-func renderPortal(w http.ResponseWriter, d welcomeData) {
+func (s *Server) renderPortal(w http.ResponseWriter, d welcomeData) {
+	t := s.welcomePage()
+	if t == nil {
+		http.Error(w, "the captive portal add-on isn't installed", http.StatusNotFound)
+		return
+	}
 	w.Header().Set("Content-Security-Policy", portalCSP)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	welcomeTmpl.Execute(w, d)
+	t.Execute(w, d)
 }
 
 // shows the portal in a dashboard tab so the admin can see their html
 func (s *Server) portalPreview(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
-	renderPortal(w, s.welcomeData(s.Config.Get()))
+	s.renderPortal(w, s.welcomeData(s.Config.Get()))
 }

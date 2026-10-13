@@ -24,6 +24,7 @@ import (
 	"github.com/masaleem-oss/Fengard/internal/policy"
 	"github.com/masaleem-oss/Fengard/internal/querylog"
 	"github.com/masaleem-oss/Fengard/internal/store"
+	"github.com/masaleem-oss/Fengard/internal/vpn"
 )
 
 func newTestServer(t *testing.T) *httptest.Server {
@@ -54,6 +55,7 @@ func newTestServer(t *testing.T) *httptest.Server {
 		Firewall: &firewall.Manager{Inputs: func() (firewall.Params, error) { return firewall.Params{}, nil }},
 		Auth:     auth.New(users, keys), Alerts: alerts.New(logOf("alerts")), Audit: logOf("audit"), Prefs: prefs, Version: "test",
 		Notifier: notify.New("test"),
+		VPN:      &vpn.Manager{DataDir: dir},
 		Started:  time.Now(),
 	}
 	t.Cleanup(func() { s.Log.Close(context.Background()) })
