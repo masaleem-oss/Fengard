@@ -6,7 +6,8 @@ are on the [releases page](https://github.com/masaleem-oss/Fengard/releases).
 
 ## Unreleased
 
-Nothing yet.
+### Changed
+- A device flooding DNS can no longer push Fengard's memory up: about 24 MB after a flood instead of 64 MB
 
 ## 1.3.1.2 - 2026-10-13 (preview)
 
