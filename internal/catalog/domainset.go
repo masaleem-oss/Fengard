@@ -66,7 +66,12 @@ type entry struct {
 
 func NewBuilder() *Builder { return &Builder{} }
 
-func (b *Builder) Add(domain string, m Mask) {
+func (b *Builder) Add(domain string, m Mask) { add(b, domain, m) }
+
+// AddBytes copies d, so it can come straight from a reused read buffer
+func (b *Builder) AddBytes(d []byte, m Mask) { add(b, d, m) }
+
+func add[T ~string | ~[]byte](b *Builder, domain T, m Mask) {
 	if len(domain) == 0 || len(domain) > 255 {
 		return
 	}

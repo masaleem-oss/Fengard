@@ -211,10 +211,10 @@ func (c *Catalog) load() error {
 
 	for i, cat := range Categories {
 		bit := Mask(1) << i
-		add := func(d string) { b.Add(d, bit); counts[i]++ }
+		add := func(d []byte) { b.AddBytes(d, bit); counts[i]++ }
 
 		if f, err := seeds.Open("seeds/" + cat.ID + ".txt"); err == nil {
-			ParseList(f, add)
+			parseLines(f, add)
 			f.Close()
 		}
 		for _, src := range cat.Sources {
@@ -226,14 +226,14 @@ func (c *Catalog) load() error {
 			if fi, err := f.Stat(); err == nil && fi.ModTime().After(mtimes[i]) {
 				mtimes[i] = fi.ModTime()
 			}
-			ParseList(f, add)
+			parseLines(f, add)
 			f.Close()
 		}
 	}
 	for i, cs := range custom {
 		bit := CustomBit(i)
 		k := len(Categories) + i
-		add := func(d string) { b.Add(d, bit); counts[k]++ }
+		add := func(d []byte) { b.AddBytes(d, bit); counts[k]++ }
 		f, err := os.Open(filepath.Join(c.dir, cacheName(cs.URL)))
 		if err != nil {
 			continue
@@ -241,7 +241,7 @@ func (c *Catalog) load() error {
 		if fi, err := f.Stat(); err == nil {
 			mtimes[k] = fi.ModTime()
 		}
-		ParseList(f, add)
+		parseLines(f, add)
 		f.Close()
 	}
 	c.set.Store(b.Build())
@@ -405,6 +405,12 @@ func (c *Catalog) Run(ctx context.Context, every time.Duration) {
 }
 
 func ParseList(r io.Reader, add func(domain string)) {
+	parseLines(r, func(d []byte) { add(string(d)) })
+}
+
+// parseLines hands over each domain as bytes from the scanner's own buffer, so a list doesn't make a few
+// strings per line that all become garbage at once. that garbage was most of the load peak
+func parseLines(r io.Reader, add func(domain []byte)) {
 	sc := bufio.NewScanner(r)
 	sc.Buffer(make([]byte, 64*1024), 1024*1024)
 	for sc.Scan() {
@@ -412,23 +418,44 @@ func ParseList(r io.Reader, add func(domain string)) {
 		if i := bytes.IndexAny(line, "#!"); i >= 0 {
 			line = line[:i]
 		}
-		fields := bytes.Fields(line)
-		if len(fields) == 0 {
+		d, rest := field(line)
+		if len(d) == 0 {
 			continue
 		}
-		d := string(fields[0])
-		if net.ParseIP(d) != nil {
-			if len(fields) < 2 {
+		// hosts files put an address first
+		if hostsAddr(d) {
+			if d, _ = field(rest); len(d) == 0 {
 				continue
 			}
-			d = string(fields[1])
 		}
-		d = strings.TrimPrefix(strings.TrimPrefix(d, "||"), "*.")
-		d = strings.TrimSuffix(strings.TrimSuffix(strings.ToLower(d), "^"), ".")
-		if ValidDomain(d) {
+		d = bytes.TrimPrefix(bytes.TrimPrefix(d, []byte("||")), []byte("*."))
+		for i, c := range d {
+			if 'A' <= c && c <= 'Z' {
+				d[i] = c + 'a' - 'A'
+			}
+		}
+		d = bytes.TrimSuffix(bytes.TrimSuffix(d, []byte("^")), []byte("."))
+		if validDomain(d) {
 			add(d)
 		}
 	}
+}
+
+// field is the first whitespace separated word and what follows it
+func field(b []byte) (word, rest []byte) {
+	b = bytes.TrimLeft(b, " \t\r")
+	i := bytes.IndexAny(b, " \t\r")
+	if i < 0 {
+		return b, nil
+	}
+	return b[:i], b[i:]
+}
+
+func hostsAddr(d []byte) bool {
+	if len(d) == 0 || !(d[0] >= '0' && d[0] <= '9' || d[0] == ':') {
+		return false
+	}
+	return net.ParseIP(string(d)) != nil
 }
 
 func ParseIPs(r io.Reader, add func(string)) {
@@ -449,19 +476,28 @@ func ParseIPs(r io.Reader, add func(string)) {
 	}
 }
 
-func ValidDomain(d string) bool {
-	if len(d) < 3 || len(d) > 253 || !strings.Contains(d, ".") {
+func ValidDomain(d string) bool { return validDomain(d) }
+
+func validDomain[T ~string | ~[]byte](d T) bool {
+	if len(d) < 3 || len(d) > 253 || d[0] == '.' || d[len(d)-1] == '.' {
 		return false
 	}
-	switch d {
+	switch string(d) {
 	case "localhost.localdomain", "local", "broadcasthost":
 		return false
 	}
+	dot := false
 	for i := 0; i < len(d); i++ {
-		ch := d[i]
-		if !(ch >= 'a' && ch <= 'z' || ch >= '0' && ch <= '9' || ch == '-' || ch == '.' || ch == '_') {
+		switch ch := d[i]; {
+		case ch == '.':
+			if d[i-1] == '.' {
+				return false
+			}
+			dot = true
+		case ch >= 'a' && ch <= 'z', ch >= '0' && ch <= '9', ch == '-', ch == '_':
+		default:
 			return false
 		}
 	}
-	return d[0] != '.' && d[len(d)-1] != '.' && !strings.Contains(d, "..")
+	return dot
 }
