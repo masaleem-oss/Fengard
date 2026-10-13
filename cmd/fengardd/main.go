@@ -36,6 +36,7 @@ import (
 	"github.com/masaleem-oss/Fengard/internal/config"
 	"github.com/masaleem-oss/Fengard/internal/devices"
 	"github.com/masaleem-oss/Fengard/internal/dnsserver"
+	"github.com/masaleem-oss/Fengard/internal/features"
 	"github.com/masaleem-oss/Fengard/internal/firewall"
 	"github.com/masaleem-oss/Fengard/internal/identity"
 	"github.com/masaleem-oss/Fengard/internal/internet"
@@ -83,6 +84,8 @@ func main() {
 		noUpdate     = flag.Bool("no-list-updates", false, "don't download blocklists (use cached copies only)")
 		updateURL    = flag.String("update-url", "https://api.github.com/repos/masaleem-oss/Fengard/releases/latest", "where to check for new Fengard releases (empty to turn checks off)")
 		speedURL     = flag.String("speedtest-url", "", "your own speed test server with /__down and /__up (default: fast.com, then LibreSpeed)")
+		featSrc      = flag.String("features-src", "/tmp/fengard-features", "comma-separated folders to install add-ons from before downloading them, the router installer leaves its copies here")
+		featURL      = flag.String("features-url", "auto", "where add-ons download from, auto is this version's GitHub release (empty for none)")
 	)
 	flag.Parse()
 	if *logMB < 1 || *logRecords < 1 || *logFileMB < *logMB+4 || *logReserveMB < 1 {
@@ -232,6 +235,22 @@ func main() {
 	vpnMgr := &vpn.Manager{DataDir: *dataDir, WAN: split(*wan)}
 	vpnMgr.Detect()
 
+	has := func(id string) bool { return cfgStore.Get().Settings.Has(id) }
+	addons := &features.Manager{
+		Dir: filepath.Join(*dataDir, "features"), Client: cat.HTTPClient(),
+		Sources: append(split(*featSrc), featuresURL(*featURL, *updateURL, version)),
+		Wanted:  func() []string { return cfgStore.Get().Settings.Features },
+	}
+	vendorsOn := func(ready bool) {
+		if ready {
+			devices.UseVendors(addons.Path("vendors", "oui.txt.gz"))
+		} else {
+			devices.UseVendors("")
+		}
+	}
+	addons.Check()
+	vendorsOn(addons.Ready("vendors"))
+
 	lastLists := fmt.Sprint(initialSources)
 	cfgStore.Subscribe(func(c *config.Config) {
 		// only rebuild the domain set when the lists actually change
@@ -251,9 +270,10 @@ func main() {
 		}
 		tracker.Known(macs)
 
+		addons.Kick()
 		// tunnels only carry ipv4
 		var v4only []netip.Prefix
-		if c.VPN.Enabled {
+		if vpnOn(c) {
 			if pfx, err := netip.ParsePrefix(c.VPN.Subnet); err == nil {
 				v4only = append(v4only, pfx)
 			}
@@ -262,7 +282,9 @@ func main() {
 			v4only = append(v4only, netip.MustParsePrefix(vpn.TailscaleCGNAT))
 		}
 		dns.SetIPv4Only(v4only)
-		if err := vpnMgr.Apply(c.VPN); err != nil {
+		v := c.VPN
+		v.Enabled = vpnOn(c)
+		if err := vpnMgr.Apply(v); err != nil {
 			log.Printf("vpn: %v", err)
 		}
 		tunnelClients(ctx, cfgStore, tracker)
@@ -345,7 +367,7 @@ func main() {
 		}
 		tor := engine.CategoryMACs("tor", seen, now)
 		var tunnels []firewall.VPNParams
-		if c.VPN.Enabled && vpn.Supported() {
+		if vpnOn(c) && vpn.Supported() {
 			tunnels = append(tunnels, firewall.VPNParams{Iface: vpn.Iface, Port: c.VPN.Port, Subnet: c.VPN.Subnet})
 		}
 		if vpn.TailscaleSupported() {
@@ -423,7 +445,7 @@ func main() {
 	inet := &internet.Monitor{
 		Speeds:   must(db.Log("speedtests", store.LogLimits{MaxRecords: 200, MaxBytes: 64 << 10})),
 		Outages:  must(db.Log("outages", store.LogLimits{MaxRecords: 200, MaxBytes: 64 << 10})),
-		Daily:    func() bool { return !cfgStore.Get().Settings.SpeedTestOff },
+		Daily:    func() bool { return !cfgStore.Get().Settings.SpeedTestOff && has("speedtest") },
 		Location: routerLoc, Server: *speedURL,
 		OnOutage: func(o internet.Outage) {
 			loc := routerLoc()
@@ -441,6 +463,7 @@ func main() {
 	run(func() { meter.Run(ctx) })
 
 	home := &presence.Watcher{
+		Enabled: func() bool { return has("presence") },
 		Tracked: func() []string {
 			var macs []string
 			for _, d := range cfgStore.Get().Devices {
@@ -462,7 +485,8 @@ func main() {
 	run(func() { home.Run(ctx) })
 
 	scanner := &netscan.Scanner{
-		KV: must(db.KV("netscan")),
+		Enabled: func() bool { return has("devicecheck") },
+		KV:      must(db.KV("netscan")),
 		Targets: func() []netscan.Target {
 			var out []netscan.Target
 			lans := lanNets(split(*lan))
@@ -486,6 +510,18 @@ func main() {
 	}
 	run(func() { scanner.Run(ctx) })
 
+	addons.OnChange = func(id string, ready bool) {
+		switch id {
+		case "vendors":
+			vendorsOn(ready)
+		case "devicecheck":
+			if ready {
+				scanner.Trigger()
+			}
+		}
+	}
+	run(func() { addons.Run(ctx) })
+
 	authn := auth.New(users, keys)
 	authn.Issuer = "Fengard (" + cfgStore.Get().Settings.BoxName + ")"
 	webSrv := &web.Server{
@@ -496,6 +532,7 @@ func main() {
 		CPU: cpu, VPN: vpnMgr, Screen: screen, Version: version, Updater: updater,
 		DashboardHosts: split(*hosts), Started: time.Now(),
 		Welcome: gate, Internet: inet, Traffic: meter, Presence: home, Scanner: scanner, Recognizer: rec,
+		Features: addons,
 		ProbeURL: probeURL(*blockIP, *httpsAddr, *fwOn),
 	}
 	handler := webSrv.Handler()
@@ -589,7 +626,7 @@ func tunnelIPs(t *devices.Tracker, ids []string) []string {
 func tunnelClients(ctx context.Context, cs *config.Store, t *devices.Tracker) {
 	c := cs.Get()
 	static := map[string]devices.Info{}
-	if c.VPN.Enabled {
+	if vpnOn(c) {
 		for _, p := range c.VPN.Peers {
 			static[p.IP] = devices.Info{MAC: p.Identity(), IP: p.IP, Hostname: p.Name}
 		}
@@ -894,4 +931,19 @@ func inAny(nets []netip.Prefix, a netip.Addr) bool {
 		}
 	}
 	return false
+}
+
+func vpnOn(c *config.Config) bool { return c.VPN.Enabled && c.Settings.Has("vpn") }
+
+// add-ons come from the release this binary is, dev builds have no release to come from
+func featuresURL(flagURL, updateURL, version string) string {
+	if flagURL != "auto" {
+		return flagURL
+	}
+	repo, ok := strings.CutPrefix(updateURL, "https://api.github.com/repos/")
+	repo, _, _ = strings.Cut(repo, "/releases")
+	if !ok || repo == "" || strings.Contains(version, "-") {
+		return ""
+	}
+	return "https://github.com/" + repo + "/releases/download/v" + version + "/"
 }
