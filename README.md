@@ -17,6 +17,7 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/masaleem-oss/Fengard/actions/workflows/ci.yml"><img alt="Tests" src="https://github.com/masaleem-oss/Fengard/actions/workflows/ci.yml/badge.svg"></a>
   <a href="LICENSE"><img alt="License: Apache 2.0" src="https://img.shields.io/badge/license-Apache%202.0-blue"></a>
   <img alt="Go" src="https://img.shields.io/badge/go-1.27-00ADD8?logo=go&logoColor=white">
   <img alt="OpenWrt 19.07+" src="https://img.shields.io/badge/OpenWrt-19.07%2B-00B5E2?logo=openwrt&logoColor=white">
@@ -27,10 +28,10 @@
 <p align="center">
   <a href="#install">Install</a> ·
   <a href="#screenshots">Screenshots</a> ·
-  <a href="#how-it-works">How it works</a> ·
+  <a href="docs/how-it-works.md#how-it-works">How it works</a> ·
   <a href="#features">Features</a> ·
-  <a href="#configuration-reference">Reference</a> ·
-  <a href="#development">Development</a>
+  <a href="docs/configuration.md#configuration-reference">Reference</a> ·
+  <a href="docs/development.md#development">Development</a>
 </p>
 
 <p align="center">
@@ -45,20 +46,20 @@
 - [How it compares](#how-it-compares)
 - [Install](#install)
   - [Which routers work](#which-routers-work)
-  - [Supported routers](#supported-routers)
-  - [What the installer changes](#what-the-installer-changes)
+  - [Supported routers](docs/routers.md#supported-routers)
+  - [What the installer changes](docs/how-it-works.md#what-the-installer-changes)
   - [Running on a computer instead](#running-on-a-computer-instead)
   - [Uninstall](#uninstall)
 - [Screenshots](#screenshots)
-- [How it works](#how-it-works)
+- [How it works](docs/how-it-works.md#how-it-works)
 - [Features](#features)
-- [Performance](#performance)
-- [Configuration reference](#configuration-reference)
-- [Security](#security)
+- [Performance](docs/how-it-works.md#performance)
+- [Configuration reference](docs/configuration.md#configuration-reference)
+- [Security](docs/how-it-works.md#security)
 - [Troubleshooting](#troubleshooting)
 - [FAQ](#faq)
-- [Development](#development)
-- [Project layout](#project-layout)
+- [Development](docs/development.md#development)
+- [Project layout](docs/development.md#project-layout)
 - [Contributing](#contributing)
 - [License](#license)
 
@@ -138,7 +139,7 @@ wget -O- https://github.com/masaleem-oss/Fengard/releases/latest/download/router
 
 **From the router's web page (LuCI).** Every release has a package for each CPU type:
 `fengard_<version>_<cpu>.ipk` for OpenWrt up to 24.10 (and GL.iNet), `.apk` for OpenWrt 25.12 and later.
-The CPU names match the [Supported routers](#supported-routers) table, for example `arm64` for a GL-MT3000 or
+The CPU names match the [Supported routers](docs/routers.md#supported-routers) table, for example `arm64` for a GL-MT3000 or
 `mipsle` for an MT7621 router.
 
 1. In LuCI open **System → Software**, choose **Upload Package…** and pick the `.ipk`.
@@ -188,124 +189,21 @@ The installer checks memory and storage first and stops cleanly if the router is
 
 ### Supported routers
 
-Every release goes through the [router lab](dev/routerlab), which boots real OpenWrt images in QEMU for each
-CPU type and runs the actual installer on them. Each router is checked for the right CPU build, DNS
-answering, catching a DHCP request from the LAN, LAN devices resolving and reaching the dashboard, SSH still working, full blocklists loading,
-internet names resolving, lookups over DNS over HTTP/3 to a quic-go server the lab runs itself (so no
-network in between can get in the way), and an uninstall that gives DNS back with no Fengard firewall rules
-left. The x86 ones get rebooted too.
-
-Results for 1.3.1.2:
-
-| Router type | Firmware | CPU build | Result | Memory |
-|---|---|---|---|---|
-| ARM64 (Filogic, MT7622, IPQ807x: GL-MT3000, Flint 2, Linksys E8450) | OpenWrt 22.03.7 | linux-arm64 | ✅ all 10 checks | 28 MB |
-| ARM64 (Filogic, MT7622, IPQ807x: GL-MT3000, Flint 2, Linksys E8450) | OpenWrt 25.12.5 | linux-arm64 | ✅ all 10 checks | 23 MB |
-| ARMv7 (IPQ40xx, mvebu: Linksys WRT, GL-B1300) | OpenWrt 21.02.7 | linux-arm | ✅ all 10 checks | 22 MB |
-| ARMv7 (IPQ40xx, mvebu: Linksys WRT, GL-B1300) | OpenWrt 23.05.6 | linux-arm | ✅ all 10 checks | 20 MB |
-| ARMv7 (IPQ40xx, mvebu: Linksys WRT, GL-B1300) | OpenWrt 24.10.8 | linux-arm | ✅ all 10 checks | 21 MB |
-| MIPS big-endian (ath79: TP-Link Archer C7, GL-AR750S) | OpenWrt 22.03.7 | linux-mips | ✅ all 10 checks | 21 MB |
-| MIPS little-endian (MT7621: Xiaomi 4A, Netgear R6220, GL-MT1300) | OpenWrt 24.10.8 | linux-mipsle | ✅ all 10 checks | 20 MB |
-| MIPS64 big-endian (Octeon: EdgeRouter Lite) | OpenWrt 24.10.8 | linux-mips64 | ✅ all 10 checks | 27 MB |
-| MIPS64 little-endian (Loongson) | OpenWrt 25.12.5 | linux-mips64le | ✅ all 7 checks (no internet in the VM) | 18 MB |
-| x86 32-bit | OpenWrt 23.05.6 | linux-386 | ✅ all 11 checks | 30 MB |
-| x86-64 mini PC | OpenWrt 19.07.10 | linux-amd64 | ✅ all 11 checks | 27 MB |
-| x86-64 mini PC | OpenWrt 22.03.7 | linux-amd64 | ✅ all 11 checks | 33 MB |
-| x86-64, squashfs like router flash | OpenWrt 24.10.8 | linux-amd64 | ✅ all 11 checks | 33 MB |
-
-On real hardware:
-
-| Router | Firmware | Notes |
-|---|---|---|
-| GL.iNet GL-MT3000 | GL.iNet 4.7 (OpenWrt 21.02, fw3) | In daily use since 1.0.0, upgraded in place |
-
-Got it running on something else? [Open an issue](https://github.com/masaleem-oss/Fengard/issues/new/choose)
-and it'll go in this table.
+Every release is installed on 13 emulated routers, covering ARM64, ARMv7, MIPS, MIPS64 and x86 on
+OpenWrt 19.07 to 25.12, before it ships. See [the router lab results](docs/routers.md) for every router type,
+the checks each one passes and how much memory Fengard uses on it.
 
 #### When things go wrong
 
-These run in the lab on OpenWrt 24.10 x86 squashfs, which has the same flash layout as a real router (the package
-rows also on 21.02 and 25.12, and the GL.iNet 4.9 rows on 21.02):
-
-| Situation | Result |
-|---|---|
-| 96 MB of RAM (under the 100 MB minimum): refuses cleanly, router untouched | ✅ |
-| 128 MB of RAM: full blocklists, no out of memory | ✅ |
-| Nearly full flash: refuses cleanly, router untouched | ✅ |
-| AdGuard Home on port 53: asks first, left alone when the answer is no | ✅ |
-| AdGuard Home on port 53: turned off for Fengard and stays off after a reboot | ✅ |
-| Removing Fengard turns AdGuard Home back on | ✅ |
-| LAN on 10.0.0.1/16: picks a spare address in the subnet | ✅ |
-| No internet during install: installs and serves local names | ✅ |
-| No internet: uninstall gives DNS back | ✅ |
-| Another DNS server already on port 53: stops and rolls back | ✅ |
-| Power cut at 'DNS:' during install: DNS works after reboot | ✅ |
-| Power cut at 'starting' during install: DNS works after reboot | ✅ |
-| Firmware upgrade keeping settings: Fengard comes back | ✅ |
-| Fengard stopped by hand: the house keeps DNS | ✅ |
-| Program missing at boot: the house keeps DNS | ✅ |
-| Program crash-looping: the house keeps DNS | ✅ |
-| Recovers by itself once the program works again | ✅ |
-| Installed from the ipk on OpenWrt 21.02 (fw3, like stock GL.iNet): works like the installer | ✅ |
-| Removed with the ipk on OpenWrt 21.02 (fw3, like stock GL.iNet): router back to stock | ✅ |
-| GL.iNet 4.9 style firmware (fw3 with an nft that can't read /dev/stdin, like the Beryl 7): uses iptables and the dashboard opens | ✅ |
-| GL.iNet 4.9 style firmware: removed cleanly | ✅ |
-| Installed from the ipk on OpenWrt 24.10: works like the installer | ✅ |
-| Removed with the ipk on OpenWrt 24.10: router back to stock | ✅ |
-| Installed from the apk on OpenWrt 25.12: works like the installer | ✅ |
-| Removed with the apk on OpenWrt 25.12: router back to stock | ✅ |
-| GL.iNet VPN client DNS on its own port: left alone | ✅ |
-| Router settings hand port 53 back to dnsmasq (saving GL.iNet's DNS page does this): Fengard takes it back, DNS and DHCP keep working | ✅ |
-| Removed afterwards: VPN client DNS keeps its port, DNS back to dnsmasq | ✅ |
+Power cuts mid-install, a full flash, too little memory, another DNS server on port 53, AdGuard Home,
+firmware upgrades, a crashing program and GL.iNet quirks are all tested too, and the house keeps DNS in
+every one of them. See [When things go wrong](docs/routers.md#when-things-go-wrong).
 
 ### What the installer changes
 
-Everything is read from the router's own configuration, so nothing is hardcoded to one model:
-
-```mermaid
-flowchart LR
-    A[Computer runs installer] -->|one SSH upload,<br/>every CPU build| B[Router]
-    B --> C{Detect}
-    C --> C1[CPU type]
-    C --> C2[LAN address, subnet,<br/>guest networks]
-    C --> C3[WAN interfaces from<br/>the masquerading zone]
-    C --> C4[fw3 + iptables<br/>or fw4 + nftables]
-    C --> C5[free spare LAN address<br/>and web ports]
-    C1 & C2 & C3 & C4 & C5 --> D[Record originals in<br/>/etc/fengard/install.env]
-    D --> E[Install service,<br/>move DNS to Fengard]
-    E --> F{Answers DNS?}
-    F -->|yes| G[Done: dashboard at<br/>http://fengard.lan]
-    F -->|no| H[Roll back to the<br/>stock DNS setup]
-```
-
-| What | Change | Undone by uninstall |
-|---|---|---|
-| `/usr/bin/fengardd` | the program, only the one built for this CPU | yes |
-| `/etc/fengard/` | settings, database, certificates, blocklists | kept unless `--purge` |
-| `/etc/init.d/fengard` | the service; adds one spare LAN address for the dashboard and block page, and runs a small watchdog | yes |
-| dnsmasq | stops answering DNS and keeps doing DHCP; devices are told to use the router for DNS | restored exactly |
-| firewall | a hook that re-applies Fengard's rules after a firewall reload, plus the VPN interface and port | yes |
-| `/etc/sysupgrade.conf` | keeps Fengard across firmware upgrades | yes |
-
-Most firmware keeps its own web interface on ports 80 and 443, so Fengard listens on free ports and the
-firewall redirects the spare address's 80 and 443 to them. If any step fails the installer rolls back on its
-own, and it never switches DNS over until Fengard is set to start at boot, so even a power cut mid-install
-can't leave the household without DNS. Reinstalling keeps the same address, ports and certificate.
-
-**The house stays online if Fengard doesn't.** The watchdog checks Fengard every 20 seconds. If it's stopped,
-crashing or missing (say USB storage didn't mount), plain dnsmasq takes over DNS within about a minute and a
-half. Every 10 minutes the watchdog gives Fengard the port back, and as soon as Fengard answers again, it's in
-charge. Filtering is off while dnsmasq stands in, but nobody loses internet.
-
-Optional settings for the router installer:
-
-| Variable | Use |
-|---|---|
-| `FG_IP=192.168.1.2` | choose the spare LAN address yourself |
-| `LAN_NET=lan` | the main LAN network name in `/etc/config/network` |
-| `FG_DIR=/mnt/usb/fengard` | keep data and the program on USB storage |
-| `FORCE=1` | install even if the router looks too small |
-| `ADGUARD=off` | turn AdGuard Home off without asking if it's using port 53 (it comes back on when Fengard is removed) |
+It reads everything from the router's own configuration: an alias address for the dashboard, port 53
+for DNS, a firewall include and the WireGuard interface. Every change is recorded and undone on uninstall.
+See [what the installer changes](docs/how-it-works.md#what-the-installer-changes).
 
 ### Running on a computer instead
 
@@ -385,96 +283,11 @@ What a device on the network sees:
 
 ## How it works
 
-```mermaid
-flowchart TB
-    subgraph LAN[Home network]
-        P[Phones, laptops,<br/>consoles, TVs, IoT]
-    end
-    subgraph R[Router, stock firmware]
-        DHCP[dnsmasq<br/>DHCP only]
-        subgraph F[fengardd, one Go binary]
-            DNS[DNS server<br/>cache, rate limits]
-            POL[Policy engine<br/>per-device decisions]
-            WEB[Dashboard, API,<br/>block page]
-            FWM[Firewall manager]
-            DB[(bbolt database<br/>config, history)]
-        end
-        K[Kernel: Fengard's own<br/>nftables table or iptables chains]
-    end
-    UP[Upstream DNS<br/>plain, DoT, DoH or DoH3]
-    NET((Internet))
-
-    P -- DHCP --> DHCP
-    P -- every DNS lookup --> K
-    K -- redirected to Fengard --> DNS
-    DNS <--> POL
-    DNS --> UP
-    POL --- DB
-    WEB --- DB
-    FWM -- atomic ruleset --> K
-    P -- traffic --> K --> NET
-```
-
-A lookup's journey:
-
-```mermaid
-sequenceDiagram
-    participant D as Device
-    participant K as Kernel firewall
-    participant F as Fengard DNS
-    participant P as Policy engine
-    participant U as Upstream
-    D->>K: query to 8.8.8.8:53 (any server)
-    K->>F: redirected to the router
-    F->>F: per-device rate limit
-    F->>P: who is this device, what is its profile?
-    alt blocked
-        P-->>F: block, reason
-        F-->>D: address of the block page
-    else allowed
-        F->>F: cache hit?
-        F->>U: forward over DoH, DoH3 or DoT if not cached
-        U-->>F: answer
-        F-->>D: answer
-    end
-    F--)F: log, stats and screen time (async, never slows the answer)
-```
-
-The policy engine checks each lookup in this order and stops at the first match:
-
-```mermaid
-flowchart LR
-    A[New device<br/>not approved?] --> B[Device or<br/>profile paused?]
-    B --> C[Protection<br/>paused?]
-    C --> D[Daily screen<br/>time used up?]
-    D --> E[App time<br/>limit reached?]
-    E --> F[Schedule<br/>active?]
-    F --> G[Allow rule?]
-    G --> H[Temporary<br/>allow?]
-    H --> I[Block rule?]
-    I --> J[Blocked<br/>category?]
-    J --> K[Blocked app?]
-    K --> L[Custom<br/>blocklist?]
-    L --> M[SafeSearch<br/>rewrite?]
-    M --> N[Allow]
-```
-
-Design choices:
-
-- **The kernel does the heavy lifting.** Packet filtering, NAT, port forwards and flood limits are rules in
-  Fengard's own table or chains next to the router's normal firewall. Two backends, nftables (OpenWrt 22 and
-  newer, modern Linux) and iptables (OpenWrt 21, GL.iNet 4.x), picked automatically. Rules are applied
-  atomically and removed when Fengard stops.
-- **Bounded everything.** The DNS cache, rate-limiter keys, stats, certificate cache, device tracking and
-  notification queues all have hard caps, so floods of random names or addresses can't grow memory.
-- **DNS never waits on slow work.** Query logging, notifications and device discovery are asynchronous and
-  drop (and count) rather than slow a lookup down.
-- **Compact blocklists.** About 535k domains take about 11 MB: a sorted blob with a one-byte length per domain
-  and a small table of category masks instead of a Go map, built in fixed blocks so loading doesn't spike.
-- **No build step, no framework.** The dashboard is plain ES modules and CSS embedded in the binary, served
-  with ETags and gzip. A first visit downloads about 90 KB, and it works with no internet access.
-- **Nothing to install on the router.** One static binary with its own root certificates, so it works even on
-  firmware without a CA bundle.
+Devices keep using the router for DNS as they always did. Fengard answers those lookups, and its rules in
+the router's own nftables or iptables firewall make sure nothing gets around it: other DNS servers, DNS over
+HTTPS, TLS or QUIC, and Tor are redirected or blocked in the kernel. If Fengard stops, the router's dnsmasq
+takes DNS over and the house stays online. See [how it works](docs/how-it-works.md) for the design,
+[performance](docs/how-it-works.md#performance) and [security](docs/how-it-works.md#security).
 
 ## Features
 
@@ -513,86 +326,10 @@ Design choices:
 | Device check | Every week Fengard checks the devices on your network for risky open doors like Telnet, Android debugging on TV boxes, or a camera stream with no password, and for ports a device opened to the internet with UPnP, and explains each one in plain words |
 | Captive portal | Optional. The first time a new iPhone or iPad joins, it shows a sign-in page saying the network is protected by Fengard, with a Join network button. You can swap in your own HTML and CSS (scripts never run). Computers and smart devices never see it, and anything that doesn't tap Join gets through after 10 minutes |
 
-## Performance
-
-Measured on the network lab ([`dev/netlab.sh`](dev/netlab.sh)) with both firewall backends:
-
-| Measure | Result |
-|---|---|
-| Memory | 22 to 26 MB RSS |
-| Idle CPU | 0 ms over 20 s |
-| Cost per query under sustained load | about 16 µs |
-| A busy home at about 20 queries per second | about 0.03% of one core |
-| One device flooding 1.4 million queries per second | dropped in the kernel; other devices keep resolving with 0 failures and single-digit-ms latency |
-| Blocklists | about 535k domains in about 11 MB |
-
 ## Configuration reference
 
-The installers set everything up, so these are only needed to run `fengardd` by hand.
-
-| Flag | Default | Meaning |
-|---|---|---|
-| `-dns` | `:53` | comma-separated DNS listen addresses |
-| `-http` | `:80` | dashboard and block page listen address |
-| `-https` | `:443` | HTTPS block page listen address, empty to disable |
-| `-block-ip` | this machine's LAN address | IPv4 address blocked domains resolve to (the block page and dashboard) |
-| `-dns-ip` | the block IP | LAN IPv4 address devices' DNS is redirected to |
-| `-block-ip6` | none | the router's LAN IPv6 address |
-| `-data` | `/etc/fengard` | directory for persistent state |
-| `-leases` | `/tmp/dhcp.leases` | dnsmasq DHCP lease file |
-| `-dashboard-hosts` | `fengard.lan` | comma-separated hostnames that open the dashboard |
-| `-lan` | `br-lan` | comma-separated LAN interfaces |
-| `-wan` | `wan,eth0` | comma-separated WAN interfaces |
-| `-firewall` | off | apply firewall rules (Linux router only) |
-| `-firewall-backend` | `auto` | `auto`, `nftables` or `iptables` |
-| `-netns` | none | apply firewall rules inside a network namespace (testing) |
-| `-harden` | off | set kernel network hardening options |
-| `-mem-limit` | `96` | soft memory limit in MB |
-| `-no-list-updates` | off | don't download blocklists, use cached copies only |
-| `-update-url` | the GitHub releases API | where to check for new Fengard releases, empty turns checks off |
-| `-speedtest-url` | fast.com, then LibreSpeed | your own speed test server instead, anything with `/__down?bytes=N` and `/__up` |
-
-`SIGUSR1` makes Fengard re-apply its firewall rules; the router installer wires this to firewall reloads.
-
-**API.** Everything the dashboard does goes through a JSON API under `/api`: devices, groups (profiles),
-rules, lists, port forwards, DNS records, VPN peers, alerts, settings, updates, users, API keys, config export,
-import and rollback. Use an API key from **Settings → API keys** as a bearer token for scripts.
-
-## Security
-
-- **Accounts.** Passwords are hashed with bcrypt. Two-factor uses TOTP with recovery codes. Sessions have
-  idle and absolute timeouts, and login attempts are rate limited.
-- **CSRF.** Every write needs a custom header that browsers won't send cross-origin, and the Origin is checked.
-- **Dashboard transport.** The dashboard works over HTTP from your own network (private, link-local and
-  Tailscale addresses) and over HTTPS from anywhere. Anything else gets a page pointing at the HTTPS address.
-  Turn on **Settings → Account → Require HTTPS** to stop plain HTTP on the LAN too. It can only be switched
-  on from an HTTPS session, so you can't lock yourself out. Session cookies set over HTTPS are Secure,
-  HttpOnly and SameSite Strict. To check the CA before installing it, compare its SHA-256 fingerprint with
-  `logread -e 'CA SHA-256'` over SSH.
-- **Certificates.** Each router makes its own CA. Fengard restricts signing in software to blocked names and
-  the dashboard. Installing this root trusts its private key for any website, so protect the router and CA
-  exports. New versions store the key and certificate together in `ca.bundle` (mode 0600). Existing `ca.crt`
-  and `ca.key` files are migrated without changing trust and retained for older binaries. After importing a
-  different CA, rolling back to an older binary uses the previous legacy identity and requires restoring that
-  identity on clients. Include `ca.bundle` in filesystem backups; the dashboard CA export remains portable.
-- **DNSSEC.** The DNSSEC setting sends the DO bit to request DNSSEC records. Fengard does not validate
-  signatures locally. Validation depends on a trusted validating upstream; use authenticated DoH or DoT
-  transport. Plain DNS and an untrusted upstream do not establish validation assurance.
-- **History storage.** Detailed queries retain at most 10,000 records and 4 MiB of serialized records by
-  default, with the oldest removed transactionally. Audit and alert logs each retain at most 2,000 records and
-  512 KiB. Time retention still applies and these budgets can shorten it. Override query budgets with
-  `-query-log-records` and `-query-log-mb`. Detailed log writes suspend near the database high-water threshold
-  (`-log-file-mb`, default 16 MiB) or free-space reserve (`-log-space-reserve-mb`, default 4 MiB), while aggregate
-  counters and critical writes continue. The threshold is an admission guard, not a filesystem quota: bbolt
-  pages, transaction overhead and concurrent filesystem activity affect actual allocation. Query stats expose
-  `droppedWrites` and `evictedRecords`; alert responses expose dropped counts. Deleting records reuses pages
-  but does not shrink an existing database. Back up and compact an oversized legacy database offline with
-  enough temporary space; never delete it to recover space because it also contains account and usage state.
-- **Kernel enforcement.** Bypass blocking, quarantine and flood limits are firewall rules, so they hold even
-  while Fengard is busy.
-
-If you find a security issue, please report it privately through
-[GitHub security advisories](https://github.com/masaleem-oss/Fengard/security/advisories/new) rather than an issue.
+Command line flags, environment, files and the HTTP API are in the
+[configuration reference](docs/configuration.md).
 
 ## Troubleshooting
 
@@ -667,7 +404,7 @@ plain kernel routing. It uses about 25 MB of memory.
 It doesn't touch the firmware or bootloader, so there's nothing to brick, and uninstall puts everything back.
 For the internet, the installer never moves DNS until Fengard is set to start at boot, and a watchdog hands
 DNS to the router's own dnsmasq if Fengard ever stops answering. Both are tested in the
-[router lab](#supported-routers), including a power cut mid-install and a firmware upgrade.
+[router lab](docs/routers.md#supported-routers), including a power cut mid-install and a firmware upgrade.
 
 **How do updates work?**
 Fengard checks GitHub twice a day. When a new release is out, it reads the release's list of supported CPUs,
@@ -693,79 +430,15 @@ Everything stays on your router.
 
 ## Development
 
-Requires Go (see [`go.mod`](go.mod)).
-
-```sh
-go test ./...                              # unit and integration tests
-go build -o bin/fengardd ./cmd/fengardd    # the daemon for this machine
-go run ./tools/release -version 1.0.0      # the full kit for every platform, into dist/
-```
-
-The tests cover DNS end to end against fake plain and DoH upstreams, policy, local DNS, two-factor, API keys,
-web auth and firewall rendering for both backends.
-
-**HTTP/3 lab.** [`dev/h3lab/run.sh`](dev/h3lab) runs fengard-h3 against [quic-go](https://github.com/quic-go/quic-go),
-a separate QUIC implementation, through a proxy that loses, reorders, duplicates and delays packets: up to 30%
-loss, Retry, 60 KB answers, server restarts, NAT rebinding, key updates, GOAWAY and stream limits, in under a
-minute. `run.sh long` adds a 250,000 query soak and fuzzes every parser, and `run.sh live` asks Cloudflare,
-Google, Quad9 and AdGuard for real. It's its own Go module so quic-go never becomes a Fengard dependency.
-
-**Try it on Windows.** Build `bin/fengardd.exe`, run `dev\run.ps1`, and open http://127.0.0.1. State lives in
-`dev\data`, and `dev\leases.txt` makes this PC appear as a device. To filter this PC's own browsing, run
-`dev\test-mode-on.ps1` as Administrator; `dev\test-mode-off.ps1` undoes it. The firewall isn't applied on
-Windows; the Firewall page shows the generated ruleset instead.
-
-**Network lab.** [`dev/netlab.sh`](dev/netlab.sh) builds a simulated home network in network namespaces and
-checks the real firewall: DNS hijack, DoT blocking, pause at the firewall, port forwarding, WAN exposure and a
-DNS flood. It needs root on Linux or WSL2, and `FW_BACKEND=iptables` runs it with the iptables backend.
-
-```sh
-GOOS=linux GOARCH=amd64 go build -o bin/linux/fengardd ./cmd/fengardd
-GOOS=linux GOARCH=amd64 go build -o bin/linux/dnsq ./tools/dnsq
-GOOS=linux GOARCH=amd64 go build -o bin/linux/dnsflood ./tools/dnsflood
-sudo FENGARD_ROOT=. bash dev/netlab.sh
-```
-
-**Router lab.** [`dev/routerlab/run.sh`](dev/routerlab) installs Fengard on emulated OpenWrt routers of every
-CPU type and firmware generation, runs the edge cases, and prints the tables in
-[Supported routers](#supported-routers), in a few minutes. It needs root on Linux or WSL2 with KVM and QEMU. See
-[CONTRIBUTING](CONTRIBUTING.md#router-lab) for details.
-
-**Releasing.** Run the router lab first and update the [Supported routers](#supported-routers) tables,
-adding a new router type or firmware version when you can. Then `go run ./tools/release -version 1.0.0` writes
-`dist/assets/`. Attach all of it to a GitHub release: the kit zip, `router-install.sh`, `router-uninstall.sh`,
-one `fengardd-linux-<cpu>.gz` per router CPU, and `SHA256SUMS`. The router installer downloads from the latest
-release, which is what makes the one-line install work.
-
-## Project layout
-
-| Path | What's there |
-|---|---|
-| [`cmd/fengardd`](cmd/fengardd) | the daemon: flags and wiring |
-| [`install/`](install) | installers: `Install Fengard.cmd` and `fengard-setup.ps1` (Windows), `install.sh` (macOS, Linux), `router-install.sh` and `router-uninstall.sh` (run on the router) |
-| [`internal/config`](internal/config) | config model, validation, versioned store with rollback |
-| [`internal/catalog`](internal/catalog) | category blocklists, custom lists, app catalog, compact domain set |
-| [`internal/policy`](internal/policy) | compiled per-device decision engine |
-| [`internal/dnsserver`](internal/dnsserver) | resolver, cache, rate limiting, DoH, DoH3 and DoT upstreams, local answers |
-| [`internal/fengard-h3`](internal/fengard-h3) | fengard-h3: QUIC v1, HTTP/3 and QPACK, just enough for DNS over HTTP/3 |
-| [`internal/localdns`](internal/localdns) | `.lan` names, records, reverse lookups |
-| [`internal/devices`](internal/devices) | IP to device tracking, MAC vendor table, Wake-on-LAN |
-| [`internal/firewall`](internal/firewall) | ruleset generation and atomic apply, nftables and iptables |
-| [`internal/certs`](internal/certs) | per-router CA: block page and dashboard certificates, Apple profile, export and import |
-| [`internal/vpn`](internal/vpn) | WireGuard keys, client profiles, kernel interface, public address detection, Tailscale status |
-| [`internal/screentime`](internal/screentime) | minutes online per person and per app, persisted, with bonus minutes |
-| [`internal/auth`](internal/auth) | accounts, sessions, TOTP two-factor, API keys |
-| [`internal/notify`](internal/notify) | alert delivery to chat apps and webhooks |
-| [`internal/web`](internal/web) | API, embedded dashboard (`static/`), asset server, block page |
-| [`internal/store`](internal/store), [`querylog`](internal/querylog), [`alerts`](internal/alerts) | embedded database, query history and hourly series, alerts |
-| [`tools/`](tools) | `release` (builds the kit), `dnsq` (test lookups), `dnsflood` (resilience test), `memcheck`, `genoui` (vendor table), `wgkey` |
-| [`dev/`](dev) | local test scripts, the network lab and the [router lab](dev/routerlab) |
+Building, testing, the router and network labs and how releases are made are in
+[docs/development.md](docs/development.md), with a [project layout](docs/development.md#project-layout).
 
 ## Contributing
 
 Router test reports are the most useful thing right now: if you try Fengard on a router, please
 [tell us how it went](https://github.com/masaleem-oss/Fengard/issues/new?template=router_report.yml).
 Bug reports and pull requests are welcome too, see [CONTRIBUTING.md](CONTRIBUTING.md).
+What changed in each release is in [CHANGELOG.md](CHANGELOG.md).
 
 ## License
 
