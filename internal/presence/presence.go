@@ -27,6 +27,8 @@ type Watcher struct {
 	Every   time.Duration
 	// phones drop off the wifi for a bit when asleep so leaving waits this long
 	Away time.Duration
+	// false while the add-on isn't installed, nothing gets polled then
+	Enabled func() bool
 
 	mu        sync.Mutex
 	state     map[string]*Device
@@ -55,6 +57,12 @@ func (w *Watcher) Run(ctx context.Context) {
 }
 
 func (w *Watcher) Check(ctx context.Context, now time.Time) {
+	if w.Enabled != nil && !w.Enabled() {
+		w.mu.Lock()
+		w.state, w.lastSeen, w.available = nil, nil, false
+		w.mu.Unlock()
+		return
+	}
 	clients, err := w.Clients(ctx)
 	if err != nil {
 		w.mu.Lock()

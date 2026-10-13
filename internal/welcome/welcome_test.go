@@ -19,6 +19,7 @@ func TestOnlyNewUnnamedPhonesGetThePage(t *testing.T) {
 	}
 	cs.Update("test", "setup", func(c *config.Config) error {
 		c.Settings.WelcomePage, c.Settings.WelcomeSince = true, since
+		c.Settings.Features = append(c.Settings.Features, "welcome")
 		def := c.Settings.DefaultGroup
 		c.Devices = append(c.Devices,
 			config.Device{MAC: "aa:00:00:00:00:02", Hostname: "Old-iPhone", Group: def, FirstSeen: since.Add(-time.Hour)},
@@ -60,6 +61,7 @@ func TestLetsThroughAfterTenMinutesWithoutJoining(t *testing.T) {
 	}
 	cs.Update("test", "on", func(c *config.Config) error {
 		c.Settings.WelcomePage, c.Settings.WelcomeSince = true, time.Now()
+		c.Settings.Features = append(c.Settings.Features, "welcome")
 		return nil
 	})
 	g := New(cs, nil)
@@ -71,5 +73,24 @@ func TestLetsThroughAfterTenMinutesWithoutJoining(t *testing.T) {
 	now = now.Add(11 * time.Minute)
 	if g.Want("aa:00:00:00:00:01", "") {
 		t.Fatal("still shown after ten minutes")
+	}
+}
+
+func TestNothingWithoutTheAddon(t *testing.T) {
+	cs, err := config.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	cs.Update("test", "on", func(c *config.Config) error {
+		c.Settings.WelcomePage, c.Settings.WelcomeSince = true, time.Now().Add(-time.Hour)
+		c.Settings.Features = nil
+		return nil
+	})
+	cs.Update("test", "off", func(c *config.Config) error {
+		c.Settings.Features = []string{}
+		return nil
+	})
+	if New(cs, nil).Want("da:a1:19:00:00:01", "iPhone") {
+		t.Error("the page showed with the captive portal add-on removed")
 	}
 }

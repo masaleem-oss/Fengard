@@ -46,7 +46,7 @@ func (g *Gate) Want(mac, hostname string) bool {
 	}
 	c := g.cfg.Get()
 	s := c.Settings
-	if !s.WelcomePage {
+	if !s.WelcomePage || !s.Has("welcome") {
 		return false
 	}
 	if d := c.Device(mac); d != nil {

@@ -75,6 +75,8 @@ type Scanner struct {
 	Ports   []Finding
 	Timeout time.Duration
 	Every   time.Duration
+	// false while the add-on isn't installed
+	Enabled func() bool
 
 	mu      sync.Mutex
 	running bool
@@ -110,6 +112,10 @@ func (s *Scanner) Run(ctx context.Context) {
 			return
 		case <-t.C:
 		case <-s.kick:
+		}
+		if s.Enabled != nil && !s.Enabled() {
+			t.Reset(time.Hour)
+			continue
 		}
 		s.Scan(ctx)
 		t.Reset(every)
