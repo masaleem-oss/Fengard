@@ -62,8 +62,8 @@ func TestDnsToTheRouterIsntInternetTraffic(t *testing.T) {
 // reading the table while its busy can skip a connection or list it twice
 func TestSkippedOrDoubledRowsArentCountedAgain(t *testing.T) {
 	m := &Meter{Lookup: func(string) (string, bool) { return "pc", true }}
-	big := func(down int) string {
-		return `ipv4     2 tcp      6 117 ESTABLISHED src=192.168.8.155 dst=104.20.23.154 sport=50000 dport=443 packets=10 bytes=1000 src=104.20.23.154 dst=10.0.150.193 sport=443 dport=50000 packets=20 bytes=` + strconv.Itoa(down) + " [ASSURED] mark=0 zone=0 use=2\n"
+	big := func(down int64) string {
+		return `ipv4     2 tcp      6 117 ESTABLISHED src=192.168.8.155 dst=104.20.23.154 sport=50000 dport=443 packets=10 bytes=1000 src=104.20.23.154 dst=10.0.150.193 sport=443 dport=50000 packets=20 bytes=` + strconv.FormatInt(down, 10) + " [ASSURED] mark=0 zone=0 use=2\n"
 	}
 	now := time.Now()
 	m.SampleFrom(strings.NewReader(big(5_000_000_000)), now)
