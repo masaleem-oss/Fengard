@@ -63,6 +63,7 @@
 - [Project layout](docs/development.md#project-layout)
 - [Contributing](#contributing)
 - [License](#license)
+- [Star goals](#star-goals)
 
 ## Why Fengard
 
@@ -468,5 +469,16 @@ Fengard is licensed under the [Apache License 2.0](LICENSE). Third-party compone
 IBM Plex Sans and Mono (OFL), Lucide icons (ISC), Simple Icons logos (CC0), qrcode-generator (MIT) and the
 IEEE MA-L vendor registry, all bundled so the dashboard works offline. Blocklists aren't distributed with
 Fengard; each installation downloads them from their publishers under the publishers' licenses.
+
+## Star goals
+
+What gets built next as the repo grows. Fixes and new router support keep coming either way.
+
+| Stars | Goal |
+|---:|---|
+| 50 | **Full IPv6 and small routers.** IPv6 filtering and bypass blocking, installing to a USB drive (extroot) for routers with little flash, and a low-memory mode for 128 MB routers |
+| 100 | **Encrypted DNS for your own devices.** Fengard serves DoH and DoT itself, so Android Private DNS and an iOS profile point straight at the router and get the same filtering on mobile data, no VPN needed |
+| 150 | **Bandwidth control.** Speed limits per profile or device, priority for games and video calls, and a bufferbloat fix (CAKE) with a before and after test |
+| 200 | **Official packages and a ready image.** Fengard in the OpenWrt package feeds, and an image for Raspberry Pi and x86 mini PCs you flash and plug in |
 
 <p align="center"><sub>Made by <a href="https://github.com/masaleem-oss">masaleem-oss</a></sub></p>
