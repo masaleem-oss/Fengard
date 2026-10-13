@@ -37,7 +37,8 @@ type Settings struct {
 	BoxName         string    `json:"boxName"`
 	Upstreams       []string  `json:"upstreams"`
 	DNSSEC          bool      `json:"dnssec"`
-	DoH3            bool      `json:"doh3"` // https:// upstreams try http/3 first
+	DoH3            bool      `json:"doh3"`              // https:// upstreams try http/3 first
+	Parallel        bool      `json:"parallelUpstreams"` // ask every upstream at once, the first good answer wins
 	LocalZone       string    `json:"localZone"`
 	DefaultGroup    string    `json:"defaultGroup"`
 	QuarantineNew   bool      `json:"quarantineNew"`

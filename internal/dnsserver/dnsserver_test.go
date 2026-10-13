@@ -25,6 +25,8 @@ type fakeUpstream struct {
 	delay atomic.Int64
 	srv   *dns.Server
 	down  atomic.Bool
+	// answers SERVFAIL straight away, like a resolver with a broken backend
+	fail atomic.Bool
 }
 
 func startUpstream(t *testing.T) *fakeUpstream {
@@ -43,6 +45,11 @@ func startUpstream(t *testing.T) *fakeUpstream {
 		time.Sleep(time.Duration(u.delay.Load()))
 		m := new(dns.Msg)
 		m.SetReply(r)
+		if u.fail.Load() {
+			m.Rcode = dns.RcodeServerFailure
+			w.WriteMsg(m)
+			return
+		}
 		q := r.Question[0]
 		if q.Qtype == dns.TypeA {
 			m.Answer = append(m.Answer, &dns.A{

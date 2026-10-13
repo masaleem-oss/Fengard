@@ -49,6 +49,7 @@ type Server struct {
 	boot      atomic.Pointer[[]string] // plain dns for looking up doh server names
 	doh       *http.Client
 	doh3      atomic.Bool
+	parallel  atomic.Bool
 	h3        *h3.Client
 	h3Health  sync.Map // url to *h3Health
 	cache     *cache
@@ -180,12 +181,15 @@ func (s *Server) Configure(set config.Settings) {
 		go s.h3.Close()
 	}
 	s.doh3.Store(set.DoH3)
-	// the first lookup shouldn't have to wait for the handshake
+	s.parallel.Store(set.Parallel)
+	// the first lookup shouldn't have to wait for the handshake, asking all at once uses every one
 	if set.DoH3 && s.h3 != nil {
 		for _, u := range ups {
 			if u.Net == "https" {
 				go s.h3.Warm(u.URL)
-				break
+				if !set.Parallel {
+					break
+				}
 			}
 		}
 	}
@@ -574,35 +578,77 @@ func (s *Server) exchange(req *dns.Msg) (*dns.Msg, error) {
 	if len(ups) == 0 {
 		return nil, errors.New("no upstream DNS servers configured")
 	}
+	if len(ups) > 1 && s.parallel.Load() {
+		return s.exchangeAll(req, ups)
+	}
 	var lastErr error
 	for _, u := range ups {
-		s.Counters.Upstream.Add(1)
-		if u.Net == "https" {
-			resp, err := s.exchangeDoH(req, u.URL)
-			if err == nil {
-				return resp, nil
-			}
-			s.Counters.UpstreamErr.Add(1)
-			lastErr = err
-			continue
+		resp, err := s.ask(req, u)
+		if err == nil {
+			return resp, nil
 		}
+		lastErr = err
+	}
+	return nil, lastErr
+}
+
+// exchangeAll asks every upstream at once for people whose servers are safe but slow or flaky. the
+// first real answer wins, a quick SERVFAIL only counts if nobody does better. the slower ones finish
+// in the background within their own timeouts
+func (s *Server) exchangeAll(req *dns.Msg, ups []config.Upstream) (*dns.Msg, error) {
+	type result struct {
+		resp *dns.Msg
+		err  error
+	}
+	results := make(chan result, len(ups))
+	for _, u := range ups {
+		q := req.Copy()
+		go func() {
+			r, err := s.ask(q, u)
+			results <- result{r, err}
+		}()
+	}
+	var fallback *dns.Msg
+	var lastErr error
+	for range ups {
+		r := <-results
+		switch {
+		case r.err != nil:
+			lastErr = r.err
+		case r.resp.Rcode == dns.RcodeServerFailure:
+			fallback = r.resp
+		default:
+			return r.resp, nil
+		}
+	}
+	if fallback != nil {
+		return fallback, nil
+	}
+	return nil, lastErr
+}
+
+func (s *Server) ask(req *dns.Msg, u config.Upstream) (*dns.Msg, error) {
+	s.Counters.Upstream.Add(1)
+	var resp *dns.Msg
+	var err error
+	if u.Net == "https" {
+		resp, err = s.exchangeDoH(req, u.URL)
+	} else {
 		c := &dns.Client{Net: u.Net, Timeout: 2 * time.Second}
 		if u.Net == "tcp-tls" {
 			c.TLSConfig = &tls.Config{ServerName: u.TLSName, MinVersion: tls.VersionTLS12}
 			c.Timeout = 4 * time.Second
 		}
-		resp, _, err := c.Exchange(req, u.Addr)
+		resp, _, err = c.Exchange(req, u.Addr)
 		if err == nil && resp.Truncated && u.Net == "udp" {
 			c.Net = "tcp"
 			resp, _, err = c.Exchange(req, u.Addr)
 		}
-		if err == nil {
-			return resp, nil
-		}
-		s.Counters.UpstreamErr.Add(1)
-		lastErr = err
 	}
-	return nil, lastErr
+	if err != nil {
+		s.Counters.UpstreamErr.Add(1)
+	}
+	return resp, err
 }
 
 // rfc 8484 post wire format
