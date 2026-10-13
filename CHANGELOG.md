@@ -6,16 +6,22 @@ are on the [releases page](https://github.com/masaleem-oss/Fengard/releases).
 
 ## Unreleased
 
+Nothing yet.
+
+## 1.3.1.3 - 2026-10-13 (preview)
+
 ### Added
 - **DNS → Ask all at once** sends each lookup to every resolver at the same time and uses the first good answer
 - The installer offers to turn off GL.iNet's AdGuard Home when it runs beside DNS, where it only took up memory. Removing Fengard turns it back on
 
 ### Changed
+- About 19 MB instead of 24 MB on a GL-MT3000 just after starting, with a 45 MB peak instead of 52 MB
 - Blocklists take about a third less memory: 535k domains in 6.9 MB instead of 10.7 MB, and loading them peaks at 23 MB instead of 33 MB
 - A device flooding DNS can no longer push Fengard's memory up: about 24 MB after a flood instead of 64 MB
 
 ### Fixed
 - With HTTP/3 on, resolvers after the first showed no status and looked unchecked; they now say they're standbys
+- Uninstalling on a slow router could leave a firewall rule behind
 
 ## 1.3.1.2 - 2026-10-13 (preview)
 
