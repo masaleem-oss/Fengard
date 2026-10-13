@@ -11,7 +11,7 @@ are on the [releases page](https://github.com/masaleem-oss/Fengard/releases).
 - The installer offers to turn off GL.iNet's AdGuard Home when it runs beside DNS, where it only took up memory. Removing Fengard turns it back on
 
 ### Changed
-- Blocklists take about a third less memory: 535k domains in 6.9 MB instead of 10.7 MB
+- Blocklists take about a third less memory: 535k domains in 6.9 MB instead of 10.7 MB, and loading them peaks at 23 MB instead of 33 MB
 - A device flooding DNS can no longer push Fengard's memory up: about 24 MB after a flood instead of 64 MB
 
 ### Fixed
