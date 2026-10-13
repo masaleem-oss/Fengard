@@ -396,6 +396,12 @@ If it runs stock firmware that isn't OpenWrt-based, use computer mode or flash O
 Yes. GL.iNet firmware is OpenWrt-based, and Fengard is used daily on a GL-MT3000 (Beryl AX). The installer
 handles GL.iNet's own web server and firewall setup.
 
+**How should I set up the router's DNS before installing?**
+Leave it as it is. If AdGuard Home is on, the installer offers to turn it off, since Fengard does the
+filtering and AdGuard Home would only take up memory, and removing Fengard turns it back on. After that,
+pick your DNS servers on Fengard's **DNS** page. The router's own DNS settings no longer matter, and changing
+them later doesn't break anything.
+
 **Will it slow my internet down?**
 No. Only DNS lookups go through Fengard, answered in milliseconds and mostly from cache. Everything else is
 plain kernel routing. It uses about 25 MB of memory.
