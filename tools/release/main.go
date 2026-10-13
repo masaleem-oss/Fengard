@@ -23,6 +23,9 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/masaleem-oss/Fengard/internal/config"
+	"github.com/masaleem-oss/Fengard/internal/features"
 )
 
 type target struct {
@@ -144,6 +147,27 @@ func main() {
 	tw := tar.NewWriter(gz)
 	addTar(tw, "router-install.sh", routerInstall, 0o755)
 	addTar(tw, "router-uninstall.sh", routerUninstall, 0o755)
+	// add-ons go up as their own assets for routers to download, and in the bundle for installs without internet
+	current, err := features.Scan(filepath.Join(root, "features"), config.Features)
+	must(err)
+	for i, p := range current {
+		if !slices.Equal(p.Files, features.Packs[i].Files) {
+			log.Fatalf("the %s add-on changed since the manifest was made, run go run ./tools/featurepack", p.ID)
+		}
+	}
+	var addons bytes.Buffer
+	at := tar.NewWriter(&addons)
+	for _, p := range features.Packs {
+		a, err := features.Build(filepath.Join(root, "features"), &p)
+		must(err)
+		if int64(len(a)) != p.Download {
+			log.Printf("note: %s is %d bytes, the manifest says %d (a different Go version compresses differently)", features.Archive(p.ID), len(a), p.Download)
+		}
+		writeFile(filepath.Join(assets, features.Archive(p.ID)), a, 0o644)
+		addTar(at, features.Archive(p.ID), a, 0o644)
+	}
+	must(at.Close())
+	addTar(tw, "features.tar", addons.Bytes(), 0o644)
 	// best compression is slow so the router downloads get gzipped side by side
 	var gzs sync.WaitGroup
 	for _, t := range build {

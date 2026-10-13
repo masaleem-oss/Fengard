@@ -63,6 +63,10 @@ chmod 755 "$BIN_SRC"
 # ash runs a program for another cpu as a shell script so the exit code alone can pass, check the usage text
 "$BIN_SRC" -h 2>&1 | grep -q -- "-block-ip" ||
 	die "the Fengard program doesn't run on this router's CPU ($ARCH)"
+# the kit's add-ons, so the ones picked in setup install without internet. fengardd looks here first
+if [ -f "$SRC/features.tar" ]; then
+	rm -rf /tmp/fengard-features && mkdir -p /tmp/fengard-features && tar -xf "$SRC/features.tar" -C /tmp/fengard-features
+fi
 
 FG_DIR=${FG_DIR:-$(getstate FG_DIR "$STATE")}
 FG_DIR=${FG_DIR:-/etc/fengard}

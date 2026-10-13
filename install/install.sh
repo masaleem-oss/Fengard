@@ -73,7 +73,7 @@ install_router() {
 	remote=$remote'a=$(. /etc/openwrt_release; echo $DISTRIB_ARCH); case $a in aarch64*) t=arm64;; arm*) t=arm;; x86_64*) t=amd64;; i?86*) t=386;; '
 	remote=$remote'mips64el*) t=mips64le;; mips64*) t=mips64;; mipsel*) t=mipsle;; mips*) t=mips;; riscv64*) t=riscv64;; loongarch64*) t=loong64;; '
 	remote=$remote'*) echo Unsupported router CPU: $a; cat >/dev/null; exit 4;; esac; '
-	remote=$remote'tar -xzf - router-install.sh router-uninstall.sh bin/linux-$t/fengardd || { echo The upload failed: not enough free memory on the router?; exit 5; }; '
+	remote=$remote'tar -xzf - router-install.sh router-uninstall.sh bin/linux-$t/fengardd features.tar || { echo The upload failed: not enough free memory on the router?; exit 5; }; '
 	case "$ADGUARD" in off | keep) remote=$remote"ADGUARD=$ADGUARD " ;; esac
 	remote=$remote'ADGUARD_ASK=1 '
 	remote=$remote'sh router-install.sh'

@@ -120,6 +120,7 @@ if [ -f /etc/sysupgrade.conf ]; then
 	rm -f /tmp/fengard-sysupgrade.conf
 fi
 rm -f "$INIT" "$BIN" /etc/fengard/firewall.include
+rm -rf /tmp/fengard-features
 if [ -n "$PURGE" ]; then
 	rm -rf /etc/fengard "$FG_DIR"
 	echo "   removed Fengard's settings and history"
