@@ -8,7 +8,9 @@
 #   dev/routerlab/run.sh edge       just the edge cases
 #   dev/routerlab/run.sh edge crash just the edge cases whose name has crash in it
 # KIT=path/to/unzipped/kit tests a built kit instead of building one and DNSQ=path/to/linux/dnsq skips building dnsq
-# everything runs at once, the kit builds while the vms boot
+# everything runs at once, the kit builds and quick.sh checks every cpu while the vms boot.
+# the first failure anywhere stops the whole lab and prints its log, FAILFAST=0 runs everything
+# to the end for the full tables, QUICK=0 skips quick.sh
 LAB=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$LAB/../.." && pwd)
 export WORK=${WORK:-/var/tmp/routerlab}
@@ -44,9 +46,12 @@ fetch() { # version target image
 
 what=${1:-all}
 only=${2:-}
-# a filtered run keeps the other results so the tables stay whole
-[ -n "$only" ] || rm -f "$WORK/results/"*.log "$WORK/results/"edge-*.out
-rm -f "$WORK/kit.ok" "$WORK/kit.fail"
+# a filtered run keeps the other results so the tables stay whole, and each half only clears its own
+if [ -z "$only" ]; then
+	[ "$what" = edge ] || rm -f "$WORK/results/"*.log
+	[ "$what" = routers ] || rm -f "$WORK/results/"edge-*.out
+fi
+rm -f "$WORK/kit.ok" "$WORK/kit.fail" "$WORK/lab.done"
 
 # dns over http/3 for the routers' http/3 check, on this machine so it doesn't matter what the internet allows
 rm -f "$WORK/doh3-ca.pem"
@@ -70,9 +75,31 @@ fi
 	rm -rf "$WORK/kit" && cp -r "$KIT" "$WORK/kit" || { touch "$WORK/kit.fail"; exit 1; }
 	# the packages for the pkg cases sit next to the kit in the release assets
 	mkdir -p "$WORK/kit/pkg" && cp "$KIT"/../assets/fengard_*_amd64.* "$WORK/kit/pkg/" 2>/dev/null
+	# a router only needs its own cpu's program, the whole bundle took a minute to upload to an emulated mips
+	# router. kit-linux-arm and so on are the same kit with a one cpu bundle, quick.sh runs these programs too
+	rm -rf "$WORK"/kit-linux-* "$WORK/slim" && mkdir -p "$WORK/slim" &&
+		tar -xzf "$WORK/kit/install/linux-bundle.tar.gz" -C "$WORK/slim" || { touch "$WORK/kit.fail"; exit 1; }
+	for b in "$WORK"/slim/bin/linux-*; do
+		t=${b##*/}
+		(cp -al "$WORK/kit" "$WORK/kit-$t" && rm "$WORK/kit-$t/install/linux-bundle.tar.gz" &&
+			cd "$WORK/slim" && tar -czf "$WORK/kit-$t/install/linux-bundle.tar.gz" router-install.sh router-uninstall.sh "bin/$t/fengardd") &
+	done
+	wait
 	echo "$WORK/kit" >"$WORK/kit.ok"
 	echo "kit ready after $(($(date +%s) - t0))s"
 ) &
+kitjob=$!
+# every cpu through qemu-user next to the vms, at low priority so the boots keep the cpu. it doesn't hold the
+# installs up, a failure here stops the whole lab in about a minute and a half anyway
+rm -f "$WORK/quick.fail"
+if [ "${QUICK:-1}" = 1 ]; then
+	(until [ -f "$WORK/kit.ok" ] || [ -f "$WORK/kit.fail" ]; do sleep 1; done
+		[ -f "$WORK/kit.ok" ] && KITBIN=$WORK/slim/bin nice -n 15 bash "$LAB/quick.sh" >"$WORK/quick.log" 2>&1 && echo "quick check passed after $(($(date +%s) - t0))s" || touch "$WORK/quick.fail") &
+	kitjob="$kitjob $!"
+fi
+JOBS=
+# a vm only starts while the machine has room for it, the lab got killed once for running out
+memwait() { while [ "$(awk '/MemAvailable/ { print int($2 / 1024) }' /proc/meminfo)" -lt 1500 ]; do sleep 2; done; sleep 0.3; }
 
 if [ "$what" != routers ]; then
 	# the sysupgrade test needs the compressed image as well
@@ -83,7 +110,9 @@ if [ "$what" != routers ]; then
 	for t in $EDGE; do
 		case "$t" in *"$only"*) ;; *) continue ;; esac
 		echo "testing $t"
+		memwait
 		bash "$LAB/edge.sh" "$t" >"$WORK/results/edge-$t.out" 2>&1 </dev/null &
+		JOBS="$JOBS $!"
 	done
 fi
 if [ "$what" != edge ]; then
@@ -95,11 +124,38 @@ if [ "$what" != edge ]; then
 		case "$name" in *"$only"*) ;; *) continue ;; esac
 		fetch "$ver" "$target" "$image" || continue
 		echo "testing $name"
+		memwait
 		bash "$LAB/router.sh" "$name" "$kind" "${image%.gz}" "$ram" "$s" "$reboot" "$label" "OpenWrt $ver" </dev/null &
+		JOBS="$JOBS $!"
 	done <<<"$ROUTERS"
 fi
-wait
-[ -f "$WORK/kit.fail" ] && { echo "kit build failed:"; tail -20 "$WORK/build.log"; }
+# stops everything at the first failure so nobody waits out the rest of the timeouts
+failfast() {
+	while [ ! -f "$WORK/lab.done" ]; do
+		if [ -f "$WORK/kit.fail" ] || [ -f "$WORK/quick.fail" ]; then
+			echo; echo "STOPPED: the build or the quick check failed"
+			tail -40 "$WORK/quick.log" 2>/dev/null; tail -20 "$WORK/build.log" 2>/dev/null
+		elif [ "${FAILFAST:-1}" = 1 ] && f=$(grep -lE "FAIL  |❌|vm did not boot" "$WORK"/results/*.log "$WORK"/results/edge-*.out 2>/dev/null | head -n 1) && [ -n "$f" ]; then
+			echo; echo "STOPPED at the first failure, $f:"; cat "$f"
+		else
+			sleep 2
+			if [ $((($(date +%s) - t0) % 20)) -lt 2 ]; then
+				echo "[$(($(date +%s) - t0))s] $(cat "$WORK"/results/*.log 2>/dev/null | grep -c "RESULT ") routers and $(cat "$WORK"/results/edge-*.out 2>/dev/null | grep -c "^EDGE") edge checks done"
+			fi
+			continue
+		fi
+		kill $JOBS 2>/dev/null; pkill -f "$LAB/(router|edge|vm).sh" 2>/dev/null; pkill qemu-system 2>/dev/null
+		touch "$WORK/lab.failed"
+		return
+	done
+}
+rm -f "$WORK/lab.failed"
+failfast &
+watcher=$!
+wait $JOBS $kitjob
+touch "$WORK/lab.done"
+wait $watcher
+[ -f "$WORK/lab.failed" ] && { echo "took $(($(date +%s) - t0))s"; exit 1; }
 for t in $EDGE; do cat "$WORK/results/edge-$t.out" 2>/dev/null; done >"$WORK/results/edge.out"
 
 echo
