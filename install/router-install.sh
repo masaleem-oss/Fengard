@@ -281,7 +281,17 @@ LEASES=$(uci -q get dhcp.@dnsmasq[0].leasefile)
 LEASES=${LEASES:-/tmp/dhcp.leases}
 if [ -x /sbin/fw4 ]; then FW=fw4; else FW=fw3; fi
 
-DNSMASQ=$(uci -X show dhcp 2>/dev/null | sed -n "s/^dhcp\.\([^.=]*\)=dnsmasq\$/\1/p")
+# only dnsmasq on the normal dns port, gl.inet runs more on their own ports for its vpn clients
+DNSMASQ= VPN_PORTS=
+for s in $(uci -X show dhcp 2>/dev/null | sed -n "s/^dhcp\.\([^.=]*\)=dnsmasq\$/\1/p"); do
+	orig=$(getstate "ORIG_PORT_$s" "$STATE")
+	cur=$(uci -q get "dhcp.$s.port")
+	case "${orig:-${cur:-unset}}" in
+	unset | 53 | 0) DNSMASQ="$DNSMASQ $s" ;;
+	# an earlier install set this one to 0 too, it gets its own port back further down
+	*) [ "$cur" = 0 ] && VPN_PORTS="$VPN_PORTS $s=$orig" ;;
+	esac
+done
 {
 	echo "# Written by the Fengard installer; read by the service and the uninstaller."
 	for k in FG_IP LAN_PREFIX HTTP_PORT HTTPS_PORT LAN_NET LAN_IP EXTRA_NETS WAN_NETS FG_DIR BIN LEASES MEM_MB ARCH FW; do
@@ -452,6 +462,20 @@ rescue_off() {
 	rm -f $PID
 	sleep 1
 }
+# gl.inet rewrites dnsmasq's settings when its dns page is saved and that drops port=0, then
+# dnsmasq and fengard fight over port 53 and dhcp goes down with it. vpn client ones keep their own port
+reclaim() {
+	fix=
+	for s in $(uci -X show dhcp 2>/dev/null | sed -n "s/^dhcp\.\([^.=]*\)=dnsmasq\$/\1/p"); do
+		case "$(uci -q get "dhcp.$s.port")" in
+		"" | 53) uci set "dhcp.$s.port=0" && fix=1 ;;
+		esac
+	done
+	[ -n "$fix" ] || return 1
+	uci commit dhcp
+	logger -t fengard "the router's settings gave DNS port 53 back to dnsmasq, taking it back so Fengard can answer"
+	/etc/init.d/dnsmasq restart >/dev/null 2>&1
+}
 
 case "$1" in
 on) rescue_on; exit 0 ;;
@@ -461,6 +485,7 @@ esac
 sleep $((T * 3 / 2))
 bad=0 n=0
 while :; do
+	reclaim && bad=0
 	if rescuing; then
 		# every 10 minutes hand the port back and see if fengard copes now
 		n=$((n + 1))
@@ -553,6 +578,7 @@ if [ -n "$AGH_INIT" ] && pidof AdGuardHome >/dev/null; then
 	note "turned AdGuard Home off, removing Fengard turns it back on"
 fi
 for s in $DNSMASQ; do uci set "dhcp.$s.port=0"; done
+for p in $VPN_PORTS; do uci set "dhcp.${p%%=*}.port=${p#*=}"; done
 for n in $LAN_NET $EXTRA_NETS; do
 	s=$(dhcp_section_of "$n")
 	ip=$(net_ip "$n")

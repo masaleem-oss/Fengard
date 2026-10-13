@@ -75,7 +75,10 @@ echo "== DNS back to dnsmasq"
 dnsmasq_sections() { uci -X show dhcp 2>/dev/null | sed -n "s/^dhcp\.\([^.=]*\)=dnsmasq\$/\1/p"; }
 for s in $(dnsmasq_sections); do
 	orig=$(getstate "ORIG_PORT_$s")
-	if [ -z "$orig" ] || [ "$orig" = unset ]; then
+	if [ -z "$orig" ]; then
+		# not one fengard recorded, only undo a 0 the guard put on a section the firmware recreated
+		[ "$(uci -q get "dhcp.$s.port")" = 0 ] && uci -q delete "dhcp.$s.port"
+	elif [ "$orig" = unset ]; then
 		uci -q delete "dhcp.$s.port"
 	else
 		uci set "dhcp.$s.port=$orig"

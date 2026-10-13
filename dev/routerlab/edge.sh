@@ -1,6 +1,6 @@
 #!/bin/bash
 # the situations that would hurt a household on openwrt 24.10 x86 squashfs which has the same layout as router flash
-#   edge.sh [test...]   tests lowram ram128 subnet nonet port53 power-dns power-start sysupgrade stopped missing crash lowflash adguard pkg-fw3 pkg-opkg pkg-apk glinet49
+#   edge.sh [test...]   tests lowram ram128 subnet nonet port53 power-dns power-start sysupgrade stopped missing crash lowflash adguard pkg-fw3 pkg-opkg pkg-apk glinet49 glinetdns
 # prints EDGE rows for the readme table
 # each test has its own vm slot so they can all run at once
 WORK=${WORK:-/var/tmp/routerlab}
@@ -35,7 +35,7 @@ until_ok() { n=$1; shift; for _ in $(seq "$n"); do eval "$*" && return 0; sleep 
 # the guard checks every 20 s and waits 10 min before trying fengard again, this makes it 2 s and 1 min
 fast_guard() { r "$1" "echo \"GUARD_TICK='2'\" >>/etc/fengard/install.env; /etc/init.d/fengard restart"; until_ok 60 fg_ok "$1"; }
 
-[ $# -gt 0 ] || set -- lowram ram128 subnet nonet port53 power-dns power-start sysupgrade stopped missing crash lowflash adguard pkg-fw3 pkg-opkg pkg-apk glinet49
+[ $# -gt 0 ] || set -- lowram ram128 subnet nonet port53 power-dns power-start sysupgrade stopped missing crash lowflash adguard pkg-fw3 pkg-opkg pkg-apk glinet49 glinetdns
 for t in "$@"; do
 	case $t in
 	lowram)
@@ -169,6 +169,21 @@ for t in "$@"; do
 		uninst 35 >/dev/null
 		row "Removing Fengard turns AdGuard Home back on" "until_ok 30 'agh && landns 35' && r 35 '[ \"\$(uci -q get dhcp.@dnsmasq[0].port)\" = 54 ]'"
 		V stop adguard ;;
+	glinetdns)
+		# saving gl.inet's dns page rewrites dnsmasq's settings and drops port=0, like on a Beryl 7
+		V start glinetdns x86 "$IMG" 256 37 >/dev/null
+		# gl.inet also runs a dnsmasq per vpn client on its own port
+		r 37 'uci set dhcp.wgclient1=dnsmasq; uci set dhcp.wgclient1.port=2153; uci commit dhcp'
+		kit; inst 37 >/dev/null
+		vpnport() { r 37 'uci -q get dhcp.wgclient1.port'; }
+		row "GL.iNet VPN client DNS on its own port: left alone" "until_ok 60 fg_ok 37 && [ \"\$(vpnport)\" = 2153 ]"
+		fast_guard 37
+		r 37 'uci -q delete dhcp.@dnsmasq[0].port; uci commit dhcp; /etc/init.d/dnsmasq restart'
+		taken() { [ "$(r 37 'uci -q get dhcp.@dnsmasq[0].port')" = 0 ] && r 37 'pidof dnsmasq >/dev/null' && fg_ok 37; }
+		row "Router settings hand port 53 back to dnsmasq: Fengard takes it back, DNS and DHCP keep working" "until_ok 60 taken && landns 37 fengard.lan"
+		uninst 37 >/dev/null
+		row "Removed afterwards: VPN client DNS keeps its port, DNS back to dnsmasq" "[ \"\$(vpnport)\" = 2153 ] && [ -z \"\$(r 37 'uci -q get dhcp.@dnsmasq[0].port')\" ] && until_ok 30 landns 37"
+		V stop glinetdns ;;
 	glinet49)
 		# glinet 4.9 (beryl 7) is fw3 on iptables but also ships an nft that answers list and can't open /dev/stdin
 		V start glinet49 x86 "$WORK/openwrt-21.02.7-x86-64-generic-ext4-combined.img" 256 36 >/dev/null
