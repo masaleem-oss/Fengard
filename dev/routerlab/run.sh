@@ -82,7 +82,7 @@ fi
 	for b in "$WORK"/slim/bin/linux-*; do
 		t=${b##*/}
 		(cp -al "$WORK/kit" "$WORK/kit-$t" && rm "$WORK/kit-$t/install/linux-bundle.tar.gz" &&
-			cd "$WORK/slim" && tar -czf "$WORK/kit-$t/install/linux-bundle.tar.gz" router-install.sh router-uninstall.sh "bin/$t/fengardd") &
+			cd "$WORK/slim" && tar -czf "$WORK/kit-$t/install/linux-bundle.tar.gz" router-install.sh router-uninstall.sh "bin/$t/fengardd" features.tar) &
 	done
 	wait
 	echo "$WORK/kit" >"$WORK/kit.ok"

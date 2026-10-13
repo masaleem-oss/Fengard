@@ -58,6 +58,8 @@ dhcp_ask() { { printf '\001\001\006\000'; head -c 24 /dev/zero; printf '\316\021
 check "sees devices asking for an address" "until_ok 5 'dhcp_ask; r \"logread -e fengardd | grep -q fglabtest\"'"
 until_ok 60 lan_ok
 check "lan device resolves and opens the dashboard" "lan_ok"
+# no internet needed, they come from the kit
+check "default add-ons installed from the kit" "until_ok 30 'r \"test -s /etc/fengard/features/vendors/oui.txt.gz\"'"
 # an emulated cpu parsing the blocklists with the other vms running can take a while to answer
 check "ssh to the router still works" "until_ok 30 'r true'"
 if [ "$wan" = yes ]; then
