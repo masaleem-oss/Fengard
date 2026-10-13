@@ -1,6 +1,7 @@
-import { get, post, put, setUnauthorizedHandler } from './api.js';
+import { get, post, put, del, setUnauthorizedHandler } from './api.js';
 import { $, $$, esc, icon, toast, busy, menu, popover, closeMenus, closeOverlays, ago, until, attempt, inFuture } from './ui.js';
 import { deviceName, deviceType } from './meta.js';
+import { ADDONS, loadAddons, ready, wanted, info, install, placeholder, notInstalledTip, size } from './addons.js';
 
 // state
 
@@ -26,7 +27,7 @@ const PAGES = [
   { id: 'dns', label: 'DNS', icon: 'globe' },
   { id: 'forwarding', label: 'Port forwarding', icon: 'arrow-left-right' },
   { id: 'firewall', label: 'Firewall', icon: 'brick-wall' },
-  { id: 'vpn', label: 'VPN', icon: 'globe-lock' },
+  { id: 'vpn', label: 'VPN', icon: 'globe-lock', addon: 'vpn' },
   { section: 'System' },
   { id: 'settings', label: 'Settings', icon: 'settings' },
 ];
@@ -41,7 +42,7 @@ const loaders = {
   dns: () => import('./pages/dns.js'),
   forwarding: () => import('./pages/forwarding.js'),
   firewall: () => import('./pages/firewall.js'),
-  vpn: () => import('./pages/vpn.js'),
+  vpn: () => import('/features/vpn/page.js'),
   settings: () => import('./pages/settings.js'),
 };
 
@@ -199,9 +200,10 @@ function showSetup() {
   let step = 1;
   const draw = () => {
     authFrame(`<form id="setup" novalidate style="display:grid;gap:16px">
-      <div class="steps"><i class="on"></i><i class="${step === 2 ? 'on' : ''}"></i></div>
-      <div><h1>${step === 1 ? 'Create the admin account' : 'Choose a starting point'}</h1>
-        <p class="lead">${step === 1 ? 'This account manages everything on the gateway.' : 'Applies to every device. Profiles can refine it later.'}</p></div>
+      <div class="steps"><i class="on"></i><i class="${step >= 2 ? 'on' : ''}"></i><i class="${step === 3 ? 'on' : ''}"></i></div>
+      <div><h1>${['Create the admin account', 'Choose a starting point', 'Pick your add-ons'][step - 1]}</h1>
+        <p class="lead">${['This account manages everything on the gateway.', 'Applies to every device. Profiles can refine it later.',
+          'Extras download only if you want them, so the router keeps its memory for filtering. Add or remove them any time in Settings.'][step - 1]}</p></div>
       <div class="auth-alert" id="err" hidden>${icon('circle-alert')}<span></span></div>
       ${step === 1 ? `
         <label class="field"><span>Username</span>
@@ -212,6 +214,10 @@ function showSetup() {
         ${passwordField('confirm', 'Confirm password', 'new-password')}
         <div class="t-xs t-warning row" data-caps hidden>${icon('triangle-alert', 'icon-sm')}Caps Lock is on</div>
         <button class="btn btn-primary btn-block" type="submit">Continue</button>
+      ` : step === 3 ? `
+        <div class="field addon-picks">${Object.entries(ADDONS).map(([id, a]) => `<label class="option"><input type="checkbox" name="addon" value="${id}" ${wanted(id) ? 'checked' : ''}>
+            <span><b>${esc(a.name)} <span class="t-3 t-xs">${size(info(id)?.download || 0)}</span></b><small>${esc(a.about)}</small></span></label>`).join('')}</div>
+        <button class="btn btn-primary btn-block" type="submit">Finish setup</button>
       ` : `
         <label class="field"><span>Network name</span>
           <input class="input" name="boxName" value="${esc(state.boxName === 'Fengard' ? 'Home network' : state.boxName)}" maxlength="40" required>
@@ -219,7 +225,7 @@ function showSetup() {
         <div class="field"><span>Protection for everyone</span>
           ${PRESETS.map((p, i) => `<label class="option"><input type="radio" name="preset" value="${p.id}" ${i === 0 ? 'checked' : ''}>
             <span><b>${p.name}</b><small>${p.desc}</small></span></label>`).join('')}</div>
-        <button class="btn btn-primary btn-block" type="submit">Finish setup</button>
+        <button class="btn btn-primary btn-block" type="submit">Continue</button>
         <button class="btn btn-ghost btn-block" type="button" id="skip">Skip for now</button>
       `}
     </form>`);
@@ -243,8 +249,25 @@ function showSetup() {
           } catch (x) { err(x.message); }
         });
       });
+    } else if (step === 3) {
+      f.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const picked = $$('[name=addon]', f).filter((c) => c.checked).map((c) => c.value);
+        await busy(f.querySelector('[type=submit]'), async () => {
+          try {
+            for (const id of Object.keys(ADDONS)) {
+              if (picked.includes(id) && !wanted(id)) await put(`/api/features/${id}`);
+              if (!picked.includes(id) && wanted(id)) await del(`/api/features/${id}`);
+            }
+            await loadAddons();
+            startApp();
+            toast('Fengard is protecting your network');
+          } catch (x) { err(x.message); }
+        });
+      });
     } else {
-      $('#skip').addEventListener('click', startApp);
+      const toAddons = async () => { await loadAddons(); step = 3; draw(); };
+      $('#skip').addEventListener('click', toAddons);
       f.addEventListener('submit', async (e) => {
         e.preventDefault();
         const preset = PRESETS.find((p) => p.id === f.preset.value);
@@ -259,8 +282,7 @@ function showSetup() {
               await put(`/api/groups/${def.id}`, { ...g, categories: preset.cats, safeSearch: preset.safe });
             }
             state.boxName = f.boxName.value.trim();
-            startApp();
-            toast('Fengard is protecting your network');
+            await toAddons();
           } catch (x) { err(x.message); }
         });
       });
@@ -273,8 +295,26 @@ function showSetup() {
 
 let shellTimer = 0;
 
+function navLinks() {
+  return PAGES.map((p) => {
+    if (p.section) return `<div class="sb-section">${p.section}</div>`;
+    const missing = p.addon && !ready(p.addon);
+    const tip = missing ? `${p.label} · ${notInstalledTip(p.addon)}` : p.label;
+    return `<a class="sb-link${missing ? ' sb-addon' : ''}" href="#${p.id}" data-page="${p.id}" data-tip="${esc(tip)}"${missing ? ` title="${esc(tip)}"` : ''}>${icon(p.icon)}<span class="sb-label">${p.label}</span>${missing ? `<span class="sb-dl">${icon('download', 'icon-sm')}</span>` : ''}</a>`;
+  }).join('');
+}
+
+window.addEventListener('fg-addons', () => {
+  if (!$('#sb-nav')) return;
+  $('#sb-nav').innerHTML = navLinks();
+  refreshShell();
+  render();
+});
+
 async function startApp() {
   const collapsed = pref.get('fg-sidebar') === 'collapsed';
+  // before the sidebar so the vpn link doesn't flash a download icon
+  await loadAddons();
   $('#root').innerHTML = `
   <div class="app ${collapsed ? 'collapsed' : ''}" id="app">
     <aside class="sidebar" aria-label="Main navigation">
@@ -282,10 +322,7 @@ async function startApp() {
         <img class="sb-mark" src="img/logo.svg" alt="" style="filter:${logoFilter()}">
         <div class="sb-brand-text"><div class="sb-word">FENGARD</div><div class="sb-box truncate" id="sb-box">${esc(state.boxName)}</div></div>
       </div>
-      <nav class="sb-nav">${PAGES.map((p) => p.section
-        ? `<div class="sb-section">${p.section}</div>`
-        : `<a class="sb-link" href="#${p.id}" data-page="${p.id}" data-tip="${p.label}">${icon(p.icon)}<span class="sb-label">${p.label}</span></a>`).join('')}
-      </nav>
+      <nav class="sb-nav" id="sb-nav">${navLinks()}</nav>
       <div class="sb-foot">
         <button class="sb-collapse" id="collapse" data-tip="Expand" aria-label="Collapse sidebar">
           ${icon(collapsed ? 'panel-left-open' : 'panel-left-close')}<span class="sb-label">Collapse</span></button>
@@ -523,6 +560,18 @@ export async function render() {
     alive: () => el.isConnected && seq === renderSeq,
     rerender: render,
   };
+  if (page.addon && !ready(page.addon)) {
+    await loadAddons();
+    if (!ready(page.addon)) {
+      el.innerHTML = `<div class="panel">${placeholder(page.addon, isAdmin())}</div>`;
+      el.addEventListener('click', async (e) => {
+        const b = e.target.closest('[data-install]');
+        if (b) await busy(b, () => install(b.dataset.install).then((ok) => ok || render(), (x) => toast(x.message, 'error')));
+      });
+      return;
+    }
+    $('#sb-nav').innerHTML = navLinks();
+  }
   try {
     const mod = await loaders[id]();
     if (!ctx.alive()) return;

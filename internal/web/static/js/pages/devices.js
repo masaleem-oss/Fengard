@@ -4,6 +4,7 @@ import { barList } from '../charts.js';
 import { deviceType, deviceName } from '../meta.js';
 import { isAdmin, refreshShell } from '../main.js';
 import { bytes, mbps, findingsFor } from '../home.js';
+import { wanted, ready } from '../addons.js';
 
 const FILTERS = [['all', 'All'], ['online', 'Online'], ['pending', 'Pending'], ['restricted', 'Paused / blocked']];
 
@@ -230,12 +231,12 @@ export async function openDevice(mac, { onChange } = {}) {
         <h4>Details</h4>
         <dl class="kv">
           <dt>Profile</dt><dd>${admin ? `<select class="select select-sm" id="dv-group" style="width:auto">${groups.map((g) => `<option value="${g.id}" ${g.id === d.group ? 'selected' : ''}>${esc(g.name)}</option>`).join('')}</select>` : esc(groups.find((g) => g.id === d.group)?.name || d.group)}</dd>
-          <dt>Arrival alerts</dt><dd>${admin ? switchInput('id="dv-presence"', d.presence, 'Arrival alerts') : d.presence ? 'On' : 'Off'}</dd>
+          ${wanted('presence') ? `<dt>Arrival alerts</dt><dd>${admin ? switchInput('id="dv-presence"', d.presence, 'Arrival alerts') : d.presence ? 'On' : 'Off'}</dd>` : ''}
           <dt>Data today</dt><dd id="dv-data" class="t-3">–</dd>
           <dt>IP address</dt><dd class="mono">${esc((d.ips || []).join(', ') || '–')}</dd>
           <dt>MAC address</dt><dd class="mono">${esc(d.mac)}${d.randomized ? ' <span class="tag">Private address</span>' : ''}</dd>
           ${(d.oldMacs || []).length ? `<dt>Earlier addresses</dt><dd>${d.oldMacs.map((o) => `<div class="row" style="gap:6px"><span class="mono t-2">${esc(o)}</span>${admin ? `<button class="btn btn-ghost btn-sm" data-unlink="${esc(o)}" title="Not this device">Unlink</button>` : ''}</div>`).join('')}</dd>` : ''}
-          <dt>Manufacturer</dt><dd>${esc(d.vendor || (d.randomized ? 'Hidden (private address)' : 'Unknown'))}</dd>
+          <dt>Manufacturer</dt><dd>${d.vendor ? esc(d.vendor) : d.randomized ? 'Hidden (private address)' : ready('vendors') ? 'Unknown' : `<a href="#settings?tab=addons" data-close class="t-3">Install Manufacturer names</a>`}</dd>
           <dt>Hostname</dt><dd class="mono">${esc(d.hostname || '–')}</dd>
           <dt>First seen</dt><dd>${isSet(d.firstSeen) ? dateTime(d.firstSeen) : '–'}</dd>
         </dl>

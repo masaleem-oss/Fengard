@@ -3,9 +3,11 @@ import { $, $$, esc, icon, dateTime, ago, isSet, attempt, busy, modal, confirmDi
 import { platformTiles, wirePlatformTiles, trustStatus, trustBadge } from '../cert.js';
 import { state, isAdmin, refreshShell } from '../main.js';
 import { startUpdate, startRollback, codename } from '../update.js';
+import { ADDONS, addons, loadAddons, install, remove, ready, size } from '../addons.js';
 
 const TABS = [
   ['general', 'settings', 'General', true],
+  ['addons', 'puzzle', 'Add-ons', true],
   ['account', 'user', 'Account & security', false],
   ['users', 'users', 'Users', true],
   ['notifications', 'bell', 'Notifications', true],
@@ -24,7 +26,7 @@ export async function render(el, ctx) {
     <div class="tabs">${tabs.map(([id, ic, l]) => `<button data-tab="${id}" class="${tab === id ? 'on' : ''}">${icon(ic, 'icon-sm')}${l}</button>`).join('')}</div>
     <div id="tab"></div></div>`;
   $$('[data-tab]', el).forEach((b) => b.addEventListener('click', () => { location.hash = `#settings?tab=${b.dataset.tab}`; }));
-  await ({ general, account, users, notifications, keys, certificate, backup, audit })[tab]($('#tab', el), ctx);
+  await ({ general, addons: addonsTab, account, users, notifications, keys, certificate, backup, audit })[tab]($('#tab', el), ctx);
 }
 
 async function saveSettings(patch, msg = 'Settings saved') {
@@ -112,7 +114,9 @@ function zoneHelp(clock, saved, shown) {
 }
 
 async function general(body) {
-  const [s, groups, clock] = await Promise.all([get('/api/settings'), get('/api/groups'), get('/api/clock')]);
+  const [s, groups, clock] = await Promise.all([get('/api/settings'), get('/api/groups'), get('/api/clock'), loadAddons()]);
+  const needs = (id, title) => `<div class="setting" style="padding-left:0;padding-right:0"><div class="setting-text"><b>${title}</b><small>Comes with the ${ADDONS[id].name} add-on, which isn't installed.</small></div>
+    <a class="btn btn-sm" href="#settings?tab=addons">${icon('puzzle', 'icon-sm')}Add-ons</a></div>`;
   const zones = typeof Intl.supportedValuesOf === 'function' ? Intl.supportedValuesOf('timeZone') : [];
   const zone = s.timezone === 'Local' ? (clock.routerZone || Intl.DateTimeFormat().resolvedOptions().timeZone) : s.timezone;
   body.innerHTML = `<form class="form-grid panel-body" id="f" novalidate>
@@ -126,7 +130,7 @@ async function general(body) {
       <span class="help">Normal devices use under 20. Raise it only for servers that make many lookups.</span></label>
     <div><button class="btn btn-primary" type="submit">Save changes</button></div></form>
     <div class="panel-body" style="border-top:1px solid var(--border)">
-      <div class="setting" style="padding-left:0;padding-right:0"><div class="setting-text"><b>Captive portal</b><small>The first time a new iPhone or iPad joins, it shows a sign-in page saying the network is protected by Fengard, with a Join network button. Computers and smart devices never see it, and anything that doesn't tap Join gets through after 10 minutes.</small></div>
+      ${!ready('welcome') ? needs('welcome', 'Captive portal') : `<div class="setting" style="padding-left:0;padding-right:0"><div class="setting-text"><b>Captive portal</b><small>The first time a new iPhone or iPad joins, it shows a sign-in page saying the network is protected by Fengard, with a Join network button. Computers and smart devices never see it, and anything that doesn't tap Join gets through after 10 minutes.</small></div>
         ${switchInput('id="welcome"', s.welcomePage, 'Captive portal')}</div>
       <label class="field" style="margin:4px 0 16px"><span>Custom portal page</span>
         <textarea class="textarea" id="portal-html" rows="6" spellcheck="false" placeholder="&lt;h1&gt;Welcome to our home&lt;/h1&gt;&#10;&lt;p&gt;The Wi-Fi is filtered, please be nice.&lt;/p&gt;">${esc(s.portalHtml || '')}</textarea>
@@ -135,7 +139,7 @@ async function general(body) {
           <button class="btn btn-sm" type="button" id="portal-save">${icon('save', 'icon-sm')}Save page</button>
           <a class="btn btn-sm btn-ghost" href="/api/portal/preview" target="_blank" rel="noopener">${icon('external-link', 'icon-sm')}Preview</a>
           ${s.portalHtml ? `<button class="btn btn-sm btn-ghost" type="button" id="portal-reset">Use default</button>` : ''}
-        </div></label>
+        </div></label>`}
       <div class="setting" style="padding-left:0;padding-right:0"><div class="setting-text"><b>Block page</b><small>What someone sees when they open a blocked site. Turned off, they get an empty page with no details and no way to ask for access.</small></div>
         ${switchInput('id="bp-on"', !s.blockPageOff, 'Block page')}</div>
       <div class="setting" style="padding-left:0;padding-right:0"${s.blockPageOff ? ' hidden' : ''}><div class="setting-text"><b>Use my own block page</b><small>Your own HTML in place of the Fengard page.</small></div>
@@ -148,13 +152,13 @@ async function general(body) {
           <button class="btn btn-sm" type="button" id="bp-save">${icon('save', 'icon-sm')}Save page</button>
           <a class="btn btn-sm btn-ghost" href="/api/blockpage/preview" target="_blank" rel="noopener">${icon('external-link', 'icon-sm')}Preview</a>
         </div></div>
-      <div class="setting" style="padding-left:0;padding-right:0"><div class="setting-text"><b>Nightly speed test</b><small>Tests the internet speed once a night around 4 am and shows it on the dashboard. On a fast line a test uses up to about 1 GB of data.</small></div>
-        ${switchInput('id="speedtest"', !s.speedTestOff, 'Nightly speed test')}</div></div>
+      ${!ready('speedtest') ? needs('speedtest', 'Nightly speed test') : `<div class="setting" style="padding-left:0;padding-right:0"><div class="setting-text"><b>Nightly speed test</b><small>Tests the internet speed once a night around 4 am and shows it on the dashboard. On a fast line a test uses up to about 1 GB of data.</small></div>
+        ${switchInput('id="speedtest"', !s.speedTestOff, 'Nightly speed test')}</div>`}</div>
     <div class="panel-body" id="upd" style="border-top:1px solid var(--border)"></div>`;
   updates($('#upd', body));
-  $('#welcome', body).addEventListener('change', (e) => attempt(() => saveSettings({ welcomePage: e.target.checked },
+  $('#welcome', body)?.addEventListener('change', (e) => attempt(() => saveSettings({ welcomePage: e.target.checked },
     e.target.checked ? 'New iPhones will see the captive portal' : 'Captive portal turned off')));
-  $('#portal-save', body).addEventListener('click', (e) => busy(e.currentTarget, () => attempt(() => saveSettings({ portalHtml: $('#portal-html', body).value.trim() }, 'Portal page saved')).then(() => general(body))));
+  $('#portal-save', body)?.addEventListener('click', (e) => busy(e.currentTarget, () => attempt(() => saveSettings({ portalHtml: $('#portal-html', body).value.trim() }, 'Portal page saved')).then(() => general(body))));
   $('#portal-reset', body)?.addEventListener('click', () => attempt(() => saveSettings({ portalHtml: '' }, 'Back to the default portal page')).then(() => general(body)));
   $('#tz-here', body)?.addEventListener('click', (e) => { e.preventDefault(); $('[name=timezone]', body).value = Intl.DateTimeFormat().resolvedOptions().timeZone; e.currentTarget.remove(); });
   $('#bp-on', body).addEventListener('change', (e) => attempt(() => saveSettings({ blockPageOff: !e.target.checked },
@@ -168,7 +172,7 @@ async function general(body) {
     bp.focus();
   }));
   $('#bp-save', body).addEventListener('click', (e) => busy(e.currentTarget, () => attempt(() => saveSettings({ blockHtml: bp.value.trim() }, 'Block page saved'))));
-  $('#speedtest', body).addEventListener('change', (e) => attempt(() => saveSettings({ speedTestOff: !e.target.checked },
+  $('#speedtest', body)?.addEventListener('change', (e) => attempt(() => saveSettings({ speedTestOff: !e.target.checked },
     e.target.checked ? 'Speed test runs every night' : 'Nightly speed test turned off')));
   const f = $('#f', body);
   f.addEventListener('submit', async (e) => {
@@ -179,6 +183,42 @@ async function general(body) {
       refreshShell();
     }));
   });
+}
+
+// add-ons
+
+async function addonsTab(body) {
+  await loadAddons();
+  const state = (a) => a.ready ? '<span class="tag ok">Installed</span>'
+    : a.wanted ? `<span class="tag warn">${a.busy ? 'Downloading…' : 'Waiting to download'}</span>` : '';
+  body.innerHTML = `<div class="panel-body">
+      <p class="t-2 t-sm" style="max-width:640px">Fengard's core is DNS filtering, profiles, the firewall and this dashboard. Everything else is an add-on you can install or remove whenever you like.
+        Add-ons that aren't installed don't run, use no memory and take no space. They download from this version's GitHub release and are checked before they're used.</p></div>
+    <div class="addon-list">${addons().map((a) => {
+      const m = ADDONS[a.id];
+      if (!m) return '';
+      return `<div class="addon-row">
+        <div class="addon-ico">${icon(m.icon)}</div>
+        <div class="addon-text"><div class="row" style="gap:8px"><b>${esc(m.name)}</b>${state(a)}</div>
+          <small>${esc(m.about)}</small>
+          <small class="t-3">${size(a.download)} download · ${size(a.disk)} on the router</small>
+          ${a.wanted && !a.ready && a.error ? `<small style="color:var(--warning)">${esc(a.error)}</small>` : ''}</div>
+        <div>${a.wanted ? `<button class="btn btn-sm" data-remove="${a.id}">Remove</button>`
+          : `<button class="btn btn-sm btn-primary" data-install="${a.id}">${icon('download', 'icon-sm')}Install</button>`}</div>
+      </div>`;
+    }).join('')}</div>`;
+  body.onclick = async (e) => {
+    const i = e.target.closest('[data-install]'), r = e.target.closest('[data-remove]');
+    if (i) await busy(i, () => install(i.dataset.install).catch((x) => toast(x.message, 'error')));
+    if (r) {
+      const id = r.dataset.remove;
+      const warn = { vpn: 'Phones on the VPN lose their connection. Their settings are kept, so installing it again brings them back.',
+        welcome: 'New iPhones stop seeing the captive portal. Your custom page is kept.' }[id] || 'Its settings are kept if you install it again.';
+      if (!await confirmDialog({ title: `Remove ${ADDONS[id].name}?`, message: warn, confirm: 'Remove', danger: true })) return;
+      await attempt(() => remove(id));
+    }
+    if (i || r) addonsTab(body);
+  };
 }
 
 // account and security
