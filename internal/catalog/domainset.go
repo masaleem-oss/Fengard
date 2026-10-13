@@ -72,17 +72,25 @@ func (b *Builder) Add(domain string, m Mask) {
 	// blocks start small and double so the app set and tests don't pay for 256kb
 	last := len(b.arena) - 1
 	if last < 0 || len(b.arena[last])+len(domain) > cap(b.arena[last]) {
-		b.arena = append(b.arena, make([]byte, 0, min(arenaMax, 4096<<len(b.arena))))
+		b.arena = append(b.arena, make([]byte, 0, grow(len(b.arena), 4096, arenaMax)))
 		last++
 	}
 	off := uint32(last)<<arenaShift | uint32(len(b.arena[last]))
 	b.arena[last] = append(b.arena[last], domain...)
 	c := len(b.chunks) - 1
 	if c < 0 || len(b.chunks[c]) == cap(b.chunks[c]) {
-		b.chunks = append(b.chunks, make([]entry, 0, min(chunkMax, 64<<len(b.chunks))))
+		b.chunks = append(b.chunks, make([]entry, 0, grow(len(b.chunks), 64, chunkMax)))
 		c++
 	}
 	b.chunks[c] = append(b.chunks[c], entry{off, m, uint8(len(domain))})
+}
+
+// grow doubles from small up to most, without shifting so far that the size wraps to 0 on 32 bit
+func grow(n, small, most int) int {
+	for ; n > 0 && small < most; n-- {
+		small *= 2
+	}
+	return min(small, most)
 }
 
 func (b *Builder) bytes(e entry) []byte {

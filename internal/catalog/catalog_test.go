@@ -142,3 +142,39 @@ func BenchmarkMatch(b *testing.B) {
 		s.Match(names[i%len(names)])
 	}
 }
+
+// the blocks double then stay at their most, 4096<<n wrapped to 0 on 32 bit routers after 20 blocks
+func TestGrow(t *testing.T) {
+	for _, c := range []struct{ n, want int }{{0, 4096}, {1, 8192}, {6, arenaMax}, {20, arenaMax}, {40, arenaMax}, {70, arenaMax}, {1 << 20, arenaMax}} {
+		if got := grow(c.n, 4096, arenaMax); got != c.want {
+			t.Errorf("grow(%d) = %d, want %d", c.n, got, c.want)
+		}
+	}
+}
+
+// enough domains for far more blocks than a shift could survive
+func TestBuilderManyBlocks(t *testing.T) {
+	if testing.Short() {
+		t.Skip("builds a big set")
+	}
+	b := NewBuilder()
+	want := map[string]Mask{}
+	for i := range 700000 {
+		d := fmt.Sprintf("host-%07d.blocked-example.net", i%650000)
+		m := Mask(1) << (i % 7)
+		b.Add(d, m)
+		want[d] |= m
+	}
+	if len(b.arena) < 70 {
+		t.Fatalf("only %d blocks, the test needs more than 64", len(b.arena))
+	}
+	s := b.Build()
+	if s.Len() != len(want) {
+		t.Fatalf("Len = %d, want %d", s.Len(), len(want))
+	}
+	for d, m := range want {
+		if got := s.Get(d); got != m {
+			t.Fatalf("Get(%q) = %b, want %b", d, got, m)
+		}
+	}
+}
