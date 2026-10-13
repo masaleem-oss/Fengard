@@ -2,6 +2,7 @@ package dnsserver
 
 import (
 	"crypto/x509"
+	"encoding/json"
 	"io"
 	"net"
 	"net/http"
@@ -190,5 +191,15 @@ func TestDoH3ConcurrentFailuresCountOnce(t *testing.T) {
 	}
 	if time.Until(h.waitUntil) > h3MinBackoff {
 		t.Fatalf("backed off for %v after one bad moment", time.Until(h.waitUntil))
+	}
+}
+
+// the dns page read null as a list and failed to load
+func TestTransportsEmptyNotNull(t *testing.T) {
+	s := &Server{}
+	s.Init()
+	s.Configure(config.Settings{Upstreams: []string{"1.1.1.1:53"}, DoH3: true})
+	if b, _ := json.Marshal(s.Transports()); string(b) != "[]" {
+		t.Errorf("got %s", b)
 	}
 }

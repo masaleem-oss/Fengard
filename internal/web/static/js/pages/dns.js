@@ -18,7 +18,7 @@ const hostOf = (u) => { try { return new URL(u).host; } catch { return u; } };
 // how each https:// resolver is being reached right now
 function transportLines(info) {
   if (!info.doh3) return '';
-  if (!info.transports.length) return `<p class="t-xs t-3">HTTP/3 only applies to <code>https://</code> resolvers. Pick a DoH preset above.</p>`;
+  if (!info.transports?.length) return `<p class="t-xs t-3">HTTP/3 only applies to <code>https://</code> resolvers. Pick a DoH preset above.</p>`;
   return info.transports.map((t, i) => {
     const host = esc(hostOf(t.url));
     // in order, the ones after the first only get used when it fails
@@ -77,6 +77,10 @@ export async function render(el, ctx) {
 
   const load = async () => {
     info = await get('/api/dns');
+    // older routers send null for an empty list
+    info.records ||= [];
+    info.names ||= [];
+    info.transports ||= [];
     if (!ctx.alive()) return;
     const up = $('#up', el);
     if (document.activeElement !== up.upstreams) up.upstreams.value = info.upstreams.join('\n');

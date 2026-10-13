@@ -771,7 +771,8 @@ type Transport struct {
 }
 
 func (s *Server) Transports() []Transport {
-	var out []Transport
+	// an empty list, not null, when no resolver is DoH
+	out := []Transport{}
 	for _, u := range *s.upstreams.Load() {
 		if u.Net != "https" {
 			continue
