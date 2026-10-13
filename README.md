@@ -195,23 +195,23 @@ internet names resolving, lookups over DNS over HTTP/3 to a quic-go server the l
 network in between can get in the way), and an uninstall that gives DNS back with no Fengard firewall rules
 left. The x86 ones get rebooted too.
 
-Results for 1.3.0:
+Results for 1.3.1.2:
 
 | Router type | Firmware | CPU build | Result | Memory |
 |---|---|---|---|---|
-| ARM64 (Filogic, MT7622, IPQ807x: GL-MT3000, Flint 2, Linksys E8450) | OpenWrt 22.03.7 | linux-arm64 | ✅ all 10 checks | 31 MB |
-| ARM64 (Filogic, MT7622, IPQ807x: GL-MT3000, Flint 2, Linksys E8450) | OpenWrt 25.12.5 | linux-arm64 | ✅ all 10 checks | 32 MB |
-| ARMv7 (IPQ40xx, mvebu: Linksys WRT, GL-B1300) | OpenWrt 21.02.7 | linux-arm | ✅ all 10 checks | 30 MB |
-| ARMv7 (IPQ40xx, mvebu: Linksys WRT, GL-B1300) | OpenWrt 23.05.6 | linux-arm | ✅ all 10 checks | 30 MB |
-| ARMv7 (IPQ40xx, mvebu: Linksys WRT, GL-B1300) | OpenWrt 24.10.8 | linux-arm | ✅ all 10 checks | 31 MB |
-| MIPS big-endian (ath79: TP-Link Archer C7, GL-AR750S) | OpenWrt 22.03.7 | linux-mips | ✅ all 10 checks | 33 MB |
-| MIPS little-endian (MT7621: Xiaomi 4A, Netgear R6220, GL-MT1300) | OpenWrt 24.10.8 | linux-mipsle | ✅ all 10 checks | 31 MB |
-| MIPS64 big-endian (Octeon: EdgeRouter Lite) | OpenWrt 24.10.8 | linux-mips64 | ✅ all 10 checks | 34 MB |
+| ARM64 (Filogic, MT7622, IPQ807x: GL-MT3000, Flint 2, Linksys E8450) | OpenWrt 22.03.7 | linux-arm64 | ✅ all 10 checks | 28 MB |
+| ARM64 (Filogic, MT7622, IPQ807x: GL-MT3000, Flint 2, Linksys E8450) | OpenWrt 25.12.5 | linux-arm64 | ✅ all 10 checks | 23 MB |
+| ARMv7 (IPQ40xx, mvebu: Linksys WRT, GL-B1300) | OpenWrt 21.02.7 | linux-arm | ✅ all 10 checks | 22 MB |
+| ARMv7 (IPQ40xx, mvebu: Linksys WRT, GL-B1300) | OpenWrt 23.05.6 | linux-arm | ✅ all 10 checks | 20 MB |
+| ARMv7 (IPQ40xx, mvebu: Linksys WRT, GL-B1300) | OpenWrt 24.10.8 | linux-arm | ✅ all 10 checks | 21 MB |
+| MIPS big-endian (ath79: TP-Link Archer C7, GL-AR750S) | OpenWrt 22.03.7 | linux-mips | ✅ all 10 checks | 21 MB |
+| MIPS little-endian (MT7621: Xiaomi 4A, Netgear R6220, GL-MT1300) | OpenWrt 24.10.8 | linux-mipsle | ✅ all 10 checks | 20 MB |
+| MIPS64 big-endian (Octeon: EdgeRouter Lite) | OpenWrt 24.10.8 | linux-mips64 | ✅ all 10 checks | 27 MB |
 | MIPS64 little-endian (Loongson) | OpenWrt 25.12.5 | linux-mips64le | ✅ all 7 checks (no internet in the VM) | 18 MB |
-| x86 32-bit | OpenWrt 23.05.6 | linux-386 | ✅ all 11 checks | 31 MB |
-| x86-64 mini PC | OpenWrt 19.07.10 | linux-amd64 | ✅ all 11 checks | 31 MB |
-| x86-64 mini PC | OpenWrt 22.03.7 | linux-amd64 | ✅ all 11 checks | 34 MB |
-| x86-64, squashfs like router flash | OpenWrt 24.10.8 | linux-amd64 | ✅ all 11 checks | 35 MB |
+| x86 32-bit | OpenWrt 23.05.6 | linux-386 | ✅ all 11 checks | 30 MB |
+| x86-64 mini PC | OpenWrt 19.07.10 | linux-amd64 | ✅ all 11 checks | 27 MB |
+| x86-64 mini PC | OpenWrt 22.03.7 | linux-amd64 | ✅ all 11 checks | 33 MB |
+| x86-64, squashfs like router flash | OpenWrt 24.10.8 | linux-amd64 | ✅ all 11 checks | 33 MB |
 
 On real hardware:
 
@@ -254,6 +254,9 @@ rows also on 21.02 and 25.12, and the GL.iNet 4.9 rows on 21.02):
 | Removed with the ipk on OpenWrt 24.10: router back to stock | ✅ |
 | Installed from the apk on OpenWrt 25.12: works like the installer | ✅ |
 | Removed with the apk on OpenWrt 25.12: router back to stock | ✅ |
+| GL.iNet VPN client DNS on its own port: left alone | ✅ |
+| Router settings hand port 53 back to dnsmasq (saving GL.iNet's DNS page does this): Fengard takes it back, DNS and DHCP keep working | ✅ |
+| Removed afterwards: VPN client DNS keeps its port, DNS back to dnsmasq | ✅ |
 
 ### What the installer changes
 
@@ -466,7 +469,8 @@ Design choices:
   notification queues all have hard caps, so floods of random names or addresses can't grow memory.
 - **DNS never waits on slow work.** Query logging, notifications and device discovery are asynchronous and
   drop (and count) rather than slow a lookup down.
-- **Compact blocklists.** About 535k domains take about 13 MB: a sorted blob plus offsets instead of a Go map.
+- **Compact blocklists.** About 535k domains take about 11 MB: a sorted blob with a one-byte length per domain
+  and a small table of category masks instead of a Go map, built in fixed blocks so loading doesn't spike.
 - **No build step, no framework.** The dashboard is plain ES modules and CSS embedded in the binary, served
   with ETags and gzip. A first visit downloads about 90 KB, and it works with no internet access.
 - **Nothing to install on the router.** One static binary with its own root certificates, so it works even on
@@ -520,7 +524,7 @@ Measured on the network lab ([`dev/netlab.sh`](dev/netlab.sh)) with both firewal
 | Cost per query under sustained load | about 16 µs |
 | A busy home at about 20 queries per second | about 0.03% of one core |
 | One device flooding 1.4 million queries per second | dropped in the kernel; other devices keep resolving with 0 failures and single-digit-ms latency |
-| Blocklists | about 535k domains in about 13 MB |
+| Blocklists | about 535k domains in about 11 MB |
 
 ## Configuration reference
 
@@ -671,6 +675,11 @@ the oldest OpenWrt it runs on and the memory it needs, and only offers it if thi
 an alert and a banner with **Update now**. It downloads the update, checks its checksum, test-runs it on a
 private port and only then swaps it in. If the new version doesn't answer DNS, the old one comes back on
 its own. Turn on **Settings → Install updates automatically** to have this happen overnight, between 3 and 5 am.
+
+**Can I go back to an older version?**
+Yes, from 1.3.1.2. **Settings → Updates → Go back…** lists older releases back to 1.3.0. Going back gets the same
+checks as an update, your settings are backed up first, and automatic updates then skip the version you
+left until something newer comes out.
 
 **What are preview builds?**
 Pre-releases with a fourth number, like 1.3.1.1, that come out between full releases so new things can be
