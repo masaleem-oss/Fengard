@@ -44,6 +44,7 @@
 
 - [Why Fengard](#why-fengard)
 - [How it compares](#how-it-compares)
+  - [Memory](#memory)
 - [Install](#install)
   - [Which routers work](#which-routers-work)
   - [Supported routers](docs/routers.md#supported-routers)
@@ -97,6 +98,21 @@ network needs, enforced by the router's firewall:
 | One-click install and clean uninstall | ✅ | ✅ | ✅ |
 
 <sub>Based on each project's out-of-the-box features. Pi-hole and AdGuard Home can do more with extra setup.</sub>
+
+### Memory
+
+Routers don't have much of it, so this matters more than speed. With the same seven blocklists (534k domains),
+started cold side by side:
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/memory-dark.svg">
+  <img src="docs/memory-light.svg" alt="Memory over six minutes with the same 534k blocked domains: Fengard 1.3.1.3 about 28 MB, Fengard 1.3.1.1 about 43 MB, AdGuard Home about 105 MB" width="900">
+</picture>
+
+Fengard 1.3.1.3 settles at about 28 MB, AdGuard Home 0.107.79 at about 105 MB with its default settings. This was
+measured on a PC (x86-64 Linux, each program on 2 cores) so all three ran under the same conditions. A real
+router will show somewhat different numbers; Fengard 1.3.1.3 uses about 33 MB on a GL-MT3000 with these lists.
+[`dev/memcompare`](dev/memcompare) has the script to run it yourself.
 
 ## Install
 
