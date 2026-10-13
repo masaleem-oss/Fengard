@@ -2,7 +2,6 @@ package catalog
 
 import (
 	"bytes"
-	"cmp"
 	"slices"
 	"sort"
 	"strings"
@@ -28,13 +27,15 @@ func (m Mask) CustomIndex() int {
 	return -1
 }
 
-// one sorted blob instead of a map, 534k domains is under 11mb here vs 50mb as a map which matters on routers.
-// domains are found by a byte length each plus a full offset every blockSize, and the few different
-// masks that occur live in a palette so each domain only stores a 2 byte index into it
+// one sorted blob instead of a map. domains are kept back to front (moc.elpmaxe.sda) so neighbours share
+// their endings, and each one only stores the part that differs from the one before it: how many bytes
+// it shares, how many follow, then those bytes. every blockSize'th domain is stored whole with its offset
+// in base, so a lookup binary searches those then reads one block. masks live in a palette and each
+// domain keeps a 2 byte index into it. 534k domains took 50mb as a map
 type DomainSet struct {
 	blob    []byte
-	lens    []uint8
-	base    []uint32 // offset of every blockSize'th domain
+	base    []uint32 // offset of every blockSize'th domain, which is stored whole
+	n       int
 	idx     []uint16 // into palette
 	palette []Mask
 	wide    []Mask // only if more than 65536 different masks ever turn up
@@ -46,7 +47,7 @@ const blockSize = 16
 // copied as they grow, each block of entries is sorted on its own and then they're merged once
 // into a set sized exactly. 534k domains peaked at 55mb the old way
 type Builder struct {
-	arena  [][]byte  // domain bytes, a block is never moved once made
+	arena  [][]byte  // domain bytes back to front, a block is never moved once made
 	chunks [][]entry // sorted one by one in Build
 }
 
@@ -76,7 +77,9 @@ func (b *Builder) Add(domain string, m Mask) {
 		last++
 	}
 	off := uint32(last)<<arenaShift | uint32(len(b.arena[last]))
+	// back to front so sorting puts a site and its subdomains next to each other
 	b.arena[last] = append(b.arena[last], domain...)
+	slices.Reverse(b.arena[last][len(b.arena[last])-len(domain):])
 	c := len(b.chunks) - 1
 	if c < 0 || len(b.chunks[c]) == cap(b.chunks[c]) {
 		b.chunks = append(b.chunks, make([]entry, 0, grow(len(b.chunks), 64, chunkMax)))
@@ -161,17 +164,22 @@ func (b *Builder) Build() *DomainSet {
 	}
 	// count first so the set is allocated once at its final size
 	n, size := 0, 0
+	var prev []byte
 	pal := map[Mask]uint16{}
 	b.merge(func(d []byte, m Mask) {
+		if n%blockSize == 0 {
+			size += 1 + len(d)
+		} else {
+			size += 2 + len(d) - shared(prev, d)
+		}
+		prev = d
 		n++
-		size += len(d)
 		if _, ok := pal[m]; !ok && len(pal) <= 1<<16 {
 			pal[m] = uint16(len(pal))
 		}
 	})
 	s := &DomainSet{
 		blob: make([]byte, 0, size),
-		lens: make([]uint8, 0, n),
 		base: make([]uint32, 0, (n+blockSize-1)/blockSize),
 	}
 	if len(pal) > 1<<16 {
@@ -183,12 +191,19 @@ func (b *Builder) Build() *DomainSet {
 			s.palette[i] = m
 		}
 	}
+	prev = nil
 	b.merge(func(d []byte, m Mask) {
-		if len(s.lens)%blockSize == 0 {
+		if s.n%blockSize == 0 {
 			s.base = append(s.base, uint32(len(s.blob)))
+			s.blob = append(s.blob, byte(len(d)))
+			s.blob = append(s.blob, d...)
+		} else {
+			k := shared(prev, d)
+			s.blob = append(s.blob, byte(k), byte(len(d)-k))
+			s.blob = append(s.blob, d[k:]...)
 		}
-		s.blob = append(s.blob, d...)
-		s.lens = append(s.lens, uint8(len(d)))
+		prev = d
+		s.n++
 		if s.wide != nil {
 			s.wide = append(s.wide, m)
 		} else {
@@ -199,11 +214,20 @@ func (b *Builder) Build() *DomainSet {
 	return s
 }
 
+// how many bytes two domains start with in common
+func shared(a, b []byte) int {
+	k := 0
+	for k < len(a) && k < len(b) && a[k] == b[k] {
+		k++
+	}
+	return k
+}
+
 func (s *DomainSet) Len() int {
 	if s == nil {
 		return 0
 	}
-	return len(s.lens)
+	return s.n
 }
 
 func (s *DomainSet) mask(i int) Mask {
@@ -213,60 +237,97 @@ func (s *DomainSet) mask(i int) Mask {
 	return s.palette[s.idx[i]]
 }
 
-// first domain of block b, no adding up needed
+// first domain of block b as it's stored, back to front
 func (s *DomainSet) first(b int) []byte {
 	o := s.base[b]
-	return s.blob[o : o+uint32(s.lens[b*blockSize])]
+	return s.blob[o+1 : o+1+uint32(s.blob[o])]
 }
 
-// compare without turning the bytes into a string, which would copy them on every lookup
-func compare(b []byte, s string) int {
-	for i := range min(len(b), len(s)) {
-		if b[i] != s[i] {
-			if b[i] < s[i] {
-				return -1
-			}
-			return 1
+// walk hands fn each domain of block b in order, back to front, until fn says stop. cur lives on the
+// stack and each one is built from the one before, so a lookup allocates nothing
+func (s *DomainSet) walk(b int, fn func(i int, d []byte) bool) {
+	var cur [255]byte
+	o := s.base[b]
+	n := int(s.blob[o])
+	copy(cur[:], s.blob[o+1:o+1+uint32(n)])
+	o += 1 + uint32(n)
+	for i := b * blockSize; i < min(s.n, (b+1)*blockSize); i++ {
+		if i > b*blockSize {
+			k, rest := int(s.blob[o]), int(s.blob[o+1])
+			copy(cur[k:], s.blob[o+2:o+2+uint32(rest)])
+			n = k + rest
+			o += 2 + uint32(rest)
+		}
+		if !fn(i, cur[:n]) {
+			return
 		}
 	}
-	return cmp.Compare(len(b), len(s))
 }
 
+// at is the i'th domain the right way round, for tests
 func (s *DomainSet) at(i int) string {
-	o := s.base[i/blockSize]
-	for j := i &^ (blockSize - 1); j < i; j++ {
-		o += uint32(s.lens[j])
-	}
-	return string(s.blob[o : o+uint32(s.lens[i])])
+	var out string
+	s.walk(i/blockSize, func(j int, d []byte) bool {
+		if j < i {
+			return true
+		}
+		r := make([]byte, len(d))
+		for k := range d {
+			r[len(d)-1-k] = d[k]
+		}
+		out = string(r)
+		return false
+	})
+	return out
 }
 
-// binary search the blocks by their first domain, then walk the one block it has to be in
+// binary search the blocks by their first domain, then read the one block it has to be in
 func (s *DomainSet) Get(domain string) Mask {
-	if s == nil || len(s.lens) == 0 {
+	if s == nil || s.n == 0 || len(domain) == 0 || len(domain) > 255 {
 		return 0
 	}
-	b := sort.Search(len(s.base), func(b int) bool { return compare(s.first(b), domain) > 0 }) - 1
+	var buf [255]byte
+	key := buf[:len(domain)]
+	for i := range len(domain) {
+		key[len(domain)-1-i] = domain[i]
+	}
+	b := sort.Search(len(s.base), func(b int) bool { return bytes.Compare(s.first(b), key) > 0 }) - 1
 	if b < 0 {
 		return 0
 	}
-	// adding up lengths is cheap, comparing strings isn't, so offsets first then a binary search
-	lo, hi := b*blockSize, min(len(s.lens), (b+1)*blockSize)
-	var offs [blockSize + 1]uint32
-	offs[0] = s.base[b]
-	for i := lo; i < hi; i++ {
-		offs[i-lo+1] = offs[i-lo] + uint32(s.lens[i])
-	}
-	l, h := 0, hi-lo
-	for l < h {
-		m := int(uint(l+h) >> 1)
-		switch c := compare(s.blob[offs[m]:offs[m+1]], domain); {
-		case c == 0:
-			return s.mask(lo + m)
-		case c < 0:
-			l = m + 1
-		default:
-			h = m
+	// walk without a closure, which would move cur and key off the stack. match is how much of key the
+	// domain before matched. a domain sharing less than that with the one before has gone past key, one
+	// sharing more is still before it, so only a domain sharing exactly match needs comparing
+	var cur [255]byte
+	o := s.base[b]
+	n := int(s.blob[o])
+	copy(cur[:], s.blob[o+1:o+1+uint32(n)])
+	o += 1 + uint32(n)
+	match := 0
+	for i := b * blockSize; i < min(s.n, (b+1)*blockSize); i++ {
+		if i > b*blockSize {
+			k, rest := int(s.blob[o]), int(s.blob[o+1])
+			copy(cur[k:], s.blob[o+2:o+2+uint32(rest)])
+			n = k + rest
+			o += 2 + uint32(rest)
+			if k < match {
+				return 0
+			}
+			if k > match {
+				continue
+			}
 		}
+		l := match
+		for l < n && l < len(key) && cur[l] == key[l] {
+			l++
+		}
+		switch {
+		case l == n && l == len(key):
+			return s.mask(i)
+		case l == len(key), l < n && cur[l] > key[l]:
+			return 0 // past it
+		}
+		match = l
 	}
 	return 0
 }

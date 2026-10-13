@@ -2,6 +2,7 @@ package catalog
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -116,7 +117,8 @@ func TestBuilderMatchesMap(t *testing.T) {
 		t.Fatalf("Len = %d, want %d", s.Len(), len(want))
 	}
 	for i := 1; i < s.Len(); i++ {
-		if s.at(i-1) >= s.at(i) {
+		// the set keeps them back to front
+		if reverse(s.at(i-1)) >= reverse(s.at(i)) {
 			t.Fatalf("not sorted at %d: %q then %q", i, s.at(i-1), s.at(i))
 		}
 	}
@@ -175,6 +177,38 @@ func TestBuilderManyBlocks(t *testing.T) {
 	for d, m := range want {
 		if got := s.Get(d); got != m {
 			t.Fatalf("Get(%q) = %b, want %b", d, got, m)
+		}
+	}
+}
+
+func reverse(s string) string {
+	b := []byte(s)
+	slices.Reverse(b)
+	return string(b)
+}
+
+// near misses must come back empty, the block search skips most comparisons so this checks it skips right
+func TestDomainSetNearMisses(t *testing.T) {
+	b := NewBuilder()
+	in := map[string]bool{}
+	x := uint32(7)
+	for range 20000 {
+		x ^= x << 13
+		x ^= x >> 17
+		x ^= x << 5
+		d := fmt.Sprintf("s%d.site%d.co", x%3000, x%50)
+		b.Add(d, 1)
+		in[d] = true
+	}
+	s := b.Build()
+	for d := range in {
+		for _, miss := range []string{"a" + d, d + "m", d[1:], d[:len(d)-1], "x." + d[2:], strings.Replace(d, "site", "sitf", 1)} {
+			if !in[miss] && s.Get(miss) != 0 {
+				t.Fatalf("Get(%q) found something, only %q is in the set", miss, d)
+			}
+		}
+		if s.Get(d) != 1 {
+			t.Fatalf("Get(%q) missed", d)
 		}
 	}
 }
