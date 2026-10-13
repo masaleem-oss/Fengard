@@ -160,7 +160,8 @@ for t in "$@"; do
 			}
 		EOF
 		agh() { r 35 'pidof AdGuardHome >/dev/null && ls /etc/rc.d/ | grep -q adguardhome'; }
-		kit; until_ok 30 "agh && landns 35"
+		# under load the stand in takes a while, installing before its up would test nothing
+		kit; until_ok 90 "agh && landns 35"
 		out=$(inst 35)
 		row "AdGuard Home on port 53: asks first, left alone when the answer is no" "echo \"\$out\" | grep -q 'AdGuard Home is still using port 53' && untouched 35 && agh && landns 35"
 		rm -f "$WORK/home-35/.ssh/fengard_known_hosts"; (export ADGUARD=off; kitsh 35 router 127.0.0.1) >/dev/null
