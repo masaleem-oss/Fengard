@@ -72,7 +72,7 @@ start)
 		for _ in $(seq 60); do mon "info migrate" | grep -qi "status:[[:space:]]*completed" && break; sleep 0.5; done
 		mon cont >/dev/null
 		# the saved clock is from when it was saved
-		up 30 && r "date -u -s '$(date -u '+%Y-%m-%d %H:%M:%S')' >/dev/null" && exit 0
+		up 90 && r "date -u -s '$(date -u '+%Y-%m-%d %H:%M:%S')' >/dev/null" && exit 0
 		echo "vm-$name did not carry on from its saved boot, booting it again"
 		kill_vm "$name"
 	fi
