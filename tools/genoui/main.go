@@ -1,4 +1,4 @@
-// go run ./tools/genoui oui.csv internal/devices/oui.txt.gz
+// go run ./tools/genoui oui.csv features/vendors/oui.txt.gz && go run ./tools/featurepack
 // get oui.csv from standards-oui.ieee.org
 package main
 
