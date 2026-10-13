@@ -394,7 +394,7 @@ func (s *Server) dnsInfo(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]any{
 		"zone": cfg.Settings.LocalZone, "records": cfg.Records, "names": names,
 		"upstreams": cfg.Settings.Upstreams, "dnssec": cfg.Settings.DNSSEC,
-		"doh3": cfg.Settings.DoH3, "transports": s.DNS.Transports(),
+		"doh3": cfg.Settings.DoH3, "parallelUpstreams": cfg.Settings.Parallel, "transports": s.DNS.Transports(),
 	})
 }
 

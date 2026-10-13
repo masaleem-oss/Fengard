@@ -19,8 +19,10 @@ const hostOf = (u) => { try { return new URL(u).host; } catch { return u; } };
 function transportLines(info) {
   if (!info.doh3) return '';
   if (!info.transports.length) return `<p class="t-xs t-3">HTTP/3 only applies to <code>https://</code> resolvers. Pick a DoH preset above.</p>`;
-  return info.transports.map((t) => {
+  return info.transports.map((t, i) => {
     const host = esc(hostOf(t.url));
+    // in order, the ones after the first only get used when it fails
+    if (i > 0 && !info.parallelUpstreams && !t.using && !t.error) return `<p class="t-xs t-3">${host} is a standby, used only if the ones above don't answer</p>`;
     if (t.using === 'HTTP/3') return `<p class="t-xs t-2">${icon('check', 'icon-sm')} ${host} over HTTP/3</p>`;
     if (!t.error) return `<p class="t-xs t-3">${host} tries HTTP/3 the first time it's used</p>`;
     const again = inFuture(t.retryAt) ? `, trying again ${dateTime(t.retryAt)}` : '';
@@ -40,7 +42,7 @@ export async function render(el, ctx) {
         <form class="panel-body stack" id="up" novalidate>
           <div class="row wrap" id="presets">${PRESETS.map((p, i) => `<button type="button" class="btn btn-sm" data-preset="${i}" ${ro}>${esc(p.name)}</button>`).join('')}</div>
           <textarea class="textarea" name="upstreams" rows="4" spellcheck="false" ${ro}></textarea>
-          <p class="t-xs t-3">One per line, tried in order. Plain <code>1.1.1.1</code>, encrypted <code>tls://1.1.1.1:853@cloudflare-dns.com</code> or <code>https://cloudflare-dns.com/dns-query</code>.</p>
+          <p class="t-xs t-3">One per line, tried in order unless they're asked all at once below. Plain <code>1.1.1.1</code>, encrypted <code>tls://1.1.1.1:853@cloudflare-dns.com</code> or <code>https://cloudflare-dns.com/dns-query</code>.</p>
           <div class="setting" style="padding:12px 0;border-top:1px solid var(--border);border-bottom:0">
             <div class="setting-text"><b>Request DNSSEC records</b><small>Send the DNSSEC OK bit. Fengard does not validate signatures locally. Protection requires a validating upstream over trusted DoH or DoT; plain DNS can be altered in transit.</small></div>
             ${switchInput(`name="dnssec" ${ro}`, false, 'DNSSEC')}
@@ -48,6 +50,10 @@ export async function render(el, ctx) {
           <div class="setting" style="padding:12px 0;border-top:1px solid var(--border);border-bottom:0">
             <div class="setting-text"><b>Use HTTP/3</b><small>Send lookups to <code>https://</code> resolvers over HTTP/3 (QUIC), which copes better with patchy connections. If UDP is blocked on the way, Fengard goes back to HTTP/2 by itself. Off uses no extra memory.</small></div>
             ${switchInput(`name="doh3" ${ro}`, false, 'HTTP/3')}
+          </div>
+          <div class="setting" style="padding:12px 0;border-top:1px solid var(--border);border-bottom:0">
+            <div class="setting-text"><b>Ask all at once</b><small>Send each lookup to every resolver above at the same time and use the first good answer. Helps when your resolvers are safe but slow or sometimes don't answer. Uses more upstream traffic.</small></div>
+            ${switchInput(`name="parallel" ${ro}`, false, 'Ask all at once')}
           </div>
           <div id="doh3-status" class="stack" style="gap:4px"></div>
           ${admin ? `<div><button class="btn btn-primary" type="submit">Save resolvers</button></div>` : ''}
@@ -76,6 +82,7 @@ export async function render(el, ctx) {
     if (document.activeElement !== up.upstreams) up.upstreams.value = info.upstreams.join('\n');
     up.dnssec.checked = info.dnssec;
     up.doh3.checked = info.doh3;
+    up.parallel.checked = info.parallelUpstreams;
     $('#doh3-status', el).innerHTML = transportLines(info);
     const z = $('#zone', el);
     if (document.activeElement !== z.localZone) z.localZone.value = info.zone;
@@ -108,7 +115,7 @@ export async function render(el, ctx) {
     const f = e.target;
     await busy(f.querySelector('[type=submit]'), () => attempt(async () => {
       const s = await get('/api/settings');
-      await put('/api/settings', { ...s, upstreams: f.upstreams.value.split('\n').map((x) => x.trim()).filter(Boolean), dnssec: f.dnssec.checked, doh3: f.doh3.checked });
+      await put('/api/settings', { ...s, upstreams: f.upstreams.value.split('\n').map((x) => x.trim()).filter(Boolean), dnssec: f.dnssec.checked, doh3: f.doh3.checked, parallelUpstreams: f.parallel.checked });
     }, 'Resolvers saved'));
     load();
   });
