@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 )
 
 // for routers still on iptables like openwrt 21.02 and glinet 4.x firmware
@@ -40,9 +41,9 @@ func (t *IPTables) probe() {
 	t.once.Do(func() {
 		_, err := run(t.Netns, "ipset", nil, "list", "-n")
 		t.ipset = err == nil
-		_, err = run(t.Netns, "iptables", nil, "-m", "hashlimit", "-h")
+		_, err = xt(t.Netns, "iptables", nil, "-m", "hashlimit", "-h")
 		t.hashl = err == nil
-		_, err = run(t.Netns, "iptables", nil, "-m", "mac", "-h")
+		_, err = xt(t.Netns, "iptables", nil, "-m", "mac", "-h")
 		t.mac = err == nil
 		_, err = run(t.Netns, "ip6tables", nil, "-S")
 		t.v6 = err == nil
@@ -240,13 +241,13 @@ func (t *IPTables) Apply(rs string, p Params) error {
 			}
 		}
 	}
-	if _, err := run(t.Netns, "iptables-restore", []byte(rs), "--noflush"); err != nil {
+	if _, err := xt(t.Netns, "iptables-restore", []byte(rs), "--noflush"); err != nil {
 		return err
 	}
 	for _, j := range t.jumps() {
 		table, chain, target := j[1], j[2], j[4]
-		if _, err := run(t.Netns, "iptables", nil, "-t", table, "-C", chain, "-j", target); err != nil {
-			if _, err := run(t.Netns, "iptables", nil, "-t", table, "-I", chain, "1", "-j", target); err != nil {
+		if _, err := xt(t.Netns, "iptables", nil, "-t", table, "-C", chain, "-j", target); err != nil {
+			if _, err := xt(t.Netns, "iptables", nil, "-t", table, "-I", chain, "1", "-j", target); err != nil {
 				return err
 			}
 		}
@@ -257,7 +258,7 @@ func (t *IPTables) Apply(rs string, p Params) error {
 // fw3 flushes tables on reload so the manager reapplies when this is false
 func (t *IPTables) Healthy() bool {
 	for _, j := range t.jumps() {
-		if _, err := run(t.Netns, "iptables", nil, "-t", j[1], "-C", j[2], "-j", j[4]); err != nil {
+		if _, err := xt(t.Netns, "iptables", nil, "-t", j[1], "-C", j[2], "-j", j[4]); err != nil {
 			return false
 		}
 	}
@@ -265,7 +266,7 @@ func (t *IPTables) Healthy() bool {
 }
 
 func (t *IPTables) Check(rs string) error {
-	_, err := run(t.Netns, "iptables-restore", []byte(rs), "--noflush", "--test")
+	_, err := xt(t.Netns, "iptables-restore", []byte(rs), "--noflush", "--test")
 	return err
 }
 
@@ -275,12 +276,12 @@ func (t *IPTables) Remove() error {
 	for _, j := range t.jumps() {
 		table, chain, target := j[1], j[2], j[4]
 		for {
-			if _, err := run(t.Netns, "iptables", nil, "-t", table, "-D", chain, "-j", target); err != nil {
+			if _, err := xt(t.Netns, "iptables", nil, "-t", table, "-D", chain, "-j", target); err != nil {
 				break
 			}
 		}
-		if _, err := run(t.Netns, "iptables", nil, "-t", table, "-F", target); err == nil {
-			run(t.Netns, "iptables", nil, "-t", table, "-X", target)
+		if _, err := xt(t.Netns, "iptables", nil, "-t", table, "-F", target); err == nil {
+			xt(t.Netns, "iptables", nil, "-t", table, "-X", target)
 		} else if first == nil {
 			first = err
 		}
@@ -310,6 +311,20 @@ func (t *IPTables) syncSet(name, typ, family string, members []string) error {
 	fmt.Fprintf(&b, "destroy %s\n", tmp)
 	_, err := run(t.Netns, "ipset", []byte(b.String()), "restore")
 	return err
+}
+
+// fw3 and gl scripts grab the xtables lock while a vpn comes up so wait it out
+// instead of failing the whole sync, -w isnt on every iptables-restore we meet
+func xt(netns, name string, stdin []byte, args ...string) (string, error) {
+	var out string
+	var err error
+	for i := 0; i < 10; i++ {
+		if out, err = run(netns, name, stdin, args...); err == nil || !strings.Contains(err.Error(), "xtables lock") {
+			return out, err
+		}
+		time.Sleep(300 * time.Millisecond)
+	}
+	return out, err
 }
 
 func splitV4(in []string) []string {
