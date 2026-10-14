@@ -101,3 +101,24 @@ func TestNftAccepts(t *testing.T) {
 		t.Fatalf("remove: %v", err)
 	}
 }
+
+// lan and tunnel traffic must not hit an invalid drop, hw offload makes good
+// packets look invalid and pages half load (seen on a beryl 7 with gl's vpn client)
+func TestInvalidDropOnlyFromWAN(t *testing.T) {
+	p := sample()
+	p.Tunnels = []VPNParams{{Iface: "wg0", Port: 51820, Subnet: "10.9.0.0/24"}}
+	rs, err := Render(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, l := range strings.Split(rs, "\n") {
+		if strings.Contains(l, "invalid drop") && !strings.Contains(l, `iifname { "wan" }`) {
+			t.Errorf("nft drops invalid beyond the wan: %q", strings.TrimSpace(l))
+		}
+	}
+	for _, l := range strings.Split(renderIPTables(p, true, true, true, nil), "\n") {
+		if strings.Contains(l, "INVALID") && !strings.Contains(l, "-i wan ") {
+			t.Errorf("iptables drops invalid beyond the wan: %q", l)
+		}
+	}
+}

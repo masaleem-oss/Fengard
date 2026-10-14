@@ -158,7 +158,9 @@ func Render(p Params) (string, error) {
 	w("")
 	w("\tchain forward {")
 	w("\t\ttype filter hook forward priority filter - 5; policy accept;")
-	w("\t\tct state invalid drop")
+	// only from the wan, lan and tunnel traffic that hw offload left untracked looks
+	// invalid and dropping it half loads pages, openwrt leaves this off too
+	w("\t\tiifname %s ct state invalid drop", wan)
 	w("\t\tiifname %s ether saddr @quarantined counter reject with icmpx admin-prohibited", lan)
 	w("\t\tiifname %s oifname %s ether saddr @offline counter reject with icmpx admin-prohibited", lan, wan)
 	w("\t\tiifname %s oifname %s ip saddr @offline4 counter reject with icmpx admin-prohibited", lan, wan)

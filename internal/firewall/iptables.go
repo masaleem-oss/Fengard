@@ -120,7 +120,10 @@ func renderIPTables(p Params, ipset, hashlimit, macMatch bool, notes []string) s
 	w("*filter")
 	w(":%s - [0:0]", chForward)
 	w(":%s - [0:0]", chInput)
-	w("-A %s -m conntrack --ctstate INVALID -j DROP", chForward)
+	// only from the wan, see the nft forward chain
+	for _, wan := range p.WAN {
+		w("-A %s -i %s -m conntrack --ctstate INVALID -j DROP", chForward, wan)
+	}
 	for _, lan := range lans {
 		if macMatch {
 			for _, m := range macs(p.Quarantined) {
