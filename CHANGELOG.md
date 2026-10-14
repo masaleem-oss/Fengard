@@ -8,6 +8,23 @@ are on the [releases page](https://github.com/masaleem-oss/Fengard/releases).
 
 Nothing yet.
 
+## 1.3.1.5 - 2026-10-14 (preview)
+
+### Added
+- **Custom lists per profile.** Lists added in Filtering show up as tiles in each profile, marked Custom, and
+  each profile turns them on or off. They used to block for everyone. Lists you already had stay on in every
+  profile, and a new list starts on everywhere
+- Each profile shows how many blocklist domains it blocks out of all of them, like 156K of 566K, each domain
+  counted once. Filtering shows the total too, which is what decides the memory blocklists use
+
+### Fixed
+- Sites could load only partly through a router VPN client, like GL.iNet's OpenVPN or WireGuard client.
+  Fengard dropped packets that connection tracking marked invalid on all traffic, and hardware acceleration can
+  make normal packets look invalid. It now only does that for traffic coming in from the internet, and OpenWrt
+  itself doesn't drop them by default either
+- On iptables routers the firewall rules could fail to apply when a VPN client came up at the same moment,
+  with "Another app is currently holding the xtables lock" in the log. Fengard now waits for the lock
+
 ## 1.3.1.4 - 2026-10-13 (preview)
 
 ### Added
