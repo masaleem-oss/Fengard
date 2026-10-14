@@ -235,6 +235,34 @@ func (s *DomainSet) Len() int {
 	return s.n
 }
 
+// Count is how many domains are in any of the lists in m, each counted once however many lists have it
+func (s *DomainSet) Count(m Mask) int {
+	if s == nil {
+		return 0
+	}
+	if s.wide != nil {
+		n := 0
+		for _, w := range s.wide {
+			if w&m != 0 {
+				n++
+			}
+		}
+		return n
+	}
+	// a palette entry is shared by many domains so test each one once
+	hit := make([]bool, len(s.palette))
+	for i, p := range s.palette {
+		hit[i] = p&m != 0
+	}
+	n := 0
+	for _, x := range s.idx {
+		if hit[x] {
+			n++
+		}
+	}
+	return n
+}
+
 func (s *DomainSet) mask(i int) Mask {
 	if s.wide != nil {
 		return s.wide[i]
