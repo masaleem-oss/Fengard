@@ -60,12 +60,12 @@ export async function render(el, ctx) {
       <div id="rules"></div>
     </div>
     <div class="panel">
-      <div class="panel-head"><h3>Category blocklists</h3><span class="sub">Updated every 24 hours</span>
+      <div class="panel-head"><h3>Category blocklists</h3><span class="sub">Updated every 24 hours<span id="total"></span></span>
         ${admin ? `<div class="actions"><button class="btn btn-sm" id="update">${icon('refresh-cw', 'icon-sm')}Update now</button></div>` : ''}</div>
       <div class="table-wrap" id="cats"></div>
     </div>
     <div class="panel">
-      <div class="panel-head"><h3>Custom blocklists</h3><span class="sub">Any hosts-file or domain list by URL, applied to every profile</span>
+      <div class="panel-head"><h3>Custom blocklists</h3><span class="sub">Any hosts-file or domain list by URL. Each profile turns it on or off in Profiles</span>
         ${admin ? `<div class="actions"><button class="btn btn-sm btn-primary" id="popular">${icon('list-plus', 'icon-sm')}Popular lists</button></div>` : ''}</div>
       ${admin ? `<form class="toolbar" id="add-list" novalidate>
         <input class="input input-sm" name="name" placeholder="Name" style="width:180px" aria-label="List name">
@@ -115,6 +115,9 @@ export async function render(el, ctx) {
   const load = async () => {
     [rules, lists, devices, groups] = await Promise.all([get('/api/rules'), get('/api/lists'), get('/api/devices'), get('/api/groups')]);
     if (!ctx.alive()) return;
+    // every list counted together with overlaps removed, what's actually in memory
+    const total = groups[0]?.blocklistTotal;
+    $('#total', el).textContent = total ? ` · ${compact(total)} domains loaded in all` : '';
     const sel = $('#check select', el);
     if (sel.options.length === 1) {
       sel.insertAdjacentHTML('beforeend', devices.map((d) => `<option value="${esc(d.mac)}">${esc(deviceName(d))}</option>`).join(''));

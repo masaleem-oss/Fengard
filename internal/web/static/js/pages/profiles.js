@@ -6,6 +6,8 @@ import { state, isAdmin, refreshShell } from '../main.js';
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const WEEK = [1, 2, 3, 4, 5, 6, 0]; // monday first
 
+const hostOf = (u) => { try { return new URL(u).host; } catch { return u; } };
+
 export async function render(el, ctx) {
   let groups = [], devices = [], settings = {}, appsCatalog = null;
   let current = ctx.params.get('id');
@@ -20,7 +22,8 @@ export async function render(el, ctx) {
     </div>`;
 
   const load = async () => {
-    [groups, devices, settings] = await Promise.all([get('/api/groups'), get('/api/devices'), get('/api/settings')]);
+    // lists added on the Filtering page show up here without a reload
+    [groups, devices, settings, state.categories] = await Promise.all([get('/api/groups'), get('/api/devices'), get('/api/settings'), get('/api/categories')]);
     if (!ctx.alive()) return;
     if (!groups.find((g) => g.id === current)) current = groups[0]?.id;
     drawList();
@@ -42,7 +45,7 @@ export async function render(el, ctx) {
 
   const save = async (mod, msg) => {
     const g = groups.find((x) => x.id === current);
-    const { devices: _, default: __, ...body } = structuredClone(g);
+    const { devices: _, default: __, blocking: ___, blocklistTotal: ____, ...body } = structuredClone(g);
     mod(body);
     if (await attempt(() => put(`/api/groups/${g.id}`, body), msg)) await load();
   };
@@ -74,19 +77,28 @@ export async function render(el, ctx) {
 
     const body = $('#tab', ed);
     if (tab === 'filters') {
+      // custom lists from Filtering sit after the built in ones, marked as custom
+      const tile = (c) => {
+        const on = g.categories.includes(c.id), custom = c.id.startsWith('list:');
+        return `<label class="cat-card ${on ? 'on' : ''}${custom ? ' custom' : ''}">${icon(custom ? 'list-filter' : CATEGORY_ICONS[c.id] || 'shield')}
+          <span class="cat-text"><b>${esc(c.name)}${custom ? ' <span class="tag">Custom</span>' : ''}</b><small class="${custom ? 'truncate' : ''}">${esc(custom ? hostOf(c.desc) : c.desc)}</small><small class="num" style="margin-top:3px">${c.error && !c.domains ? 'Not downloaded yet' : `${compact(c.domains)} domains`}</small></span>
+          ${switchInput(`data-cat="${c.id}" ${ro}`, on, `Block ${c.name}`)}</label>`;
+      };
+      const custom = state.categories.filter((c) => c.id.startsWith('list:'));
       body.innerHTML = `<div class="panel-body">
-        <div class="cat-grid">${state.categories.filter((c) => !c.id.startsWith('list:')).map((c) => {
-          const on = g.categories.includes(c.id);
-          return `<label class="cat-card ${on ? 'on' : ''}">${icon(CATEGORY_ICONS[c.id] || 'shield')}
-            <span class="cat-text"><b>${esc(c.name)}</b><small>${esc(c.desc)}</small><small class="num" style="margin-top:3px">${compact(c.domains)} domains</small></span>
-            ${switchInput(`data-cat="${c.id}" ${ro}`, on, `Block ${c.name}`)}</label>`;
-        }).join('')}</div></div>
+        ${g.blocklistTotal ? `<p class="t-sm t-2 coverage"><span><b>${compact(g.blocking)}</b> of ${compact(g.blocklistTotal)} blocklist domains blocked for this profile.</span>
+          <span class="t-3">Each domain counts once even when it's in several lists. Every list loaded uses memory, whichever profiles use it.</span></p>` : ''}
+        <div class="cat-grid">${state.categories.filter((c) => !c.id.startsWith('list:')).map(tile).join('')}</div>
+        ${custom.length ? `<div class="section-title" style="margin-top:16px">Your lists <a href="#filtering" class="t-xs" style="font-weight:400;margin-left:6px">Manage in Filtering</a></div>
+          <div class="cat-grid">${custom.map(tile).join('')}</div>` : ''}</div>
         <div class="setting" style="border-top:1px solid var(--border)">
           <div class="setting-text"><b>Enforce SafeSearch</b><small>Strict results on Google, Bing and DuckDuckGo, and YouTube Restricted Mode. Can't be turned off on the device.</small></div>
           ${switchInput(`id="safe" ${ro}`, g.safeSearch, 'Enforce SafeSearch')}
         </div>`;
       $$('[data-cat]', body).forEach((cb) => cb.addEventListener('change', () => {
-        const ids = $$('[data-cat]:checked', body).map((x) => x.dataset.cat);
+        // keep ids with no tile here, like a list turned off in Filtering, so it comes back on later
+        const shown = new Set($$('[data-cat]', body).map((x) => x.dataset.cat));
+        const ids = [...$$('[data-cat]:checked', body).map((x) => x.dataset.cat), ...g.categories.filter((c) => !shown.has(c))];
         save((b) => (b.categories = ids), `${cb.checked ? 'Now blocking' : 'Stopped blocking'} ${state.categories.find((c) => c.id === cb.dataset.cat).name}`);
       }));
       $('#safe', body).addEventListener('change', (e) => save((b) => (b.safeSearch = e.target.checked), `SafeSearch ${e.target.checked ? 'on' : 'off'}`));

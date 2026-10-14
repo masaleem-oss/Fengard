@@ -319,7 +319,7 @@ takes DNS over and the house stays online. See [how it works](docs/how-it-works.
 | Tor | Blocked by name (Tor Browser, bridges) and by address: the relay list refreshes daily into a firewall set, applied per profile |
 | Remote access VPN | Built-in WireGuard server. Add a phone, scan the QR code, and it gets the same filtering on mobile data. Detects double NAT and says what to forward |
 | Tailscale | When no port can be forwarded, the router can be a Tailscale exit node. Fengard filters `tailscale0` like the LAN and lists Tailscale devices |
-| Custom blocklists | Pick from popular lists (HaGeZi, OISD, AdGuard DNS filter, Steven Black and more) or subscribe to any hosts-file or domain list by URL, up to 16 |
+| Custom blocklists | Pick from popular lists (HaGeZi, OISD, AdGuard DNS filter, Steven Black and more) or subscribe to any hosts-file or domain list by URL, up to 16. Each profile turns them on or off |
 | Check a site | What every profile would do with a domain and why, also from the command palette |
 | Temporary allow | Allow a site for an hour, or any length, for one profile or everyone. One click from an access request |
 | Pause protection | Turn all filtering off for a few minutes when something breaks. Device pauses still apply |

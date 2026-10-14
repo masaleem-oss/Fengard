@@ -318,6 +318,10 @@ func (s *Server) saveList(w http.ResponseWriter, r *http.Request) {
 			return errors.New("unknown list")
 		}
 		c.Lists = append(c.Lists, l)
+		// a new list starts on in every profile, each one can turn it off
+		for i := range c.Groups {
+			c.Groups[i].Categories = append(c.Groups[i].Categories, "list:"+l.ID)
+		}
 		return nil
 	}) {
 		return

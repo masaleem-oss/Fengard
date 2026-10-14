@@ -396,6 +396,9 @@ func (s *Server) listGroups(w http.ResponseWriter, r *http.Request) {
 		config.Group
 		Devices int  `json:"devices"`
 		Default bool `json:"default"`
+		// unique blocklist domains this profile blocks, out of all of them
+		Blocking int `json:"blocking"`
+		Total    int `json:"blocklistTotal"`
 	}
 	out := make([]groupView, 0, len(cfg.Groups))
 	for _, g := range cfg.Groups {
@@ -405,16 +408,25 @@ func (s *Server) listGroups(w http.ResponseWriter, r *http.Request) {
 				n++
 			}
 		}
-		out = append(out, groupView{Group: g, Devices: n, Default: g.ID == cfg.Settings.DefaultGroup})
+		active, total := s.Policy.Coverage(g.ID)
+		out = append(out, groupView{Group: g, Devices: n, Default: g.ID == cfg.Settings.DefaultGroup, Blocking: active, Total: total})
 	}
 	writeJSON(w, out)
 }
 
 func (s *Server) saveGroup(w http.ResponseWriter, r *http.Request) {
-	var g config.Group
-	if !decode(w, r, &g) {
+	// the dashboard sends back what listGroups gave it, the read only parts are ignored
+	var in struct {
+		config.Group
+		Devices  int  `json:"devices"`
+		Default  bool `json:"default"`
+		Blocking int  `json:"blocking"`
+		Total    int  `json:"blocklistTotal"`
+	}
+	if !decode(w, r, &in) {
 		return
 	}
+	g := in.Group
 	id := r.PathValue("id")
 	creating := id == ""
 	if creating {
@@ -656,6 +668,7 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	// add-ons change through their own api so an older tab never drops one
 	set.Features = s.Config.Get().Settings.Features
+	set.ListsPerProfile = s.Config.Get().Settings.ListsPerProfile
 	before := strings.Join(s.Config.Get().Settings.Upstreams, ",")
 	if s.update(w, r, "Changed settings", func(c *config.Config) error {
 		c.Settings = set

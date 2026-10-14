@@ -555,6 +555,9 @@ button.tag:hover { background: var(--accent-soft); color: var(--accent-text); }
 .cat-card .icon { color: var(--text-3); margin-top: 2px; }
 .cat-card.on .icon { color: var(--accent-text); }
 .cat-card .cat-text { flex: 1; min-width: 0; }
+.cat-card.custom { border-style: dashed; }
+.cat-card .tag { margin-left: 4px; vertical-align: 1px; }
+.coverage { margin: 0 0 12px; display: grid; gap: 2px; }
 .cat-card b { font-weight: 500; display: block; }
 .cat-card small { color: var(--text-3); font-size: 11.5px; display: block; }
 .app-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 4px 16px; }

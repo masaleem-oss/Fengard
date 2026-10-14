@@ -278,8 +278,8 @@ function showSetup() {
             const groups = await get('/api/groups');
             const def = groups.find((g) => g.default);
             if (def) {
-              const { devices, default: _, ...g } = def;
-              await put(`/api/groups/${def.id}`, { ...g, categories: preset.cats, safeSearch: preset.safe });
+              const { devices, default: _, blocking: __, blocklistTotal: ___, ...g } = def;
+              await put(`/api/groups/${def.id}`, { ...g, categories: [...preset.cats, ...g.categories.filter((c) => c.startsWith('list:'))], safeSearch: preset.safe });
             }
             state.boxName = f.boxName.value.trim();
             await toAddons();
