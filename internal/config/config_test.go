@@ -1,6 +1,7 @@
 package config
 
 import (
+	"slices"
 	"strings"
 	"testing"
 )
@@ -139,5 +140,27 @@ func TestAddonDefaults(t *testing.T) {
 	}
 	if cl := c.Clone(); &cl.Settings.Features[0] == &c.Settings.Features[0] {
 		t.Error("clone shares the add-on list")
+	}
+}
+
+func TestListsMoveIntoProfilesOnce(t *testing.T) {
+	c := Default()
+	c.Lists = []CustomList{{ID: "a", Name: "A", URL: "https://example.com/a.txt", Enabled: true}}
+	c.Validate()
+	for _, g := range c.Groups {
+		if !slices.Contains(g.Categories, "list:a") {
+			t.Fatalf("%s lost the list everyone used to get", g.ID)
+		}
+	}
+	// turned off in one profile stays off
+	c.Groups[0].Categories = slices.DeleteFunc(c.Groups[0].Categories, func(s string) bool { return s == "list:a" })
+	c.Validate()
+	if slices.Contains(c.Groups[0].Categories, "list:a") {
+		t.Error("the list came back after being turned off")
+	}
+	// a removed list drops out of profiles instead of failing
+	c.Lists = nil
+	if err := c.Validate(); err != nil || slices.Contains(c.Groups[1].Categories, "list:a") {
+		t.Errorf("err %v, categories %v", err, c.Groups[1].Categories)
 	}
 }

@@ -60,6 +60,8 @@ type Settings struct {
 	Recognize       string    `json:"recognize,omitempty"` // devices with a new private address: auto, ask or off
 	// add-ons that are installed, null in configs from before there were any so they keep everything
 	Features []string `json:"features"`
+	// custom lists used to block for everyone, configs from then get every list turned on in every profile once
+	ListsPerProfile bool `json:"listsPerProfile,omitempty"`
 }
 
 type Group struct {
@@ -341,6 +343,18 @@ func (c *Config) Validate() error {
 	if c.Groups == nil {
 		c.Groups = []Group{}
 	}
+	lists := map[string]bool{}
+	for _, l := range c.Lists {
+		lists[l.ID] = true
+	}
+	if !s.ListsPerProfile {
+		for i := range c.Groups {
+			for _, l := range c.Lists {
+				c.Groups[i].Categories = append(c.Groups[i].Categories, "list:"+l.ID)
+			}
+		}
+		s.ListsPerProfile = true
+	}
 	ids := map[string]bool{}
 	for i := range c.Groups {
 		g := &c.Groups[i]
@@ -354,7 +368,7 @@ func (c *Config) Validate() error {
 		if g.Name = strings.TrimSpace(g.Name); g.Name == "" {
 			bad("group %q needs a name", g.ID)
 		}
-		g.Categories = checkCats(g.Categories, bad)
+		g.Categories = checkCats(g.Categories, lists, bad)
 		g.Apps = checkApps(g.Apps, bad)
 		g.Block, g.Allow = normList(g.Block, bad), normList(g.Allow, bad)
 		if g.DailyLimit < 0 || g.DailyLimit > 24*60 {
@@ -398,7 +412,7 @@ func (c *Config) Validate() error {
 					bad("schedule %q: day %d out of range", sc.Name, d)
 				}
 			}
-			sc.Categories = checkCats(sc.Categories, bad)
+			sc.Categories = checkCats(sc.Categories, nil, bad)
 			if !sc.BlockAll && len(sc.Categories) == 0 {
 				bad("schedule %q: block everything or pick categories", sc.Name)
 			}
@@ -681,9 +695,16 @@ func protos(p string) []string {
 	return []string{p}
 }
 
-func checkCats(ids []string, bad func(string, ...any)) []string {
+// lists are the custom list ids a profile can turn on, a removed list just drops out
+func checkCats(ids []string, lists map[string]bool, bad func(string, ...any)) []string {
 	out := []string{}
 	for _, id := range ids {
+		if l, ok := strings.CutPrefix(id, "list:"); ok && lists != nil {
+			if lists[l] && !slices.Contains(out, id) {
+				out = append(out, id)
+			}
+			continue
+		}
 		if catalog.Index(id) < 0 {
 			bad("unknown category %q", id)
 			continue
