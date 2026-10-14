@@ -80,3 +80,36 @@ func TestAppsListsTempAndPause(t *testing.T) {
 		t.Error("Paused() wrong")
 	}
 }
+
+func TestCustomListsPerProfile(t *testing.T) {
+	c := config.Default()
+	c.Settings.Timezone = "UTC"
+	c.Devices = []config.Device{{MAC: kidMAC, Group: "kids", Approved: true}, {MAC: adultMAC, Group: "default", Approved: true}}
+	c.Lists = []config.CustomList{{ID: "l1", Name: "Miners", URL: "https://example.com/a.txt", Enabled: true}}
+	c.Settings.ListsPerProfile = true // a config that already has lists per profile
+	c.Groups[1].Categories = append(c.Groups[1].Categories, "list:l1")
+	if err := c.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	b := catalog.NewBuilder()
+	b.Add("miner.example", catalog.CustomBit(0))
+	b.Add("adult.example", catalog.MaskOf([]string{"adult"}))
+	b.Add("both.example", catalog.CustomBit(0)|catalog.MaskOf([]string{"adult"}))
+	b.Add("ads.example", catalog.MaskOf([]string{"ads"}))
+	e := New()
+	e.Rebuild(c, b.Build())
+	now := time.Now()
+	if d := e.Decide(kidMAC, "miner.example", now); d.Action != Block {
+		t.Errorf("kids profile has the list on: %+v", d)
+	}
+	if d := e.Decide(adultMAC, "miner.example", now); d.Action != Allow {
+		t.Errorf("default profile has it off: %+v", d)
+	}
+	// kids: adult category plus the list, three domains once each out of four
+	if a, total := e.Coverage("kids"); a != 3 || total != 4 {
+		t.Errorf("kids coverage %d of %d", a, total)
+	}
+	if a, _ := e.Coverage("default"); a != 0 {
+		t.Errorf("default coverage %d, it only blocks malware", a)
+	}
+}

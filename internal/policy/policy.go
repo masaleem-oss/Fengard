@@ -75,6 +75,7 @@ type tempRule struct {
 type cgroup struct {
 	id, name   string
 	mask       catalog.Mask
+	lists      catalog.Mask // custom lists this profile blocks
 	apps       map[int]struct{}
 	allow      set
 	block      set
@@ -169,8 +170,10 @@ func (e *Engine) Rebuild(cfg *config.Config, ds *catalog.DomainSet) {
 		block:      newSet(cfg.Block),
 		usage:      e.usage,
 	}
+	listBit := map[string]catalog.Mask{}
 	for _, l := range cfg.Lists {
 		if l.Enabled {
+			listBit["list:"+l.ID] = catalog.CustomBit(len(c.lists))
 			c.lists = append(c.lists, listInfo{l.ID, l.Name})
 		}
 	}
@@ -185,6 +188,9 @@ func (e *Engine) Rebuild(cfg *config.Config, ds *catalog.DomainSet) {
 			allow: newSet(g.Allow), block: newSet(g.Block),
 			safe: g.SafeSearch, pausedTill: g.PausedTill,
 			person: g.Person, dailyLimit: g.DailyLimit,
+		}
+		for _, id := range g.Categories {
+			cg.lists |= listBit[id]
 		}
 		for _, l := range g.AppLimits {
 			cl := climit{target: l.Target, name: config.LimitName(l.Target), app: -1, minutes: l.Minutes}
@@ -416,7 +422,12 @@ func (c *compiled) decide(g *cgroup, name string, approved bool, devPaused time.
 			}
 		}
 	}
-	if li := (hit &^ catalog.CategoryMask).CustomIndex(); li >= 0 && li < len(c.lists) {
+	// custom lists only block for the profiles that have them on
+	lists := ^catalog.CategoryMask
+	if g != nil {
+		lists = g.lists
+	}
+	if li := (hit & lists).CustomIndex(); li >= 0 && li < len(c.lists) {
 		d.Action, d.Category = Block, "list:"+c.lists[li].id
 		d.Reason = "Blocklist: " + c.lists[li].name
 		return d
@@ -472,4 +483,18 @@ func safeSearchTarget(domain string) string {
 		return "forcesafesearch.google.com"
 	}
 	return ""
+}
+
+// Coverage is how many blocklist domains a profile blocks out of every domain Fengard has loaded,
+// each counted once. schedules and apps aren't in it
+func (e *Engine) Coverage(group string) (active, total int) {
+	c := e.cur.Load()
+	if c == nil {
+		return 0, 0
+	}
+	total = c.set.Count(^catalog.Mask(0))
+	if g := c.groups[group]; g != nil {
+		active = c.set.Count(g.mask | g.lists)
+	}
+	return active, total
 }
