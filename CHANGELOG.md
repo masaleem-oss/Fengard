@@ -6,7 +6,25 @@ are on the [releases page](https://github.com/masaleem-oss/Fengard/releases).
 
 ## Unreleased
 
-Nothing yet.
+### Added
+- **DNS servers per profile.** A profile can ask its own resolvers, like Cloudflare for Families for Kids, while
+  everyone else keeps the ones on the DNS page. Blocklists and rules still apply first
+- An alert when a resolver keeps failing over HTTP/3 and lookups to it go back to HTTP/2
+- Fengard checks free memory before loading blocklists. A custom list that won't fit isn't loaded, says how
+  much it needs, and the rest still load. Loading the HaGeZi TIF list (1.57M domains) peaks around 60 MB
+- If the router ran out of memory and killed Fengard while it loaded the lists, the custom lists stay off on the
+  next start instead of crashing it again, with an alert. Changing the lists tries them again
+- Network-wide rules show 8 at a time with Show all, and a box to find one
+
+### Changed
+- New custom lists start off in every profile and take no memory until a profile turns them on. Filtering
+  still shows how many domains they have
+
+### Fixed
+- DNS stopped answering for a while after a router VPN client like GL.iNet's OpenVPN client came up. Fengard
+  kept sending lookups over connections that went the old way. It now opens fresh ones when the network changes,
+  and an HTTP/2 connection that stops answering gets dropped in seconds instead of about 15 minutes
+- Making a profile called IoT failed because the built in Smart home profile already had that id
 
 ## 1.3.1.5 - 2026-10-14 (preview)
 
