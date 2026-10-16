@@ -133,6 +133,17 @@ func (cl *Client) Close() {
 	}
 }
 
+// Reset moves new queries onto fresh connections, for when the router's routes changed under the old
+// ones. queries in flight still finish
+func (cl *Client) Reset() {
+	cl.mu.Lock()
+	defer cl.mu.Unlock()
+	for _, c := range cl.conns {
+		c.drain()
+	}
+	clear(cl.conns)
+}
+
 // Status lists the open connections
 func (cl *Client) Status() []Status {
 	cl.mu.Lock()

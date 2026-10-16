@@ -396,6 +396,8 @@ func main() {
 		for range resyncSignals() {
 			log.Printf("firewall: re-sync requested")
 			kick()
+			// the firewall reloads when an interface comes up, like a vpn client taking the default route
+			dns.NetworkChanged()
 		}
 	}()
 	run(func() { tracker.Run(ctx, 15*time.Second) })

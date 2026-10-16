@@ -132,6 +132,8 @@ func (s *Server) Init() {
 		// a custom tls config turns http/2 off and quad9 refuses doh over http/1.1
 		ForceAttemptHTTP2: true,
 		TLSClientConfig:   &tls.Config{MinVersion: tls.VersionTLS12},
+		// a connection whose route went away otherwise hangs every lookup until tcp gives up, about 15 min
+		HTTP2: &http.HTTP2Config{SendPingTimeout: 10 * time.Second, PingTimeout: 3 * time.Second},
 	}}
 	if len(s.Allowed) == 0 {
 		s.Allowed = defaultAllowed
@@ -182,23 +184,47 @@ func (s *Server) Configure(set config.Settings) {
 	}
 	s.doh3.Store(set.DoH3)
 	s.parallel.Store(set.Parallel)
-	// the first lookup shouldn't have to wait for the handshake, asking all at once uses every one
-	if set.DoH3 && s.h3 != nil {
-		for _, u := range ups {
-			if u.Net == "https" {
-				go s.h3.Warm(u.URL)
-				if !set.Parallel {
-					break
-				}
-			}
-		}
-	}
+	s.warm()
 	if s.perClient != nil {
 		s.perClient.SetRate(float64(set.ClientRateQPS), float64(set.ClientRateQPS*3))
 	}
 }
 
 func (s *Server) FlushCache() { s.cache.flush() }
+
+// NetworkChanged drops the resolver connections after an interface came up or went down. a vpn client
+// moving the default route leaves them sending out the old way where nothing answers
+func (s *Server) NetworkChanged() {
+	if t, ok := s.doh.Transport.(*http.Transport); ok {
+		t.CloseIdleConnections()
+	}
+	if s.h3 != nil {
+		s.h3.Reset()
+	}
+	s.h3Health.Range(func(_, v any) bool {
+		h := v.(*h3Health)
+		h.mu.Lock()
+		h.waitUntil = time.Time{}
+		h.mu.Unlock()
+		return true
+	})
+	s.warm()
+}
+
+// the first lookup shouldn't have to wait for the handshake, asking all at once uses every one
+func (s *Server) warm() {
+	if !s.doh3.Load() || s.h3 == nil {
+		return
+	}
+	for _, u := range *s.upstreams.Load() {
+		if u.Net == "https" {
+			go s.h3.Warm(u.URL)
+			if !s.parallel.Load() {
+				break
+			}
+		}
+	}
+}
 
 func (s *Server) CacheLen() int { return s.cache.len() }
 
