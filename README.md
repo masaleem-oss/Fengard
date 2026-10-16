@@ -311,7 +311,7 @@ takes DNS over and the house stays online. See [how it works](docs/how-it-works.
 | Area | What it does |
 |---|---|
 | Devices | Found from DHCP and the neighbor table (IPv4 and IPv6; the ARP table on Windows and macOS), with the manufacturer from the MAC. Rename, group, pause, block, forget, Wake-on-LAN |
-| Profiles | Blocked categories, 55 individual apps (TikTok, Roblox, Discord, Fortnite and more), SafeSearch, custom rules, schedules, pause |
+| Profiles | Blocked categories, 55 individual apps (TikTok, Roblox, Discord, Fortnite and more), SafeSearch, custom rules, schedules, pause, and their own DNS servers if you want (like a family DNS for kids) |
 | Categories | Ads, malware, adult, gambling, social, gaming, streaming, AI chatbots, VPN and DNS bypass, Tor. Updated daily |
 | Screen time | Profiles marked as a person get a daily online limit and per-app or per-category limits (for example Fortnite 2 h a day), counted once across all their devices |
 | My time page | `http://fengard.lan/me` on any of the person's devices: time used and left, each limit, what it went on, and a "need more time?" request the admin can grant from the alert |
@@ -319,7 +319,7 @@ takes DNS over and the house stays online. See [how it works](docs/how-it-works.
 | Tor | Blocked by name (Tor Browser, bridges) and by address: the relay list refreshes daily into a firewall set, applied per profile |
 | Remote access VPN | Built-in WireGuard server. Add a phone, scan the QR code, and it gets the same filtering on mobile data. Detects double NAT and says what to forward |
 | Tailscale | When no port can be forwarded, the router can be a Tailscale exit node. Fengard filters `tailscale0` like the LAN and lists Tailscale devices |
-| Custom blocklists | Pick from popular lists (HaGeZi, OISD, AdGuard DNS filter, Steven Black and more) or subscribe to any hosts-file or domain list by URL, up to 16. Each profile turns them on or off |
+| Custom blocklists | Pick from popular lists (HaGeZi, OISD, AdGuard DNS filter, Steven Black and more) or subscribe to any hosts-file or domain list by URL, up to 16. New ones start off and each profile turns them on. A list no profile uses takes no memory, and one that won't fit in free memory isn't loaded |
 | Check a site | What every profile would do with a domain and why, also from the command palette |
 | Temporary allow | Allow a site for an hour, or any length, for one profile or everyone. One click from an access request |
 | Pause protection | Turn all filtering off for a few minutes when something breaks. Device pauses still apply |
