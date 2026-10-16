@@ -6,6 +6,12 @@ are on the [releases page](https://github.com/masaleem-oss/Fengard/releases).
 
 ## Unreleased
 
+Nothing yet.
+
+## 1.3.2 - 2026-10-16
+
+The full release after 1.3.1. It has everything from the 1.3.1.1 to 1.3.1.5 previews below, plus:
+
 ### Added
 - **DNS servers per profile.** A profile can ask its own resolvers, like Cloudflare for Families for Kids, while
   everyone else keeps the ones on the DNS page. Blocklists and rules still apply first
