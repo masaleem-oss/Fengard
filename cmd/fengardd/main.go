@@ -268,6 +268,15 @@ func main() {
 		screen.SetLocation(location(c.Settings.Timezone))
 		engine.Rebuild(c, cat.Set())
 		dns.Configure(c.Settings)
+		own := map[string][]config.Upstream{}
+		for _, g := range c.Groups {
+			for _, u := range g.Upstreams {
+				if p, err := config.ParseUpstream(u); err == nil {
+					own[g.ID] = append(own[g.ID], p)
+				}
+			}
+		}
+		dns.SetProfileUpstreams(own)
 		local.Rebuild(c)
 		notifier.Configure(c.Settings.BoxName, c.Channels)
 		var macs []string

@@ -143,7 +143,7 @@ func TestDoH3FallsBackToHTTP2(t *testing.T) {
 		q := new(dns.Msg)
 		q.SetQuestion("example.org.", dns.TypeA)
 		start := time.Now()
-		r, err := s.exchange(q)
+		r, err := s.exchange(q, *s.upstreams.Load())
 		if err != nil || len(r.Answer) != 1 {
 			t.Fatalf("lookup: %v %v", r, err)
 		}

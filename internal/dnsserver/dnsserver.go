@@ -45,6 +45,8 @@ type Server struct {
 	OnHTTP3Down func(url, reason string)
 
 	upstreams atomic.Pointer[[]config.Upstream]
+	// profiles with their own resolvers
+	profiles  atomic.Pointer[map[string][]config.Upstream]
 	ipv4Only  atomic.Pointer[[]netip.Prefix] // no aaaa for these since vpn tunnels only carry ipv4
 	bypass    atomic.Bool                    // answer the firefox doh and icloud relay canaries
 	dnssec    atomic.Bool
@@ -191,6 +193,9 @@ func (s *Server) Configure(set config.Settings) {
 		s.perClient.SetRate(float64(set.ClientRateQPS), float64(set.ClientRateQPS*3))
 	}
 }
+
+// SetProfileUpstreams gives profiles their own resolvers, ones not in the map use the normal ones
+func (s *Server) SetProfileUpstreams(m map[string][]config.Upstream) { s.profiles.Store(&m) }
 
 func (s *Server) FlushCache() { s.cache.flush() }
 
@@ -372,7 +377,7 @@ func (s *Server) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 			resp = new(dns.Msg)
 			resp.SetReply(r)
 		} else {
-			resp, entry.Cached = s.resolve(r, q)
+			resp, entry.Cached = s.resolveFor(r, q, dec.GroupID)
 		}
 	case policy.SafeSearch:
 		resp = s.safeSearch(r, q, dec.Target)
@@ -542,12 +547,22 @@ func (s *Server) pointAtUs(r *dns.Msg, q dns.Question, ttl uint32) *dns.Msg {
 	return m
 }
 
-func (s *Server) resolve(r *dns.Msg, q dns.Question) (*dns.Msg, bool) {
+func (s *Server) resolve(r *dns.Msg, q dns.Question) (*dns.Msg, bool) { return s.resolveFor(r, q, "") }
+
+// resolveFor asks the resolvers of the device's profile, a family dns answers differently so its
+// answers are cached on their own
+func (s *Server) resolveFor(r *dns.Msg, q dns.Question, group string) (*dns.Msg, bool) {
 	do := s.dnssec.Load()
 	if o := r.IsEdns0(); o != nil && o.Do() {
 		do = true
 	}
 	key := cacheKey(q, do)
+	ups := *s.upstreams.Load()
+	if p := s.profiles.Load(); p != nil && group != "" {
+		if own, ok := (*p)[group]; ok {
+			ups, key = own, "@"+group+"|"+key
+		}
+	}
 	now := time.Now()
 	if m := s.cache.get(key, now, false); m != nil {
 		s.Counters.CacheHits.Add(1)
@@ -565,7 +580,7 @@ func (s *Server) resolve(r *dns.Msg, q dns.Question) (*dns.Msg, bool) {
 		req := new(dns.Msg)
 		req.SetQuestion(q.Name, q.Qtype)
 		req.SetEdns0(1232, do)
-		resp, err := s.exchange(req)
+		resp, err := s.exchange(req, ups)
 		if err != nil {
 			return nil, err
 		}
@@ -601,8 +616,7 @@ func (s *Server) finish(r, m *dns.Msg) *dns.Msg {
 	return m
 }
 
-func (s *Server) exchange(req *dns.Msg) (*dns.Msg, error) {
-	ups := *s.upstreams.Load()
+func (s *Server) exchange(req *dns.Msg, ups []config.Upstream) (*dns.Msg, error) {
 	if len(ups) == 0 {
 		return nil, errors.New("no upstream DNS servers configured")
 	}

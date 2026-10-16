@@ -79,6 +79,9 @@ type Group struct {
 	Person     bool       `json:"person"`
 	DailyLimit int        `json:"dailyLimit"` // 0 means no limit
 	AppLimits  []AppLimit `json:"appLimits"`
+
+	// its own resolvers, like a family dns for kids, empty uses the ones on the dns page
+	Upstreams []string `json:"upstreams"`
 }
 
 type AppLimit struct {
@@ -236,6 +239,7 @@ func (c *Config) Clone() *Config {
 	for i, g := range c.Groups {
 		g.Categories, g.Apps = clone(g.Categories), clone(g.Apps)
 		g.Block, g.Allow = clone(g.Block), clone(g.Allow)
+		g.Upstreams = clone(g.Upstreams)
 		g.AppLimits = append([]AppLimit(nil), c.Groups[i].AppLimits...)
 		g.Schedules = make([]Schedule, len(c.Groups[i].Schedules))
 		for j, s := range c.Groups[i].Schedules {
@@ -371,6 +375,18 @@ func (c *Config) Validate() error {
 		g.Categories = checkCats(g.Categories, lists, bad)
 		g.Apps = checkApps(g.Apps, bad)
 		g.Block, g.Allow = normList(g.Block, bad), normList(g.Allow, bad)
+		if g.Upstreams == nil {
+			g.Upstreams = []string{}
+		}
+		if len(g.Upstreams) > 4 {
+			bad("profile %q: at most 4 DNS servers", g.Name)
+		}
+		for j, u := range g.Upstreams {
+			g.Upstreams[j] = strings.TrimSpace(u)
+			if _, err := ParseUpstream(g.Upstreams[j]); err != nil {
+				bad("profile %q: DNS server %q: %v", g.Name, u, err)
+			}
+		}
 		if g.DailyLimit < 0 || g.DailyLimit > 24*60 {
 			bad("profile %q: daily limit must be 0-1440 minutes", g.Name)
 		}

@@ -14,7 +14,7 @@ func ask(t *testing.T, s *Server) (*dns.Msg, time.Duration) {
 	q := new(dns.Msg)
 	q.SetQuestion("example.org.", dns.TypeA)
 	start := time.Now()
-	r, err := s.exchange(q)
+	r, err := s.exchange(q, *s.upstreams.Load())
 	if err != nil {
 		t.Fatalf("lookup failed: %v", err)
 	}
@@ -68,7 +68,7 @@ func TestParallelServfailLoses(t *testing.T) {
 	good.down.Store(true)
 	q := new(dns.Msg)
 	q.SetQuestion("other.example.", dns.TypeA)
-	r, err := s.exchange(q)
+	r, err := s.exchange(q, *s.upstreams.Load())
 	if err != nil || r.Rcode != dns.RcodeServerFailure {
 		t.Fatalf("with only the broken one answering: %v %v", r, err)
 	}
