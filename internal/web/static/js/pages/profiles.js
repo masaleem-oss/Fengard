@@ -94,7 +94,12 @@ export async function render(el, ctx) {
         <div class="setting" style="border-top:1px solid var(--border)">
           <div class="setting-text"><b>Enforce SafeSearch</b><small>Strict results on Google, Bing and DuckDuckGo, and YouTube Restricted Mode. Can't be turned off on the device.</small></div>
           ${switchInput(`id="safe" ${ro}`, g.safeSearch, 'Enforce SafeSearch')}
+        </div>
+        <div class="setting">
+          <div class="setting-text"><b>DNS servers</b><small>${g.upstreams?.length ? `Asks ${esc(g.upstreams.map(hostOf).join(', '))} instead of the servers on the DNS page.` : 'Uses the servers on the DNS page.'} A family DNS adds its own filtering on top of the blocklists.</small></div>
+          ${admin ? `<button class="btn btn-sm" id="own-dns">${g.upstreams?.length ? 'Change' : 'Use its own'}</button>` : ''}
         </div>`;
+      $('#own-dns', body)?.addEventListener('click', () => dnsModal(g, (ups, msg) => save((b) => (b.upstreams = ups), msg)));
       $$('[data-cat]', body).forEach((cb) => cb.addEventListener('change', () => {
         // keep ids with no tile here, like a list turned off in Filtering, so it comes back on later
         const shown = new Set($$('[data-cat]', body).map((x) => x.dataset.cat));
@@ -315,6 +320,36 @@ function weekView(scheds) {
     <div class="hours"><span>00:00</span><span>06:00</span><span>12:00</span><span>18:00</span><span>24:00</span></div>
   </div>
   <div class="legend" style="margin-top:10px"><span><i style="background:var(--accent)"></i>No internet</span><span><i style="background:color-mix(in srgb, var(--accent) 40%, transparent)"></i>Extra categories blocked</span></div>`;
+}
+
+// family resolvers that filter adult sites themselves
+const FAMILY_DNS = [
+  { name: 'Cloudflare for Families', servers: ['1.1.1.3:53', '1.0.0.3:53'] },
+  { name: 'CleanBrowsing Family', servers: ['185.228.168.168:53', '185.228.169.168:53'] },
+  { name: 'OpenDNS FamilyShield', servers: ['208.67.222.123:53', '208.67.220.123:53'] },
+  { name: 'AdGuard Family DoH', servers: ['https://family.adguard-dns.com/dns-query'] },
+  { name: 'Cloudflare Families DoH', servers: ['https://family.cloudflare-dns.com/dns-query'] },
+];
+
+function dnsModal(g, onSave) {
+  const m = modal({
+    title: `DNS servers for ${g.name}`,
+    subtitle: 'Devices in this profile ask these instead of the servers on the DNS page. Blocklists and rules still apply first.',
+    body: `<form id="df" class="stack" novalidate>
+      <div class="row wrap">${FAMILY_DNS.map((p, i) => `<button type="button" class="btn btn-sm" data-preset="${i}">${esc(p.name)}</button>`).join('')}</div>
+      <textarea class="textarea" name="ups" rows="3" spellcheck="false" placeholder="1.1.1.3">${esc((g.upstreams || []).join('\n'))}</textarea>
+      <p class="t-xs t-3">One per line, up to 4, tried in order. Same formats as the DNS page.</p>
+    </form>`,
+    foot: `${g.upstreams?.length ? '<button class="btn" id="df-clear" style="margin-right:auto">Use the DNS page</button>' : ''}<button class="btn" data-close>Cancel</button><button class="btn btn-primary" id="df-save">Save</button>`,
+  });
+  const f = $('#df', m.el);
+  $$('[data-preset]', f).forEach((b) => b.addEventListener('click', () => (f.ups.value = FAMILY_DNS[+b.dataset.preset].servers.join('\n'))));
+  $('#df-clear', m.el)?.addEventListener('click', () => { m.close(); onSave([], `${g.name} uses the DNS page again`); });
+  $('#df-save', m.el).addEventListener('click', () => {
+    const ups = f.ups.value.split('\n').map((s) => s.trim()).filter(Boolean);
+    m.close();
+    onSave(ups, ups.length ? `${g.name} has its own DNS servers` : `${g.name} uses the DNS page again`);
+  });
 }
 
 function scheduleModal(s, onSave) {
