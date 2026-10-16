@@ -41,6 +41,8 @@ type Server struct {
 	Welcome       func(mac, hostname string) bool        // true sends this phones captive check to us
 	TrustLoopback bool                                   // on the router loopback is the router itself
 	Note          func(mac, domain string, at time.Time) // what each device looks up, for recognizing it later
+	// a resolver kept failing over http/3 and lookups to it are on http/2 now
+	OnHTTP3Down func(url, reason string)
 
 	upstreams atomic.Pointer[[]config.Upstream]
 	ipv4Only  atomic.Pointer[[]netip.Prefix] // no aaaa for these since vpn tunnels only carry ipv4
@@ -731,6 +733,7 @@ const (
 	h3Try        = 2 * time.Second
 	h3MinBackoff = 30 * time.Second
 	h3MaxBackoff = 30 * time.Minute
+	h3DownAfter  = 3
 )
 
 func (s *Server) health(url string) *h3Health {
@@ -779,6 +782,10 @@ func (s *Server) exchangeDoH3(body []byte, url string) (*dns.Msg, error) {
 		// one slow answer from a server that works is the resolver, not http/3
 		if !h.worked || h.fails >= 2 {
 			h.waitUntil = time.Now().Add(min(h3MinBackoff<<min(h.fails-1, 10), h3MaxBackoff))
+		}
+		// three in a row is a couple of minutes on http/2, worth telling people who picked http/3
+		if h.fails == h3DownAfter && s.OnHTTP3Down != nil {
+			go s.OnHTTP3Down(url, strings.TrimPrefix(h.lastErr, "h3: "))
 		}
 		return nil, err
 	}

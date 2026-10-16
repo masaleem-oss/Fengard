@@ -203,3 +203,36 @@ func TestTransportsEmptyNotNull(t *testing.T) {
 		t.Errorf("got %s", b)
 	}
 }
+
+// people who turned http/3 on hear about it when a resolver ends up on http/2, once
+func TestHTTP3DownReportedOnce(t *testing.T) {
+	s := &Server{}
+	s.Init()
+	pc, _ := net.ListenPacket("udp", "127.0.0.1:0")
+	defer pc.Close()
+	url := "https://" + pc.LocalAddr().String() + "/dns-query"
+	s.Configure(config.Settings{Upstreams: []string{url}, DoH3: true})
+	got := make(chan string, 10)
+	s.OnHTTP3Down = func(u, reason string) { got <- u }
+	body, _ := new(dns.Msg).SetQuestion("example.org.", dns.TypeA).Pack()
+	for range h3DownAfter + 1 {
+		s.exchangeDoH3(body, url)
+		h := s.health(url)
+		h.mu.Lock()
+		h.waitUntil = time.Time{}
+		h.mu.Unlock()
+	}
+	select {
+	case u := <-got:
+		if u != url {
+			t.Fatalf("reported %q", u)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("not reported")
+	}
+	select {
+	case <-got:
+		t.Fatal("reported twice")
+	case <-time.After(100 * time.Millisecond):
+	}
+}

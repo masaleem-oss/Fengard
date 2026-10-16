@@ -14,6 +14,7 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
+	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -229,6 +230,11 @@ func main() {
 		BlockIP: ip, BlockIPv6: ip6, LocalNames: split(*hosts), Screen: screen,
 		Welcome: gate.Want, TrustLoopback: *fwOn,
 		Note: habits.Note,
+		OnHTTP3Down: func(url, reason string) {
+			alrt.Raise("h3down:"+url, 6*time.Hour, alerts.Alert{Kind: "http3_fallback", Severity: alerts.Warning,
+				Title:  hostOf(url) + " is using HTTP/2, not HTTP/3",
+				Detail: "HTTP/3 kept failing (" + reason + "), so lookups to it went back to HTTP/2. Fengard keeps trying HTTP/3 and the DNS page shows when it's back. Something on the way may be blocking UDP port 443."})
+		},
 	}
 	dns.Init()
 
@@ -948,4 +954,12 @@ func featuresURL(flagURL, updateURL, version string) string {
 		return ""
 	}
 	return "https://github.com/" + repo + "/releases/download/v" + version + "/"
+}
+
+// dns.quad9.net out of https://dns.quad9.net/dns-query
+func hostOf(rawURL string) string {
+	if u, err := url.Parse(rawURL); err == nil && u.Hostname() != "" {
+		return u.Hostname()
+	}
+	return rawURL
 }
