@@ -81,13 +81,13 @@ export async function render(el, ctx) {
       const tile = (c) => {
         const on = g.categories.includes(c.id), custom = c.id.startsWith('list:');
         return `<label class="cat-card ${on ? 'on' : ''}${custom ? ' custom' : ''}">${icon(custom ? 'list-filter' : CATEGORY_ICONS[c.id] || 'shield')}
-          <span class="cat-text"><b>${esc(c.name)}${custom ? ' <span class="tag">Custom</span>' : ''}</b><small class="${custom ? 'truncate' : ''}">${esc(custom ? hostOf(c.desc) : c.desc)}</small><small class="num" style="margin-top:3px">${c.error && !c.domains ? 'Not downloaded yet' : `${compact(c.domains)} domains`}</small></span>
+          <span class="cat-text"><b>${esc(c.name)}${custom ? ' <span class="tag">Custom</span>' : ''}</b><small class="${custom ? 'truncate' : ''}">${esc(custom ? hostOf(c.desc) : c.desc)}</small><small class="num" style="margin-top:3px"${c.held ? ` title="${esc(c.held)}"` : ''}>${c.error && !c.domains ? 'Not downloaded yet' : `${compact(c.domains)} domains${c.held ? ' · not loaded' : ''}`}</small></span>
           ${switchInput(`data-cat="${c.id}" ${ro}`, on, `Block ${c.name}`)}</label>`;
       };
       const custom = state.categories.filter((c) => c.id.startsWith('list:'));
       body.innerHTML = `<div class="panel-body">
         ${g.blocklistTotal ? `<p class="t-sm t-2 coverage"><span><b>${compact(g.blocking)}</b> of ${compact(g.blocklistTotal)} blocklist domains blocked for this profile.</span>
-          <span class="t-3">Each domain counts once even when it's in several lists. Every list loaded uses memory, whichever profiles use it.</span></p>` : ''}
+          <span class="t-3">Each domain counts once even when it's in several lists. A list uses memory once any profile turns it on, lists no profile uses aren't loaded.</span></p>` : ''}
         <div class="cat-grid">${state.categories.filter((c) => !c.id.startsWith('list:')).map(tile).join('')}</div>
         ${custom.length ? `<div class="section-title" style="margin-top:16px">Your lists <a href="#filtering" class="t-xs" style="font-weight:400;margin-left:6px">Manage in Filtering</a></div>
           <div class="cat-grid">${custom.map(tile).join('')}</div>` : ''}</div>

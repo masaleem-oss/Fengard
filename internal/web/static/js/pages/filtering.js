@@ -37,6 +37,9 @@ export async function render(el, ctx) {
   const admin = isAdmin();
   let rules = { block: [], allow: [], temp: [] }, lists = [], devices = [], groups = [];
   let kind = ctx.params.get('add') === 'allow' ? 'allow' : 'block';
+  // the rules list only shows a few until asked, it gets long
+  const FEW = 8;
+  let showAll = false, find = '';
 
   el.innerHTML = `
     <div class="panel">
@@ -58,6 +61,8 @@ export async function render(el, ctx) {
         <button class="btn btn-primary btn-sm" type="submit">Add rule</button>
       </form>` : ''}
       <div id="rules"></div>
+      <div class="panel-foot" id="rules-foot" hidden><button class="btn btn-sm" id="rules-more"></button>
+        <div class="input-wrap" style="width:220px;margin-left:auto">${icon('search')}<input class="input input-sm" id="rules-find" placeholder="Find a rule" spellcheck="false" autocomplete="off" aria-label="Find a rule"></div></div>
     </div>
     <div class="panel">
       <div class="panel-head"><h3>Category blocklists</h3><span class="sub">Updated every 24 hours<span id="total"></span></span>
@@ -65,7 +70,7 @@ export async function render(el, ctx) {
       <div class="table-wrap" id="cats"></div>
     </div>
     <div class="panel">
-      <div class="panel-head"><h3>Custom blocklists</h3><span class="sub">Any hosts-file or domain list by URL. Each profile turns it on or off in Profiles</span>
+      <div class="panel-head"><h3>Custom blocklists</h3><span class="sub">Any hosts-file or domain list by URL. New lists start off, each profile turns them on in Profiles</span>
         ${admin ? `<div class="actions"><button class="btn btn-sm btn-primary" id="popular">${icon('list-plus', 'icon-sm')}Popular lists</button></div>` : ''}</div>
       ${admin ? `<form class="toolbar" id="add-list" novalidate>
         <input class="input input-sm" name="name" placeholder="Name" style="width:180px" aria-label="List name">
@@ -83,8 +88,17 @@ export async function render(el, ctx) {
       ...rules.allow.map((d) => ({ d, k: 'allow' })),
       ...(rules.temp || []).map((t) => ({ d: t.domain, k: 'temp', t })),
     ].sort((a, b) => a.d.localeCompare(b.d));
+    const hits = find ? all.filter((r) => r.d.includes(find)) : all;
+    const shown = showAll || find ? hits : hits.slice(0, FEW);
+    $('#rules-foot', el).hidden = all.length <= FEW;
+    $('#rules-more', el).hidden = !!find;
+    $('#rules-more', el).textContent = showAll ? 'Show fewer' : `Show all ${fmt(all.length)}`;
+    if (find && !hits.length) {
+      $('#rules', el).innerHTML = `<p class="t-3 t-sm" style="padding:16px 14px">No rule matches “${esc(find)}”.</p>`;
+      return;
+    }
     $('#rules', el).innerHTML = all.length ? `<table class="table dense"><thead><tr><th>Domain</th><th>Rule</th><th>Applies to</th><th class="col-actions" aria-label="Actions"></th></tr></thead>
-      <tbody>${all.map((r) => `<tr><td class="mono">${esc(r.d)}</td>
+      <tbody>${shown.map((r) => `<tr><td class="mono">${esc(r.d)}</td>
         <td>${r.k === 'block' ? `<span class="badge b-accent">Block</span>` : r.k === 'allow' ? `<span class="badge b-success">Allow</span>` : `<span class="badge b-warning">Allow until ${until(r.t.until)}</span>`}</td>
         <td class="t-2">${r.k === 'temp' ? esc(groupName(r.t.group)) : 'Everyone'}${r.t?.by ? ` <span class="t-3">· ${esc(r.t.by)}</span>` : ''}</td>
         <td class="col-actions">${admin ? `<button class="btn btn-ghost btn-sm btn-danger row-actions" data-rm="${r.k}" data-d="${esc(r.d)}" data-g="${esc(r.t?.group || '')}">${icon('x', 'icon-sm')}${r.k === 'temp' ? 'End now' : 'Remove'}</button>` : ''}</td></tr>`).join('')}</tbody></table>`
@@ -106,7 +120,7 @@ export async function render(el, ctx) {
       <tbody>${lists.map((l) => `<tr data-id="${l.id}">
         <td><div class="cell-title">${esc(l.name)}</div><div class="cell-sub mono truncate" style="max-width:420px" title="${esc(l.url)}">${esc(l.url)}</div></td>
         <td class="num" style="text-align:right">${fmt(l.domains)}</td>
-        <td class="t-2">${l.error ? `<span class="t-danger" title="${esc(l.error)}">Failed</span>` : isSet(l.updated) ? ago(l.updated) : 'Downloading…'}</td>
+        <td class="t-2">${l.error ? `<span class="t-danger" title="${esc(l.error)}">Failed</span>` : l.held ? `<span class="t-warning" title="${esc(l.held)}">Not loaded</span>` : isSet(l.updated) ? ago(l.updated) : 'Downloading…'}${l.enabled && l.idle && !l.error ? '<div class="cell-sub">No profile uses it</div>' : ''}</td>
         <td>${switchInput(`data-toggle ${admin ? '' : 'disabled'}`, l.enabled, `Enable ${l.name}`)}</td>
         <td class="col-actions">${admin ? `<button class="btn btn-ghost btn-sm" data-refresh>${icon('refresh-cw', 'icon-sm')}</button><button class="btn btn-ghost btn-sm btn-danger" data-del>${icon('trash-2', 'icon-sm')}</button>` : ''}</td></tr>`).join('')}</tbody></table>`
       : `<p class="t-3 t-sm" style="padding:16px 14px">No custom lists yet. Pick one from Popular lists or paste any URL. Up to 16.</p>`;
@@ -175,6 +189,8 @@ export async function render(el, ctx) {
     });
     if (ctx.params.get('add')) setTimeout(() => $('#domain', el).focus(), 50);
   }
+  $('#rules-more', el).addEventListener('click', () => { showAll = !showAll; drawRules(); });
+  $('#rules-find', el).addEventListener('input', (e) => { find = e.target.value.trim().toLowerCase(); drawRules(); });
   $('#rules', el).addEventListener('click', async (e) => {
     const b = e.target.closest('[data-rm]');
     if (!b) return;
@@ -202,7 +218,7 @@ export async function render(el, ctx) {
     e.preventDefault();
     const f = e.target;
     await busy(f.querySelector('[type=submit]'), async () => {
-      if (await attempt(() => post('/api/lists', { name: f.name.value.trim(), url: f.url.value.trim(), enabled: true }), 'Subscribed. Downloading the list…')) {
+      if (await attempt(() => post('/api/lists', { name: f.name.value.trim(), url: f.url.value.trim(), enabled: true }), 'Subscribed. Turn it on in Profiles for the devices that should use it')) {
         f.reset();
         await load();
         setTimeout(() => { if (ctx.alive()) load(); }, 6000);
@@ -223,7 +239,7 @@ export async function render(el, ctx) {
       if (!b) return;
       const p = POPULAR.flatMap((g) => g.items).find((x) => x.url === b.dataset.pick);
       await busy(b, async () => {
-        if (await attempt(() => post('/api/lists', { name: p.name, url: p.url, enabled: true }), `${p.name} added. Downloading the list…`)) {
+        if (await attempt(() => post('/api/lists', { name: p.name, url: p.url, enabled: true }), `${p.name} added. Turn it on in Profiles for the devices that should use it`)) {
           await load();
           $('#pop', m.el).innerHTML = rows();
           setTimeout(() => { if (ctx.alive()) load(); }, 6000);
