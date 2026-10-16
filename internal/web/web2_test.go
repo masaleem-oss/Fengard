@@ -176,3 +176,17 @@ func TestCheckSiteAndTempAllow(t *testing.T) {
 	}
 	_ = time.Now
 }
+
+// smart home already has the id iot so a profile called IoT used to fail
+func TestNewProfileIDClash(t *testing.T) {
+	srv := newTestServer(t)
+	c := newClient(t, srv)
+	c.do("POST", "/api/setup", `{"username":"admin","password":"correct horse battery"}`, true)
+	code, body := c.do("POST", "/api/groups", `{"name":"IoT","categories":["malware"],"apps":[],"block":[],"allow":[],"schedules":[]}`, true)
+	if code != 200 || body["id"] != "iot-2" {
+		t.Fatalf("create IoT = %d %v", code, body)
+	}
+	if code, body := c.do("POST", "/api/groups", `{"name":"iot ","categories":[],"apps":[],"block":[],"allow":[],"schedules":[]}`, true); code == 200 {
+		t.Fatalf("same name twice = %d %v", code, body)
+	}
+}

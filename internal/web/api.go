@@ -442,10 +442,20 @@ func (s *Server) saveGroup(w http.ResponseWriter, r *http.Request) {
 		verb = "Created"
 	}
 	if s.update(w, r, fmt.Sprintf("%s group %q", verb, g.Name), func(c *config.Config) error {
+		if creating {
+			for _, o := range c.Groups {
+				if strings.EqualFold(strings.TrimSpace(o.Name), strings.TrimSpace(g.Name)) {
+					return fmt.Errorf("there's already a profile called %q", o.Name)
+				}
+			}
+			// smart home is iot so a new IoT profile gets iot-2
+			base := g.ID
+			for n := 2; c.Group(g.ID) != nil; n++ {
+				g.ID = fmt.Sprintf("%s-%d", base, n)
+			}
+		}
 		existing := c.Group(g.ID)
 		switch {
-		case creating && existing != nil:
-			return fmt.Errorf("a group with id %q already exists", g.ID)
 		case !creating && existing == nil:
 			return errors.New("unknown group")
 		case creating:
