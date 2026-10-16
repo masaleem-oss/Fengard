@@ -17,6 +17,9 @@ are on the [releases page](https://github.com/masaleem-oss/Fengard/releases).
 - Network-wide rules show 8 at a time with Show all, and a box to find one
 
 ### Changed
+- The program is about 13% smaller: 11.7 MB instead of 13.4 MB on ARM64, 13.7 MB instead of 15.6 MB on MIPS.
+  The block page, captive portal and screen time page no longer use Go's html/template, which kept a lot of
+  unused code in the program
 - New custom lists start off in every profile and take no memory until a profile turns them on. Filtering
   still shows how many domains they have
 
