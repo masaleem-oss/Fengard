@@ -96,10 +96,15 @@ type Status struct {
 	Domains int       `json:"domains"`
 	Updated time.Time `json:"updated"`
 	Error   string    `json:"error,omitempty"`
+	Idle    bool      `json:"idle,omitempty"` // no profile uses it so it is counted but not loaded
+	Held    string    `json:"held,omitempty"` // why it isn't loaded when a profile wants it
 }
 
-// position in the slice is the mask bit
-type CustomSource struct{ ID, Name, URL string }
+// position in the slice is the mask bit. idle ones are kept so the bits stay put
+type CustomSource struct {
+	ID, Name, URL string
+	Idle          bool
+}
 
 type Catalog struct {
 	dir    string
@@ -116,6 +121,10 @@ type Catalog struct {
 	status []Status
 	update sync.Mutex
 	loadMu sync.Mutex
+
+	crashCheck sync.Once
+	crashed    bool
+	stopped    atomic.Bool
 }
 
 func New(dir string, initial ...CustomSource) *Catalog {
@@ -173,6 +182,7 @@ func (c *Catalog) SetCustom(src []CustomSource) {
 	}
 	cp := append([]CustomSource{}, src...)
 	c.custom.Store(&cp)
+	c.release()
 	if err := c.load(); err != nil {
 		log.Printf("loading custom blocklists: %v", err)
 	}
@@ -204,7 +214,29 @@ func (c *Catalog) load() error {
 	if err := os.MkdirAll(c.dir, 0o755); err != nil {
 		return err
 	}
+	c.crashCheck.Do(c.checkCrash)
 	custom := *c.custom.Load()
+	held := c.held()
+	skip := make([]string, len(custom))
+	var loading []string
+	for i, cs := range custom {
+		switch {
+		case cs.Idle:
+			skip[i] = "idle"
+		case held[cs.ID]:
+			skip[i] = "Paused: Fengard ran out of memory loading the lists last time. Turn off a big list or change one to load it again"
+		}
+	}
+	c.fit(custom, skip)
+	for i, cs := range custom {
+		if skip[i] == "" {
+			loading = append(loading, cs.ID)
+		}
+	}
+	marker := filepath.Join(c.dir, loadingFile)
+	if len(loading) > 0 && !c.stopped.Load() {
+		os.WriteFile(marker, []byte(strings.Join(loading, "\n")), 0o644)
+	}
 	b := NewBuilder()
 	counts := make([]int, len(Categories)+len(custom))
 	mtimes := make([]time.Time, len(Categories)+len(custom))
@@ -241,10 +273,16 @@ func (c *Catalog) load() error {
 		if fi, err := f.Stat(); err == nil {
 			mtimes[k] = fi.ModTime()
 		}
-		parseLines(f, add)
+		if skip[i] != "" {
+			// still counted so people can see the size before turning it on
+			parseLines(f, func([]byte) { counts[k]++ })
+		} else {
+			parseLines(f, add)
+		}
 		f.Close()
 	}
 	c.set.Store(b.Build())
+	os.Remove(marker)
 
 	if f, err := os.Open(filepath.Join(c.dir, cacheName(DoHIPsSource))); err == nil {
 		var ips []string
@@ -283,6 +321,11 @@ func (c *Catalog) load() error {
 		st := Status{ID: "list:" + cs.ID, Name: cs.Name, Desc: cs.URL, Domains: counts[k], Updated: mtimes[k]}
 		if k < len(c.status) && c.status[k].ID == st.ID {
 			st.Error = c.status[k].Error
+		}
+		if skip[i] == "idle" {
+			st.Idle = true
+		} else if skip[i] != "" {
+			st.Held = skip[i]
 		}
 		status = append(status, st)
 	}

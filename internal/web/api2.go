@@ -284,12 +284,14 @@ func (s *Server) listLists(w http.ResponseWriter, r *http.Request) {
 		Domains int       `json:"domains"`
 		Updated time.Time `json:"updated"`
 		Error   string    `json:"error,omitempty"`
+		Idle    bool      `json:"idle,omitempty"`
+		Held    string    `json:"held,omitempty"`
 	}
 	out := []view{}
 	for _, l := range cfg.Lists {
 		v := view{CustomList: l}
 		if st, ok := status["list:"+l.ID]; ok {
-			v.Domains, v.Updated, v.Error = st.Domains, st.Updated, st.Error
+			v.Domains, v.Updated, v.Error, v.Idle, v.Held = st.Domains, st.Updated, st.Error, st.Idle, st.Held
 		}
 		out = append(out, v)
 	}
@@ -317,11 +319,8 @@ func (s *Server) saveList(w http.ResponseWriter, r *http.Request) {
 		if id != "" {
 			return errors.New("unknown list")
 		}
+		// a new list starts off in every profile and takes no memory until one turns it on
 		c.Lists = append(c.Lists, l)
-		// a new list starts on in every profile, each one can turn it off
-		for i := range c.Groups {
-			c.Groups[i].Categories = append(c.Groups[i].Categories, "list:"+l.ID)
-		}
 		return nil
 	}) {
 		return

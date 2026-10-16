@@ -199,6 +199,12 @@ func main() {
 		kick()
 		// give the list loading garbage back to the os now
 		go debug.FreeOSMemory()
+		for _, st := range cat.Status() {
+			if st.Held != "" {
+				alrt.Raise("listheld:"+st.ID, 24*time.Hour, alerts.Alert{Kind: "list_held", Severity: alerts.Warning,
+					Title: "Blocklist " + st.Name + " isn't loaded", Detail: st.Held + "."})
+			}
+		}
 	}
 	// lists take like 30s to load on a router so dns and dashboard start first
 	listsReady := make(chan struct{})
@@ -574,6 +580,7 @@ func main() {
 
 	<-ctx.Done()
 	log.Printf("shutting down")
+	cat.Stop()
 	// procd kills us 5s after asking so the important stuff goes first
 	shutdown, cancel := context.WithTimeout(context.Background(), 4*time.Second)
 	defer cancel()
@@ -885,9 +892,16 @@ func lanIPv4() string {
 
 func customSources(c *config.Config) []catalog.CustomSource {
 	var sources []catalog.CustomSource
+	used := map[string]bool{}
+	for _, g := range c.Groups {
+		for _, id := range g.Categories {
+			used[id] = true
+		}
+	}
 	for _, list := range c.Lists {
 		if list.Enabled {
-			sources = append(sources, catalog.CustomSource{ID: list.ID, Name: list.Name, URL: list.URL})
+			// a list no profile uses only gets counted so adding a huge one cant run the router out of memory
+			sources = append(sources, catalog.CustomSource{ID: list.ID, Name: list.Name, URL: list.URL, Idle: !used["list:"+list.ID]})
 		}
 	}
 	return sources
