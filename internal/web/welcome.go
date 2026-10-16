@@ -1,7 +1,6 @@
 package web
 
 import (
-	"html/template"
 	"net/http"
 	"strings"
 	"time"
@@ -28,11 +27,11 @@ type welcomeData struct {
 	Blocks  []string
 	Joined  bool
 	// the admins own page, scripts are stopped by the content security policy
-	Custom template.HTML
+	Custom rawHTML
 }
 
 func (s *Server) welcomeData(c *config.Config) welcomeData {
-	d := welcomeData{Network: c.Settings.BoxName, Custom: template.HTML(c.Settings.PortalHTML)}
+	d := welcomeData{Network: c.Settings.BoxName, Custom: rawHTML(c.Settings.PortalHTML)}
 	if d.Network == "" {
 		d.Network = "Fengard"
 	}

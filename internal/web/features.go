@@ -1,7 +1,6 @@
 package web
 
 import (
-	"html/template"
 	"mime"
 	"net/http"
 	"os"
@@ -94,11 +93,11 @@ func (s *Server) featureFile(w http.ResponseWriter, r *http.Request) {
 var (
 	welcomeMu   sync.Mutex
 	welcomeSum  string
-	welcomeTmpl *template.Template
+	welcomeTmpl *page
 )
 
 // the captive portal page comes with its add-on, parsed again only when a new one is installed
-func (s *Server) welcomePage() *template.Template {
+func (s *Server) welcomePage() *page {
 	p := features.Find("welcome")
 	if s.Features == nil || p == nil || !s.Features.Ready("welcome") {
 		return nil
@@ -112,7 +111,7 @@ func (s *Server) welcomePage() *template.Template {
 	if err != nil {
 		return nil
 	}
-	t, err := template.New("welcome").Parse(string(b))
+	t, err := parsePage(string(b))
 	if err != nil {
 		return nil
 	}

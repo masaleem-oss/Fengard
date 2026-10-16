@@ -7,7 +7,6 @@ import (
 	"embed"
 	"encoding/json"
 	"errors"
-	"html/template"
 	"io/fs"
 	"net"
 	"net/http"
@@ -52,9 +51,9 @@ var blockPageHTML string
 //go:embed portal.html
 var portalHTML string
 
-var portalTmpl = template.Must(template.New("portal").Parse(portalHTML))
+var portalTmpl = mustPage(portalHTML)
 
-var blockTmpl = template.Must(template.New("block").Parse(blockPageHTML))
+var blockTmpl = mustPage(blockPageHTML)
 
 type Server struct {
 	Context      context.Context
@@ -515,7 +514,7 @@ func (s *Server) renderBlock(w http.ResponseWriter, set config.Settings, data ma
 func customBlock(page string, data map[string]any) string {
 	val := func(k string) string {
 		v, _ := data[k].(string)
-		return template.HTMLEscapeString(v)
+		return pageEscaper.Replace(v)
 	}
 	out := strings.NewReplacer(
 		"{site}", val("Domain"), "{reason}", val("Reason"), "{device}", val("Device"),
@@ -604,7 +603,9 @@ func publicCARequest(r *http.Request) bool {
 	return false
 }
 
-var bootstrapTmpl = template.Must(template.New("bootstrap").Parse(`<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Fengard secure dashboard</title><body><main><h1>Open the secure dashboard</h1><p>Administration requires HTTPS. Do not enter passwords or API keys over HTTP.</p>{{if .URL}}<p>Before installing the certificate, compare its SHA-256 fingerprint with the value shown by <code>logread -e 'CA SHA-256'</code> on your router over SSH or its trusted console. This HTTP page and downloads do not prove the certificate's identity.</p><p>Installing this root certificate trusts its private key for any website. Keep the key and router secure.</p><p><a href="/fengard-ca.crt">Download the public CA certificate</a> · <a href="/fengard-ca.der">Android certificate</a> · <a href="/fengard.mobileconfig">Apple profile</a></p><p>Install the verified certificate, then <a href="{{.URL}}">continue to the HTTPS dashboard</a>.</p>{{else}}<p>The HTTPS listener is disabled. Enable it on the router, or use a trusted SSH tunnel to the loopback dashboard for recovery.</p>{{end}}</main></body></html>`))
+const bootstrapHTML = `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Fengard secure dashboard</title><body><main><h1>Open the secure dashboard</h1><p>Administration requires HTTPS. Do not enter passwords or API keys over HTTP.</p>{{if .URL}}<p>Before installing the certificate, compare its SHA-256 fingerprint with the value shown by <code>logread -e 'CA SHA-256'</code> on your router over SSH or its trusted console. This HTTP page and downloads do not prove the certificate's identity.</p><p>Installing this root certificate trusts its private key for any website. Keep the key and router secure.</p><p><a href="/fengard-ca.crt">Download the public CA certificate</a> · <a href="/fengard-ca.der">Android certificate</a> · <a href="/fengard.mobileconfig">Apple profile</a></p><p>Install the verified certificate, then <a href="{{.URL}}">continue to the HTTPS dashboard</a>.</p>{{else}}<p>The HTTPS listener is disabled. Enable it on the router, or use a trusted SSH tunnel to the loopback dashboard for recovery.</p>{{end}}</main></body></html>`
+
+var bootstrapTmpl = mustPage(bootstrapHTML)
 
 func (s *Server) httpsBootstrap(w http.ResponseWriter, r *http.Request) {
 	dashboardURL := ""
