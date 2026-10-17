@@ -29,9 +29,10 @@ func status(c *Catalog, id string) Status {
 }
 
 func withFree(t *testing.T, n int64) {
-	old := memAvailable
+	old, spare := memAvailable, heapSpare
 	memAvailable = func() int64 { return n }
-	t.Cleanup(func() { memAvailable = old })
+	heapSpare = func() int64 { return 0 }
+	t.Cleanup(func() { memAvailable, heapSpare = old, spare })
 }
 
 // a list no profile uses gets counted so people see its size, but takes no memory
@@ -57,7 +58,7 @@ func TestListThatDoesntFitIsLeftOut(t *testing.T) {
 	writeList(t, dir, "https://x/small", 100)
 	writeList(t, dir, "https://x/huge", 20000)
 	small := fileSize(filepath.Join(dir, cacheName("https://x/small")))
-	withFree(t, memMargin+small*loadFactor*2)
+	withFree(t, memMargin+small*loadFactor10/10*2)
 	c := New(dir, CustomSource{ID: "small", URL: "https://x/small"}, CustomSource{ID: "huge", URL: "https://x/huge"})
 	c.Load()
 	if c.Set().Match("d1.small.example") != CustomBit(0) {

@@ -6,16 +6,30 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime/metrics"
 	"slices"
 	"strconv"
 	"strings"
 )
 
-// loading a list peaks at about 2.4 times its file size on the heap, the rest is gc headroom
-const loadFactor = 3
+// loading a list peaked at 2.3 to 2.4 times its file size on the heap, measured on hagezi lists from
+// 2 to 27 mb. in tenths so it stays an integer
+const loadFactor10 = 25
 
 // keep this much free for everything else on the router
-const memMargin = 24 << 20
+const memMargin = 16 << 20
+
+func loadCost(path string) int64 { return fileSize(path) * loadFactor10 / 10 }
+
+// heap go already has but isn't using, a load uses that before asking the kernel for more
+var heapSpare = func() int64 {
+	s := []metrics.Sample{{Name: "/memory/classes/heap/free:bytes"}}
+	metrics.Read(s)
+	if s[0].Value.Kind() != metrics.KindUint64 {
+		return 0
+	}
+	return int64(s[0].Value.Uint64())
+}
 
 // bytes the kernel could hand out right now, 0 when we can't tell (not linux)
 var memAvailable = func() int64 {
@@ -51,10 +65,11 @@ func (c *Catalog) fit(custom []CustomSource, skip []string) {
 	if free <= 0 {
 		return
 	}
+	free += heapSpare()
 	var need int64
 	for _, cat := range Categories {
 		for _, src := range cat.Sources {
-			need += fileSize(filepath.Join(c.dir, cacheName(src))) * loadFactor
+			need += loadCost(filepath.Join(c.dir, cacheName(src)))
 		}
 	}
 	size := make([]int64, len(custom))
@@ -63,7 +78,7 @@ func (c *Catalog) fit(custom []CustomSource, skip []string) {
 		if skip[i] != "" {
 			continue
 		}
-		size[i] = fileSize(filepath.Join(c.dir, cacheName(cs.URL))) * loadFactor
+		size[i] = loadCost(filepath.Join(c.dir, cacheName(cs.URL)))
 		need += size[i]
 		order = append(order, i)
 	}
@@ -72,7 +87,8 @@ func (c *Catalog) fit(custom []CustomSource, skip []string) {
 		if need <= free-memMargin {
 			return
 		}
-		skip[i] = fmt.Sprintf("Not loaded: it needs about %d MB and the router has %d MB free", mb(size[i]), mb(free))
+		// the whole rebuild counts, the built in lists and the other custom ones too
+		skip[i] = fmt.Sprintf("Not loaded: loading it with your other lists needs about %d MB and the router has %d MB free", mb(need+memMargin), mb(free))
 		need -= size[i]
 	}
 }
