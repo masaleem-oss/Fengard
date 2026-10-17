@@ -6,7 +6,20 @@ are on the [releases page](https://github.com/masaleem-oss/Fengard/releases).
 
 ## Unreleased
 
-Nothing yet.
+### Changed
+- The memory check before loading blocklists was too careful. It now uses what loading actually took when
+  measured (about 2.5 times the list's file size instead of 3, with 16 MB kept free instead of 24) and counts
+  memory Fengard already holds but isn't using. The message gives the total for all your lists, not just one
+- A list a profile has on that couldn't load now shows a warning at the top of the profile, and Filtering says
+  why next to it instead of only in a tooltip
+
+### Fixed
+- On GL.iNet routers, turning off GL.iNet's AdGuard Home during install only stopped it. GL.iNet's own switch
+  for it stayed on, which can leave DNS pointing at AdGuard Home after a reboot or when a VPN client comes up.
+  The installer now turns the switch off too and removing Fengard turns it back on. Routers installed before
+  get the switch turned off once when Fengard starts
+- An HTTP/3 alert could show an IPv6 error on a network without IPv6. Addresses the router can't send to are
+  now skipped straight away, so the alert shows why HTTP/3 over IPv4 failed
 
 ## 1.3.2 - 2026-10-16
 
