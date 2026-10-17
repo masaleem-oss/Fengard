@@ -403,8 +403,17 @@ func (c *Conn) dial() error {
 	if len(addrs) == 0 {
 		return errors.New("h3: no address for " + c.host)
 	}
-	a := addrs[c.addrPick%len(addrs)]
-	udp, err := net.DialUDP("udp", nil, net.UDPAddrFromAddrPort(netip.AddrPortFrom(a, c.port)))
+	// an address the router can't even send to, like ipv6 with no ipv6 route, gets skipped on the
+	// spot so its error doesn't hide why the one before it failed
+	var a netip.Addr
+	var udp *net.UDPConn
+	var err error
+	for i := range addrs {
+		a = addrs[(c.addrPick+i)%len(addrs)]
+		if udp, err = net.DialUDP("udp", nil, net.UDPAddrFromAddrPort(netip.AddrPortFrom(a, c.port))); err == nil {
+			break
+		}
+	}
 	if err != nil {
 		return err
 	}
