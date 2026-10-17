@@ -409,6 +409,9 @@ func main() {
 			DNSPerSecond: c.Settings.ClientRateQPS * 2,
 		}, nil
 	}
+	if *fwOn {
+		glinetAdGuardOff()
+	}
 	if *harden {
 		firewall.Harden()
 	}
