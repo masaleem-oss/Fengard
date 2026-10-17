@@ -6,6 +6,10 @@ are on the [releases page](https://github.com/masaleem-oss/Fengard/releases).
 
 ## Unreleased
 
+Nothing yet.
+
+## 1.3.2.1 - 2026-10-17 (preview)
+
 ### Changed
 - The memory check before loading blocklists was too careful. It now uses what loading actually took when
   measured (about 2.5 times the list's file size instead of 3, with 16 MB kept free instead of 24) and counts
