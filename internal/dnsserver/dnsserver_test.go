@@ -94,23 +94,44 @@ func startServer(t *testing.T, up *fakeUpstream, mod func(*config.Config), befor
 		prepare(s)
 	}
 
-	pc, err := net.ListenPacket("udp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	addr := pc.LocalAddr().String()
-	pc.Close()
-	ctx, cancel := context.WithCancel(context.Background())
-	t.Cleanup(cancel)
-	go s.ListenAndServe(ctx, addr)
-	for i := 0; i < 50; i++ {
-		if _, err := query(addr, "fengard.lan", dns.TypeA); err == nil {
-			return s, addr
+	// the port is free when picked but something else can take it, udp or tcp, before the server
+	// binds it. then the server never starts, so pick another
+	for range 5 {
+		pc, err := net.ListenPacket("udp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatal(err)
 		}
-		time.Sleep(20 * time.Millisecond)
+		addr := pc.LocalAddr().String()
+		pc.Close()
+		ctx, cancel := context.WithCancel(context.Background())
+		failed := make(chan struct{})
+		go func() {
+			s.ListenAndServe(ctx, addr)
+			close(failed)
+		}()
+		for i := 0; i < 50; i++ {
+			if _, err := quickQuery(addr, "fengard.lan"); err == nil {
+				t.Cleanup(cancel)
+				return s, addr
+			}
+			select {
+			case <-failed:
+				i = 50
+			case <-time.After(20 * time.Millisecond):
+			}
+		}
+		cancel()
 	}
 	t.Fatal("server did not start")
 	return nil, ""
+}
+
+func quickQuery(addr, name string) (*dns.Msg, error) {
+	m := new(dns.Msg)
+	m.SetQuestion(dns.Fqdn(name), dns.TypeA)
+	c := &dns.Client{Timeout: 200 * time.Millisecond}
+	r, _, err := c.Exchange(m, addr)
+	return r, err
 }
 
 func query(addr, name string, qtype uint16) (*dns.Msg, error) {
