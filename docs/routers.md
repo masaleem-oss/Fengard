@@ -10,23 +10,23 @@ internet names resolving, lookups over DNS over HTTP/3 to a quic-go server the l
 network in between can get in the way), and an uninstall that gives DNS back with no Fengard firewall rules
 left. The x86 ones get rebooted too.
 
-Results for 1.3.2. Memory is read just after Fengard has downloaded and parsed the full blocklists for
+Results for 1.3.2.1. Memory is read just after Fengard has downloaded and parsed the full blocklists for
 the first time, which is when it is highest; earlier versions were read after a restart.
 
 | Router type | Firmware | CPU build | Result | Memory |
 |---|---|---|---|---|
-| ARM64 (Filogic, MT7622, IPQ807x: GL-MT3000, Flint 2, Linksys E8450) | OpenWrt 22.03.7 | linux-arm64 | ✅ all 11 checks | 25 MB |
-| ARM64 (Filogic, MT7622, IPQ807x: GL-MT3000, Flint 2, Linksys E8450) | OpenWrt 25.12.5 | linux-arm64 | ✅ all 11 checks | 26 MB |
+| ARM64 (Filogic, MT7622, IPQ807x: GL-MT3000, Flint 2, Linksys E8450) | OpenWrt 22.03.7 | linux-arm64 | ✅ all 11 checks | 26 MB |
+| ARM64 (Filogic, MT7622, IPQ807x: GL-MT3000, Flint 2, Linksys E8450) | OpenWrt 25.12.5 | linux-arm64 | ✅ all 11 checks | 28 MB |
 | ARMv7 (IPQ40xx, mvebu: Linksys WRT, GL-B1300) | OpenWrt 21.02.7 | linux-arm | ✅ all 11 checks | 22 MB |
 | ARMv7 (IPQ40xx, mvebu: Linksys WRT, GL-B1300) | OpenWrt 23.05.6 | linux-arm | ✅ all 11 checks | 23 MB |
-| ARMv7 (IPQ40xx, mvebu: Linksys WRT, GL-B1300) | OpenWrt 24.10.8 | linux-arm | ✅ all 11 checks | 24 MB |
-| MIPS big-endian (ath79: TP-Link Archer C7, GL-AR750S) | OpenWrt 22.03.7 | linux-mips | ✅ all 11 checks | 25 MB |
-| MIPS little-endian (MT7621: Xiaomi 4A, Netgear R6220, GL-MT1300) | OpenWrt 24.10.8 | linux-mipsle | ✅ all 11 checks | 25 MB |
+| ARMv7 (IPQ40xx, mvebu: Linksys WRT, GL-B1300) | OpenWrt 24.10.8 | linux-arm | ✅ all 11 checks | 25 MB |
+| MIPS big-endian (ath79: TP-Link Archer C7, GL-AR750S) | OpenWrt 22.03.7 | linux-mips | ✅ all 11 checks | 26 MB |
+| MIPS little-endian (MT7621: Xiaomi 4A, Netgear R6220, GL-MT1300) | OpenWrt 24.10.8 | linux-mipsle | ✅ all 11 checks | 26 MB |
 | MIPS64 big-endian (Octeon: EdgeRouter Lite) | OpenWrt 24.10.8 | linux-mips64 | ✅ all 11 checks | 29 MB |
 | MIPS64 little-endian (Loongson) | OpenWrt 25.12.5 | linux-mips64le | ✅ all 8 checks (no internet in the vm) | 17 MB |
 | x86 32-bit | OpenWrt 23.05.6 | linux-386 | ✅ all 12 checks | 23 MB |
-| x86-64 mini PC | OpenWrt 19.07.10 | linux-amd64 | ✅ all 12 checks | 27 MB |
-| x86-64 mini PC | OpenWrt 22.03.7 | linux-amd64 | ✅ all 12 checks | 25 MB |
+| x86-64 mini PC | OpenWrt 19.07.10 | linux-amd64 | ✅ all 12 checks | 28 MB |
+| x86-64 mini PC | OpenWrt 22.03.7 | linux-amd64 | ✅ all 12 checks | 26 MB |
 | x86-64, squashfs like router flash | OpenWrt 24.10.8 | linux-amd64 | ✅ all 12 checks | 27 MB |
 
 On real hardware:
@@ -63,7 +63,8 @@ rows also on 21.02 and 25.12, and the GL.iNet 4.9 rows on 21.02):
 | AdGuard Home on port 53: turned off for Fengard and stays off after a reboot | ✅ |
 | Removing Fengard turns AdGuard Home back on | ✅ |
 | GL.iNet style AdGuard Home beside DNS: asks, left running when the answer is no | ✅ |
-| GL.iNet style AdGuard Home beside DNS: turned off when the answer is yes | ✅ |
+| GL.iNet style AdGuard Home beside DNS: turned off when the answer is yes, its GL.iNet switch too | ✅ |
+| Older install with GL.iNet's AdGuard Home switch still on: Fengard turns it off | ✅ |
 | Removing Fengard turns GL.iNet's AdGuard Home back on | ✅ |
 | Installed from the ipk on OpenWrt 21.02 (fw3, like stock GL.iNet): works like the installer | ✅ |
 | Removed with the ipk on OpenWrt 21.02 (fw3, like stock GL.iNet): router back to stock | ✅ |
