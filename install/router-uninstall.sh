@@ -107,6 +107,9 @@ uci commit dhcp
 AGH_INIT=$(getstate AGH_INIT)
 if [ -n "$AGH_INIT" ] && [ -x "$AGH_INIT" ]; then
 	echo "== AdGuard Home back on"
+	AGH_UCI=$(getstate AGH_UCI)
+	for o in $AGH_UCI; do uci set "$o=1"; done
+	[ -n "$AGH_UCI" ] && uci commit adguardhome
 	"$AGH_INIT" enable
 	"$AGH_INIT" start >/dev/null 2>&1
 fi

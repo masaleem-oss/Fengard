@@ -147,7 +147,9 @@ for t in "$@"; do
 	adguard-gl)
 		# gl.inet's own adguard toggle runs it behind dnsmasq on 3053, so it holds nothing fengard needs
 		V start adguard-gl x86 "$IMG" 256 38 >/dev/null
+		# gl.inet also keeps its own on switch for it in uci
 		r 38 'cp /usr/sbin/dnsmasq /usr/bin/AdGuardHome; cat >/etc/init.d/adguardhome; chmod 755 /etc/init.d/adguardhome
+			touch /etc/config/adguardhome; uci set adguardhome.config=adguardhome; uci set adguardhome.config.enabled=1; uci commit adguardhome
 			/etc/init.d/adguardhome enable; /etc/init.d/adguardhome start' <<-'EOF2'
 			#!/bin/sh /etc/rc.common
 			# lab stand in for gl.inet's AdGuardHome
@@ -166,9 +168,13 @@ for t in "$@"; do
 		row "GL.iNet style AdGuard Home beside DNS: asks, left running when the answer is no" "until_ok 60 fg_ok 38 && aghgl"
 		uninst 38 >/dev/null
 		rm -f "$WORK/home-38/.ssh/fengard_known_hosts"; (export ADGUARD=off; kitsh 38 router 127.0.0.1) >/dev/null
-		row "GL.iNet style AdGuard Home beside DNS: turned off when the answer is yes" "until_ok 60 fg_ok 38 && r 38 '! pidof AdGuardHome >/dev/null && ! ls /etc/rc.d/ | grep -q adguardhome'"
+		aghsw() { r 38 'uci -q get adguardhome.config.enabled'; }
+		row "GL.iNet style AdGuard Home beside DNS: turned off when the answer is yes, its GL.iNet switch too" "until_ok 60 fg_ok 38 && r 38 '! pidof AdGuardHome >/dev/null && ! ls /etc/rc.d/ | grep -q adguardhome' && [ \"\$(aghsw)\" = 0 ]"
+		# routers installed before the switch was handled get it turned off by fengard itself
+		r 38 'sed -i /^AGH_UCI=/d /etc/fengard/install.env; uci set adguardhome.config.enabled=1; uci commit adguardhome; /etc/init.d/fengard restart'
+		row "Older install with GL.iNet's AdGuard Home switch still on: Fengard turns it off" "until_ok 60 '[ \"\$(aghsw)\" = 0 ]' && until_ok 60 fg_ok 38"
 		uninst 38 >/dev/null
-		row "Removing Fengard turns GL.iNet's AdGuard Home back on" "until_ok 30 aghgl && until_ok 30 landns 38"
+		row "Removing Fengard turns GL.iNet's AdGuard Home back on" "until_ok 30 aghgl && [ \"\$(aghsw)\" = 1 ] && until_ok 30 landns 38"
 		V stop adguard-gl ;;
 	adguard)
 		V start adguard x86 "$IMG" 256 35 >/dev/null

@@ -227,6 +227,12 @@ if [ -z "$AGH_INIT" ] && [ "$AGH_KEEP" != 1 ] && pidof AdGuardHome >/dev/null 2>
 		[ -n "$AGH_INIT" ] || note "AdGuard Home has no service to turn it off with, leaving it running"
 	fi
 fi
+# gl.inet keeps its own adguard switch in uci. left on, its dns setup can point at adguard again when a
+# vpn client comes up and dns stops working, so the switch goes off too and uninstall puts it back
+AGH_UCI=$(getstate AGH_UCI "$STATE")
+if [ -n "$AGH_INIT" ] && [ -z "$AGH_UCI" ]; then
+	AGH_UCI=$(uci -q show adguardhome 2>/dev/null | sed -n "s/^\(adguardhome\.[^.=]*\.enabled\)='*1'*\$/\1/p" | tr '\n' ' ')
+fi
 
 DONE='' TOUCHED=''
 rollback() {
@@ -355,6 +361,7 @@ done
 	echo "VPN_NET_CREATED='$v'"
 	echo "AGH_INIT='$AGH_INIT'"
 	echo "AGH_KEEP='${AGH_KEEP:-}'"
+	echo "AGH_UCI='$(echo $AGH_UCI)'"
 } >"$STATE.new" && mv "$STATE.new" "$STATE" || die "can't write $STATE"
 rm -f "$STATE.prev"
 TOUCHED=1
@@ -597,6 +604,10 @@ done
 sync
 
 say "DNS: Fengard answers on port 53, dnsmasq keeps doing DHCP"
+if [ -n "$AGH_INIT" ]; then
+	for o in $AGH_UCI; do uci set "$o=0"; done
+	[ -n "$AGH_UCI" ] && uci commit adguardhome
+fi
 if [ -n "$AGH_INIT" ] && pidof AdGuardHome >/dev/null; then
 	"$AGH_INIT" disable
 	"$AGH_INIT" stop >/dev/null 2>&1
