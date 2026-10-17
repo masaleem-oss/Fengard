@@ -81,11 +81,14 @@ export async function render(el, ctx) {
       const tile = (c) => {
         const on = g.categories.includes(c.id), custom = c.id.startsWith('list:');
         return `<label class="cat-card ${on ? 'on' : ''}${custom ? ' custom' : ''}">${icon(custom ? 'list-filter' : CATEGORY_ICONS[c.id] || 'shield')}
-          <span class="cat-text"><b>${esc(c.name)}${custom ? ' <span class="tag">Custom</span>' : ''}</b><small class="${custom ? 'truncate' : ''}">${esc(custom ? hostOf(c.desc) : c.desc)}</small><small class="num" style="margin-top:3px"${c.held ? ` title="${esc(c.held)}"` : ''}>${c.error && !c.domains ? 'Not downloaded yet' : `${compact(c.domains)} domains${c.held ? ' · not loaded' : ''}`}</small></span>
+          <span class="cat-text"><b>${esc(c.name)}${custom ? ' <span class="tag">Custom</span>' : ''}</b><small class="${custom ? 'truncate' : ''}">${esc(custom ? hostOf(c.desc) : c.desc)}</small><small class="num" style="margin-top:3px"${c.held ? ` title="${esc(c.held)}"` : ''}>${c.error && !c.domains ? 'Not downloaded yet' : `${compact(c.domains)} domains${c.held ? ' · <span class="t-warning">not loaded</span>' : ''}`}</small></span>
           ${switchInput(`data-cat="${c.id}" ${ro}`, on, `Block ${c.name}`)}</label>`;
       };
       const custom = state.categories.filter((c) => c.id.startsWith('list:'));
+      // a list this profile has on that couldn't load blocks nothing, that has to be obvious
+      const held = custom.filter((c) => c.held && g.categories.includes(c.id));
       body.innerHTML = `<div class="panel-body">
+        ${held.map((c) => `<div class="banner warn" style="margin-bottom:14px">${icon('triangle-alert')}<div class="banner-text"><b>${esc(c.name)} is on but not blocking anything</b><p>${esc(c.held)}.</p></div><a class="btn btn-sm" href="#filtering">Filtering</a></div>`).join('')}
         ${g.blocklistTotal ? `<p class="t-sm t-2 coverage"><span><b>${compact(g.blocking)}</b> of ${compact(g.blocklistTotal)} blocklist domains blocked for this profile.</span>
           <span class="t-3">Each domain counts once even when it's in several lists. A list uses memory once any profile turns it on, lists no profile uses aren't loaded.</span></p>` : ''}
         <div class="cat-grid">${state.categories.filter((c) => !c.id.startsWith('list:')).map(tile).join('')}</div>

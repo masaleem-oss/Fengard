@@ -120,7 +120,7 @@ export async function render(el, ctx) {
       <tbody>${lists.map((l) => `<tr data-id="${l.id}">
         <td><div class="cell-title">${esc(l.name)}</div><div class="cell-sub mono truncate" style="max-width:420px" title="${esc(l.url)}">${esc(l.url)}</div></td>
         <td class="num" style="text-align:right">${fmt(l.domains)}</td>
-        <td class="t-2">${l.error ? `<span class="t-danger" title="${esc(l.error)}">Failed</span>` : l.held ? `<span class="t-warning" title="${esc(l.held)}">Not loaded</span>` : isSet(l.updated) ? ago(l.updated) : 'Downloading…'}${l.enabled && l.idle && !l.error ? '<div class="cell-sub">No profile uses it</div>' : ''}</td>
+        <td class="t-2">${l.error ? `<span class="t-danger" title="${esc(l.error)}">Failed</span>` : l.held ? `<span class="t-warning">Not loaded</span><div class="cell-sub" style="max-width:260px;white-space:normal">${esc(l.held.replace(/^Not loaded: /, ''))}</div>` : isSet(l.updated) ? ago(l.updated) : 'Downloading…'}${l.enabled && l.idle && !l.error ? '<div class="cell-sub">No profile uses it</div>' : ''}</td>
         <td>${switchInput(`data-toggle ${admin ? '' : 'disabled'}`, l.enabled, `Enable ${l.name}`)}</td>
         <td class="col-actions">${admin ? `<button class="btn btn-ghost btn-sm" data-refresh>${icon('refresh-cw', 'icon-sm')}</button><button class="btn btn-ghost btn-sm btn-danger" data-del>${icon('trash-2', 'icon-sm')}</button>` : ''}</td></tr>`).join('')}</tbody></table>`
       : `<p class="t-3 t-sm" style="padding:16px 14px">No custom lists yet. Pick one from Popular lists or paste any URL. Up to 16.</p>`;
