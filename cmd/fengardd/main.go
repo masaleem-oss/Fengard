@@ -411,6 +411,7 @@ func main() {
 	}
 	if *fwOn {
 		glinetAdGuardOff()
+		glinetVPNDNS()
 	}
 	if *harden {
 		firewall.Harden()
