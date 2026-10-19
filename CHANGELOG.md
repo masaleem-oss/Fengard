@@ -8,6 +8,13 @@ are on the [releases page](https://github.com/masaleem-oss/Fengard/releases).
 
 Nothing yet.
 
+## 1.3.2.2 - 2026-10-19 (preview)
+
+### Fixed
+- On GL.iNet routers, devices using a VPN client could lose DNS while the router itself still resolved
+  names. Installers before 1.3.1.2 also turned off the DNS GL.iNet runs for each VPN client, and updating
+  from the dashboard never turned it back on. Fengard now turns it back on when it starts
+
 ## 1.3.2.1 - 2026-10-17 (preview)
 
 ### Changed
