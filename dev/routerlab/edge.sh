@@ -210,6 +210,9 @@ for t in "$@"; do
 		kit; inst 37 >/dev/null
 		vpnport() { r 37 'uci -q get dhcp.wgclient1.port'; }
 		row "GL.iNet VPN client DNS on its own port: left alone" "until_ok 60 fg_ok 37 && [ \"\$(vpnport)\" = 2153 ]"
+		# installers before 1.3.1.2 set it to 0 too and an update from the dashboard kept that
+		r 37 "uci set dhcp.wgclient1.port=0; uci commit dhcp; echo \"ORIG_PORT_wgclient1='2153'\" >>/etc/fengard/install.env; /etc/init.d/fengard restart"
+		row "Older install with GL.iNet's VPN client DNS turned off: Fengard turns it back on" "until_ok 60 '[ \"\$(vpnport)\" = 2153 ] && r 37 \"netstat -lnu | grep -q :2153\"' && until_ok 60 fg_ok 37"
 		fast_guard 37
 		r 37 'uci -q delete dhcp.@dnsmasq[0].port; uci commit dhcp; /etc/init.d/dnsmasq restart'
 		taken() { [ "$(r 37 'uci -q get dhcp.@dnsmasq[0].port')" = 0 ] && r 37 'pidof dnsmasq >/dev/null' && fg_ok 37; }
