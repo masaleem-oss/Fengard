@@ -21,6 +21,9 @@ The full release after 1.3.2. It has everything from the 1.3.2.1 and 1.3.2.2 pre
   slow searches can't tie up the router
 
 ### Fixed
+- **Every blocklist update was reported as failed.** URLhaus shut down its hosts file download (it now
+  answers 410 Gone), so the malware list always had one failed source and the log never said the lists
+  updated. Malware & phishing now uses HaGeZi's threat list on its own
 - A custom blocklist URL with a password or token in it could show up in the log and in the name of the
   cached file. Both now leave the login and the query out
 
