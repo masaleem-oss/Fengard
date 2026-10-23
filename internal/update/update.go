@@ -507,24 +507,15 @@ func (u *Updater) install(ctx context.Context, rel *release, version string, bac
 		return errors.New("the release has an odd version number, not installing it")
 	}
 	name := "fengardd-" + Target() + ".gz"
-	bin, sums := rel.find(name), rel.find("SHA256SUMS")
-	if bin == nil || sums == nil {
-		return errors.New("the release is missing " + name + " or SHA256SUMS")
+	bin := rel.find(name)
+	if bin == nil {
+		return errors.New("the release is missing " + name)
 	}
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
-	sumsBody, err := u.get(ctx, sums.URL, 64<<10)
+	want, err := u.wantSum(ctx, rel, name)
 	if err != nil {
 		return err
-	}
-	want := ""
-	for _, line := range strings.Split(string(sumsBody), "\n") {
-		if f := strings.Fields(line); len(f) == 2 && f[1] == name {
-			want = f[0]
-		}
-	}
-	if want == "" {
-		return errors.New("SHA256SUMS has no entry for " + name)
 	}
 	gz, err := u.get(ctx, bin.URL, 64<<20)
 	if err != nil {
@@ -570,6 +561,33 @@ func (u *Updater) install(ctx context.Context, rel *release, version string, bac
 		return err
 	}
 	return detach(script)
+}
+
+// the checksum a release's file should have, from a SHA256SUMS we trust
+func (u *Updater) wantSum(ctx context.Context, rel *release, name string) (string, error) {
+	sums := rel.find("SHA256SUMS")
+	if sums == nil {
+		return "", errors.New("the release is missing SHA256SUMS")
+	}
+	body, err := u.get(ctx, sums.URL, 64<<10)
+	if err != nil {
+		return "", err
+	}
+	var sig []byte
+	if a := rel.find("SHA256SUMS.sig"); a != nil {
+		if sig, err = u.get(ctx, a.URL, 1<<10); err != nil {
+			return "", err
+		}
+	}
+	if err := checkSums(strings.TrimPrefix(rel.Tag, "v"), body, sig); err != nil {
+		return "", err
+	}
+	for _, line := range strings.Split(string(body), "\n") {
+		if f := strings.Fields(line); len(f) == 2 && f[1] == name {
+			return f[0], nil
+		}
+	}
+	return "", errors.New("SHA256SUMS has no entry for " + name)
 }
 
 // starts the new program on a private port with an empty data dir and waits for a dns answer
