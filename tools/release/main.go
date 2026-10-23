@@ -1,5 +1,6 @@
 // go run ./tools/release -version 1.0.0 -repo owner/name
 // go run ./tools/release -version 1.3.1.1 -prerelease    for a preview build
+// go run ./tools/release -genkey                         makes the signing key, once
 // output goes to dist
 package main
 
@@ -8,7 +9,10 @@ import (
 	"archive/zip"
 	"bytes"
 	"compress/gzip"
+	"crypto/ed25519"
+	"crypto/rand"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -26,6 +30,7 @@ import (
 
 	"github.com/masaleem-oss/Fengard/internal/config"
 	"github.com/masaleem-oss/Fengard/internal/features"
+	"github.com/masaleem-oss/Fengard/internal/update"
 )
 
 type target struct {
@@ -65,7 +70,13 @@ func main() {
 	only := flag.String("only", "", "comma-separated targets to build (for testing), e.g. linux-amd64,windows-amd64")
 	out := flag.String("out", "dist", "output directory")
 	pre := flag.Bool("prerelease", false, "a preview build, its web installer fetches this release instead of the latest one")
+	keyPath := flag.String("key", defaultKey(), "release signing key, kept off github")
+	genkey := flag.Bool("genkey", false, "make a new signing key at -key and print its public half")
 	flag.Parse()
+	if *genkey {
+		makeKey(*keyPath)
+		return
+	}
 	if *version == "" {
 		log.Fatal("-version is required")
 	}
@@ -223,6 +234,7 @@ func main() {
 	must(err)
 	writeFile(filepath.Join(assets, "fengard-release.json"), append(manifest, '\n'), 0o644)
 	writeSums(assets)
+	signSums(assets, *version, *keyPath)
 	log.Printf("kit:    %s", kit)
 	log.Printf("zip:    %s", zipPath)
 	log.Printf("assets: %s", assets)
@@ -328,6 +340,44 @@ func writeSums(dir string) {
 	}
 	sort.Strings(lines)
 	writeFile(filepath.Join(dir, "SHA256SUMS"), []byte(strings.Join(lines, "\n")+"\n"), 0o644)
+}
+
+func defaultKey() string {
+	if k := os.Getenv("FENGARD_RELEASE_KEY"); k != "" {
+		return k
+	}
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".fengard", "release.key")
+}
+
+func makeKey(path string) {
+	if _, err := os.Stat(path); err == nil {
+		log.Fatalf("%s already exists, not replacing it", path)
+	}
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	must(err)
+	must(os.MkdirAll(filepath.Dir(path), 0o700))
+	must(os.WriteFile(path, []byte(base64.StdEncoding.EncodeToString(priv.Seed())+"\n"), 0o600))
+	log.Printf("key:    %s (back it up somewhere safe, losing it means routers can't update)", path)
+	fmt.Println(base64.StdEncoding.EncodeToString(pub))
+}
+
+// routers from 1.3.3 only install updates whose SHA256SUMS.sig checks out
+func signSums(dir, version, keyPath string) {
+	b, err := os.ReadFile(keyPath)
+	if err != nil {
+		log.Printf("NOT SIGNED: no key at %s, routers won't update to this build", keyPath)
+		return
+	}
+	seed, err := base64.StdEncoding.DecodeString(strings.TrimSpace(string(b)))
+	if err != nil || len(seed) != ed25519.SeedSize {
+		log.Fatalf("%s isn't a signing key", keyPath)
+	}
+	sums, err := os.ReadFile(filepath.Join(dir, "SHA256SUMS"))
+	must(err)
+	sig := ed25519.Sign(ed25519.NewKeyFromSeed(seed), update.SignedMessage(version, sums))
+	writeFile(filepath.Join(dir, "SHA256SUMS.sig"), []byte(base64.StdEncoding.EncodeToString(sig)+"\n"), 0o644)
+	log.Printf("signed: SHA256SUMS")
 }
 
 func must(err error) {
