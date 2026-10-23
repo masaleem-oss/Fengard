@@ -50,9 +50,23 @@ done
 if [ -z "$BIN_SRC" ] && [ "${RELEASE_URL#@}" = "$RELEASE_URL" ]; then
 	say "downloading Fengard for this router ($ARCH)"
 	mkdir -p "$WORK" && rm -f "$WORK/fengardd" "$WORK/fengardd.gz"
-	wget -q -O "$WORK/fengardd.gz" "$RELEASE_URL/fengardd-linux-$ARCH.gz" && gunzip -f "$WORK/fengardd.gz" ||
+	wget -q -O "$WORK/fengardd.gz" "$RELEASE_URL/fengardd-linux-$ARCH.gz" ||
 		die "download failed from $RELEASE_URL (does the router have internet and HTTPS support in wget?)"
 	[ -f "$SRC/router-uninstall.sh" ] || wget -q -O "$WORK/router-uninstall.sh" "$RELEASE_URL/router-uninstall.sh"
+	# checked before anything from the download runs
+	if command -v sha256sum >/dev/null && wget -q -O "$WORK/SHA256SUMS" "$RELEASE_URL/SHA256SUMS"; then
+		for f in fengardd-linux-$ARCH.gz router-uninstall.sh; do
+			p=$WORK/$f
+			[ "$f" = fengardd-linux-$ARCH.gz ] && p=$WORK/fengardd.gz
+			[ -f "$p" ] || continue
+			want=$(grep "  $f\$" "$WORK/SHA256SUMS" | cut -d' ' -f1)
+			[ -n "$want" ] && [ "$(sha256sum "$p" | cut -d' ' -f1)" = "$want" ] ||
+				die "$f doesn't match the release's SHA256SUMS, not installing it"
+		done
+	else
+		say "couldn't check the download against SHA256SUMS (no sha256sum or SHA256SUMS on this router)"
+	fi
+	gunzip -f "$WORK/fengardd.gz" || die "the download from $RELEASE_URL is damaged"
 	BIN_SRC=$WORK/fengardd
 fi
 [ -n "$BIN_SRC" ] || die "no Fengard program for this router's CPU ($ARCH) next to the installer"
