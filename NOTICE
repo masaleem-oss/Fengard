@@ -20,6 +20,6 @@ Bundled in the program
                                            BSD 3-Clause License (The Go Authors)
 
 Downloaded at run time, not distributed with Fengard
-  Blocklists (HaGeZi DNS blocklists, URLhaus, the Tor relay list and any lists a
+  Blocklists (HaGeZi DNS blocklists, the Tor relay list and any lists a
   user subscribes to) are fetched by each installation from their publishers and
   remain under their publishers' licenses.

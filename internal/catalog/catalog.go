@@ -36,7 +36,7 @@ var Categories = []Category{
 	{ID: "ads", Name: "Ads & trackers", Desc: "Advertising, analytics and tracking domains",
 		Sources: []string{hagezi + "wildcard/pro.mini-onlydomains.txt"}},
 	{ID: "malware", Name: "Malware & phishing", Desc: "Known malicious, phishing and scam domains",
-		Sources: []string{hagezi + "wildcard/tif.mini-onlydomains.txt", "https://urlhaus.abuse.ch/downloads/hostfile/"}},
+		Sources: []string{hagezi + "wildcard/tif.mini-onlydomains.txt"}},
 	{ID: "adult", Name: "Adult content", Desc: "Pornography and explicit content",
 		Sources: []string{hagezi + "wildcard/nsfw-onlydomains.txt"}},
 	{ID: "gambling", Name: "Gambling", Desc: "Betting, casinos and gambling",
