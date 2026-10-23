@@ -435,7 +435,9 @@ DNS to the router's own dnsmasq if Fengard ever stops answering. Both are tested
 Fengard checks GitHub twice a day. When a new release is out, it reads the release's list of supported CPUs,
 the oldest OpenWrt it runs on and the memory it needs, and only offers it if this router qualifies. You get
 an alert and a banner with **Update now**. It downloads the update, checks its checksum, test-runs it on a
-private port and only then swaps it in. If the new version doesn't answer DNS, the old one comes back on
+private port and only then swaps it in. From 1.3.3 the checksums also have to be signed with the Fengard
+release key, which isn't kept on GitHub, so someone who took over the GitHub account still couldn't push an
+update to routers. If the new version doesn't answer DNS, the old one comes back on
 its own. Turn on **Settings → Install updates automatically** to have this happen overnight, between 3 and 5 am.
 
 **Can I go back to an older version?**

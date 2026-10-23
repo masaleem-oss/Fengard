@@ -62,5 +62,8 @@ logs in `results/` show the time at each step.
    firmware version each release so the list keeps growing.
 2. Add rows for any router reports from real hardware.
 3. `go run ./tools/release -version X.Y.Z`, then attach everything in `dist/assets/` to a GitHub release.
+   It signs `SHA256SUMS` with the release key (`~/.fengard/release.key`, or set `FENGARD_RELEASE_KEY`) and
+   writes `SHA256SUMS.sig`. Routers from 1.3.3 won't install a release without a good signature, so check
+   the build log says `signed` before publishing. The key never goes in the repo or on GitHub.
 
 By contributing you agree your work is licensed under the Apache License 2.0.
