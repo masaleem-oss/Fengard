@@ -6,6 +6,12 @@ are on the [releases page](https://github.com/masaleem-oss/Fengard/releases).
 
 ## Unreleased
 
+Nothing yet.
+
+## 1.3.3 - 2026-10-24
+
+The full release after 1.3.2. It has everything from the 1.3.2.1 and 1.3.2.2 previews below, plus:
+
 ### Changed
 - **Signed updates.** Updates from the dashboard now need a signature from the Fengard release key on top of
   the checksum. The key isn't kept on GitHub, so a taken over GitHub account can't ship an update. Going back
