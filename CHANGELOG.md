@@ -6,7 +6,17 @@ are on the [releases page](https://github.com/masaleem-oss/Fengard/releases).
 
 ## Unreleased
 
-Nothing yet.
+### Changed
+- **Signed updates.** Updates from the dashboard now need a signature from the Fengard release key on top of
+  the checksum. The key isn't kept on GitHub, so a taken over GitHub account can't ship an update. Going back
+  to a release from before this is still checked, against the checksums each one was published with
+- The one line install checks the program it downloads against the release's checksums before running it
+- History searches from the dashboard run at most two at a time and stop when the page is closed, so a few
+  slow searches can't tie up the router
+
+### Fixed
+- A custom blocklist URL with a password or token in it could show up in the log and in the name of the
+  cached file. Both now leave the login and the query out
 
 ## 1.3.2.2 - 2026-10-19 (preview)
 
