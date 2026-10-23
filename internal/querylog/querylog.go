@@ -88,6 +88,7 @@ type Log struct {
 	dirty   map[int64]bool // hours changed since last flush
 	ch      chan Entry
 	dropped atomic.Uint64
+	scans   chan struct{} // a search can read 500k rows so only a couple run at once
 }
 
 const keepHourlyDays = 31
@@ -104,6 +105,7 @@ func New(recent int, db *store.Log, hourly *store.KV) *Log {
 		db:     db,
 		hourly: hourly,
 		dirty:  map[int64]bool{},
+		scans:  make(chan struct{}, 2),
 	}
 	if db != nil {
 		l.restore()
@@ -417,6 +419,7 @@ type Filter struct {
 	Blocked bool
 	Before  time.Time
 	Limit   int
+	Ctx     context.Context // stops the scan when the browser goes away
 }
 
 func (l *Log) History(f Filter) []Entry {
@@ -427,8 +430,22 @@ func (l *Log) History(f Filter) []Entry {
 	if l.db == nil {
 		return out
 	}
+	ctx := f.Ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	select {
+	case l.scans <- struct{}{}:
+		defer func() { <-l.scans }()
+	case <-ctx.Done():
+		return out
+	}
 	search := strings.ToLower(f.Search)
+	n := 0
 	l.db.Scan(f.Before, 500000, func(_ time.Time, v []byte) bool {
+		if n++; n%4096 == 0 && ctx.Err() != nil {
+			return false
+		}
 		var e Entry
 		if json.Unmarshal(v, &e) != nil {
 			return true

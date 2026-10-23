@@ -88,3 +88,35 @@ func TestFlushIncludesQueuedQueries(t *testing.T) {
 		t.Fatal("flush omitted queued query")
 	}
 }
+
+func TestHistoryWaitsForAFreeScanAndGivesUpWithTheBrowser(t *testing.T) {
+	db, err := store.Open(filepath.Join(t.TempDir(), "scans.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	rows, _ := db.Log("queries")
+	l := New(100, rows, nil)
+	defer l.Close(context.Background())
+	l.Add(Entry{Time: time.Now(), Domain: "example.com", Action: "allowed"})
+	if err := l.Flush(); err != nil {
+		t.Fatal(err)
+	}
+	// both slots taken by other searches
+	l.scans <- struct{}{}
+	l.scans <- struct{}{}
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	if got := l.History(Filter{Limit: 10, Ctx: ctx}); len(got) != 0 {
+		t.Fatalf("got %d rows while every scan slot was busy", len(got))
+	}
+	if time.Since(start) > 2*time.Second {
+		t.Fatal("history didn't give up when its request ended")
+	}
+	<-l.scans
+	if got := l.History(Filter{Limit: 10}); len(got) != 1 {
+		t.Fatalf("got %d rows after a slot freed up, want 1", len(got))
+	}
+	<-l.scans
+}

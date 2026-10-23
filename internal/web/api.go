@@ -199,7 +199,7 @@ func (s *Server) queries(w http.ResponseWriter, r *http.Request) {
 	limit, _ := strconv.Atoi(q.Get("limit"))
 	f := querylog.Filter{
 		MAC: q.Get("mac"), Client: q.Get("client"), Search: q.Get("search"),
-		Blocked: q.Get("blocked") == "1", Limit: limit,
+		Blocked: q.Get("blocked") == "1", Limit: limit, Ctx: r.Context(),
 	}
 	if b := q.Get("before"); b != "" {
 		if t, err := time.Parse(time.RFC3339Nano, b); err == nil {
@@ -840,7 +840,7 @@ func (s *Server) deviceSummary(w http.ResponseWriter, r *http.Request) {
 		httpError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	rows := s.Log.History(querylog.Filter{MAC: mac, Limit: 1000})
+	rows := s.Log.History(querylog.Filter{MAC: mac, Limit: 1000, Ctx: r.Context()})
 	since := time.Now().Add(-24 * time.Hour)
 	domains, blocked := map[string]int{}, map[string]int{}
 	total, nBlocked := 0, 0
