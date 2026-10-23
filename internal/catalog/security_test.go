@@ -3,6 +3,7 @@ package catalog
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 )
@@ -42,5 +43,21 @@ func TestConcurrentCustomLoadsKeepMaskLayoutTogether(t *testing.T) {
 	custom := c.Custom()
 	if len(custom) != 1 || custom[0].ID != "b" || c.Set().Match("b.example")&CustomBit(0) == 0 || c.Set().Match("a.example")&CustomBit(0) != 0 {
 		t.Fatal("latest layout and domain set differ")
+	}
+}
+
+func TestCustomListLoginStaysOutOfNamesAndErrors(t *testing.T) {
+	src := "https://me:hunter2@lists.example/block.txt?token=abc123"
+	for _, s := range []string{cacheName(src), showURL(src)} {
+		if strings.Contains(s, "hunter2") || strings.Contains(s, "abc123") {
+			t.Fatalf("%q still has the secret", s)
+		}
+	}
+	if got := showURL(src); got != "https://lists.example/block.txt?…" {
+		t.Errorf("showURL = %q", got)
+	}
+	// plain urls keep their old cache file so nothing downloads again
+	if got := cacheName("https://x/small"); got != "x_small" {
+		t.Errorf("cacheName = %q", got)
 	}
 }

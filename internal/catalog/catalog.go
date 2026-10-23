@@ -4,13 +4,16 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"embed"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
 	"log"
 	"net"
 	"net/http"
+	neturl "net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -200,8 +203,26 @@ func (c *Catalog) UpdateCustom(ctx context.Context, url string) error {
 }
 
 func cacheName(url string) string {
+	// a login or token in the url shouldnt end up in a file name or an error
+	if u, err := neturl.Parse(url); err == nil && (u.User != nil || u.RawQuery != "") {
+		sum := sha256.Sum256([]byte(url))
+		return "custom-" + hex.EncodeToString(sum[:8])
+	}
 	r := strings.NewReplacer("https://", "", "http://", "", "/", "_", ":", "_")
 	return r.Replace(url)
+}
+
+// a url for logs and the dashboard with any login and query taken out
+func showURL(s string) string {
+	u, err := neturl.Parse(s)
+	if err != nil {
+		return "a custom list"
+	}
+	u.User = nil
+	if u.RawQuery != "" {
+		u.RawQuery = "…"
+	}
+	return u.String()
 }
 
 func (c *Catalog) Load() error {
@@ -354,7 +375,7 @@ func (c *Catalog) Update(ctx context.Context) error {
 	}
 	for i, cs := range *c.custom.Load() {
 		if err := c.download(ctx, cs.URL); err != nil {
-			errs = append(errs, fmt.Errorf("%s: %w", cs.URL, err))
+			errs = append(errs, fmt.Errorf("%s: %w", showURL(cs.URL), err))
 			failed[len(Categories)+i] = err.Error()
 		}
 	}
@@ -386,6 +407,10 @@ func (c *Catalog) download(ctx context.Context, url string) error {
 	req.Header.Set("User-Agent", "Fengard/1.0")
 	resp, err := c.client.Do(req)
 	if err != nil {
+		// the error repeats the url, callers add a safe one
+		if ue, ok := err.(*neturl.Error); ok {
+			err = ue.Err
+		}
 		return err
 	}
 	defer resp.Body.Close()
