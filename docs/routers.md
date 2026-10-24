@@ -10,7 +10,7 @@ internet names resolving, lookups over DNS over HTTP/3 to a quic-go server the l
 network in between can get in the way), and an uninstall that gives DNS back with no Fengard firewall rules
 left. The x86 ones get rebooted too.
 
-Results for 1.3.2.2. Memory is read just after Fengard has downloaded and parsed the full blocklists for
+Results for 1.3.3. Memory is read just after Fengard has downloaded and parsed the full blocklists for
 the first time, which is when it is highest; earlier versions were read after a restart.
 
 | Router type | Firmware | CPU build | Result | Memory |
@@ -20,14 +20,14 @@ the first time, which is when it is highest; earlier versions were read after a 
 | ARMv7 (IPQ40xx, mvebu: Linksys WRT, GL-B1300) | OpenWrt 21.02.7 | linux-arm | ✅ all 11 checks | 22 MB |
 | ARMv7 (IPQ40xx, mvebu: Linksys WRT, GL-B1300) | OpenWrt 23.05.6 | linux-arm | ✅ all 11 checks | 23 MB |
 | ARMv7 (IPQ40xx, mvebu: Linksys WRT, GL-B1300) | OpenWrt 24.10.8 | linux-arm | ✅ all 11 checks | 24 MB |
-| MIPS big-endian (ath79: TP-Link Archer C7, GL-AR750S) | OpenWrt 22.03.7 | linux-mips | ✅ all 11 checks | 26 MB |
-| MIPS little-endian (MT7621: Xiaomi 4A, Netgear R6220, GL-MT1300) | OpenWrt 24.10.8 | linux-mipsle | ✅ all 11 checks | 25 MB |
-| MIPS64 big-endian (Octeon: EdgeRouter Lite) | OpenWrt 24.10.8 | linux-mips64 | ✅ all 11 checks | 29 MB |
+| MIPS big-endian (ath79: TP-Link Archer C7, GL-AR750S) | OpenWrt 22.03.7 | linux-mips | ✅ all 11 checks | 25 MB |
+| MIPS little-endian (MT7621: Xiaomi 4A, Netgear R6220, GL-MT1300) | OpenWrt 24.10.8 | linux-mipsle | ✅ all 11 checks | 26 MB |
+| MIPS64 big-endian (Octeon: EdgeRouter Lite) | OpenWrt 24.10.8 | linux-mips64 | ✅ all 11 checks | 27 MB |
 | MIPS64 little-endian (Loongson) | OpenWrt 25.12.5 | linux-mips64le | ✅ all 8 checks (no internet in the vm) | 17 MB |
 | x86 32-bit | OpenWrt 23.05.6 | linux-386 | ✅ all 12 checks | 23 MB |
-| x86-64 mini PC | OpenWrt 19.07.10 | linux-amd64 | ✅ all 12 checks | 32 MB |
+| x86-64 mini PC | OpenWrt 19.07.10 | linux-amd64 | ✅ all 12 checks | 30 MB |
 | x86-64 mini PC | OpenWrt 22.03.7 | linux-amd64 | ✅ all 12 checks | 26 MB |
-| x86-64, squashfs like router flash | OpenWrt 24.10.8 | linux-amd64 | ✅ all 12 checks | 28 MB |
+| x86-64, squashfs like router flash | OpenWrt 24.10.8 | linux-amd64 | ✅ all 12 checks | 26 MB |
 
 On real hardware:
 
