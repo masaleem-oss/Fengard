@@ -6,6 +6,10 @@ are on the [releases page](https://github.com/masaleem-oss/Fengard/releases).
 
 ## Unreleased
 
+Nothing yet.
+
+## 1.3.4 - 2026-11-25
+
 > [!IMPORTANT]
 > **On Fengard 1.3.3?** A bug in 1.3.3 stops the Update button installing this release (it says "the release
 > isn't signed by the Fengard release key"). The workaround is to go down one version and back up, from the
