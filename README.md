@@ -363,6 +363,9 @@ Command line flags, environment, files and the HTTP API are in the
 | VPN page says WireGuard isn't installed | Install the `kmod-wireguard` and `wireguard-tools` packages. Everything else works without them |
 | Phones show "no internet" on Wi-Fi | Check that devices get the router as their DNS server. The installer sets DHCP option 6 for every LAN network |
 | Tailscale on a phone or laptop stops working | The "VPN, proxy & DNS bypass" category blocks `tailscale.com`. Add an allow rule for `tailscale.com` under **Filtering → Network-wide rules**. Tailscale on the router itself always works |
+| iPhone or Mac apps ask for Local Network access | A blocked name was pointed at the block page, which is on your LAN. Ads, trackers and your own blocklists get 0.0.0.0 by default. To stop it for everything, set **Settings → General → Answer for blocked names** to **Always 0.0.0.0** |
+| The dashboard won't open on a Mac (`ERR_ADDRESS_UNREACHABLE`) but Safari or the router's own page works | The browser doesn't have Local Network access. Turn it on in **System Settings → Privacy & Security → Local Network**, then quit and reopen the browser |
+| Update on 1.3.3 says "the release isn't signed by the Fengard release key" | A bug in 1.3.3. Go back to 1.3.2 under **Settings → Updates**, then update. Settings are kept. See the [changelog](CHANGELOG.md) |
 | Something is wrongly blocked | Use **Check a site**, then add an allow rule or a temporary allow. **Pause protection** turns filtering off for a few minutes |
 
 ## FAQ
