@@ -35,6 +35,9 @@ type Params struct {
 
 	// wireguard and tailscale ifaces get treated like lan
 	Tunnels []VPNParams
+	// the routers own vpn servers, like gl.inet's wireguard and openvpn servers. their clients get
+	// fengard's dns and filtering like the lan, but the routers firewall still decides what they reach
+	VPNServers []string
 
 	// per source per second
 	SynPerSecond  int
@@ -50,7 +53,7 @@ type VPNParams struct {
 }
 
 func (p Params) lanIfaces() []string {
-	out := append([]string{}, p.LAN...)
+	out := append(append([]string{}, p.LAN...), p.VPNServers...)
 	for _, t := range p.Tunnels {
 		if t.Iface != "" {
 			out = append(out, t.Iface)
@@ -129,9 +132,13 @@ func Render(p Params) (string, error) {
 			w("\t\tiifname %s meta nfproto ipv6 meta l4proto { tcp, udp } th dport 53 ip6 daddr != %s dnat ip6 to [%s]:53", lan, p.RouterIPv6, p.RouterIPv6)
 		}
 	}
-	for _, t := range p.Tunnels {
-		if !p.BlockBypass {
+	// their clients are told to ask the router's address on the tunnel, fengard isn't listening there
+	if !p.BlockBypass {
+		for _, t := range p.Tunnels {
 			w("\t\tiifname %q meta l4proto { tcp, udp } th dport 53 dnat ip to %s:53", t.Iface, p.RouterIPv4)
+		}
+		for _, v := range p.VPNServers {
+			w("\t\tiifname %q meta nfproto ipv4 meta l4proto { tcp, udp } th dport 53 ip daddr != %s dnat ip to %s:53", v, p.RouterIPv4, p.RouterIPv4)
 		}
 	}
 	for _, r := range p.webRedirects() {

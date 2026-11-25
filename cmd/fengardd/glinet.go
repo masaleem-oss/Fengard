@@ -2,10 +2,12 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"log"
 	"os"
 	"os/exec"
 	"regexp"
+	"slices"
 	"strings"
 )
 
@@ -92,4 +94,62 @@ func glinetVPNDNS() {
 	}
 	exec.Command("/etc/init.d/dnsmasq", "restart").Run()
 	log.Printf("turned GL.iNet's DNS for VPN clients back on, an older install had turned it off")
+}
+
+var serverZone = regexp.MustCompile(`^(wgserver|ovpnserver)[0-9]*$`)
+
+// networks in gl.inet's vpn server zones from uci show firewall. those zones masquerade so
+// installers took them for wan, then fengard dropped dns from their clients
+func vpnServerNets(show []byte) []string {
+	zone, name, network := map[string]bool{}, map[string]string{}, map[string]string{}
+	for _, line := range strings.Split(string(show), "\n") {
+		key, val, ok := strings.Cut(line, "=")
+		if !ok {
+			continue
+		}
+		switch parts := strings.Split(key, "."); {
+		case len(parts) == 2 && val == "zone":
+			zone[parts[1]] = true
+		case len(parts) == 3 && parts[2] == "name":
+			name[parts[1]] = strings.Trim(val, "'")
+		case len(parts) == 3 && parts[2] == "network":
+			network[parts[1]] = val
+		}
+	}
+	var out []string
+	for sec := range zone {
+		if !serverZone.MatchString(name[sec]) {
+			continue
+		}
+		for _, n := range strings.Fields(network[sec]) {
+			if n = strings.Trim(n, "'"); n != "" && !slices.Contains(out, n) {
+				out = append(out, n)
+			}
+		}
+	}
+	slices.Sort(out)
+	return out
+}
+
+// the devices of gl.inet's vpn servers that are up right now
+func vpnServerIfaces() []string {
+	show, err := exec.Command("uci", "-q", "show", "firewall").Output()
+	if err != nil {
+		return nil
+	}
+	var out []string
+	for _, n := range vpnServerNets(show) {
+		st, err := exec.Command("ubus", "call", "network.interface."+n, "status").Output()
+		if err != nil {
+			continue
+		}
+		var v struct {
+			Up  bool   `json:"up"`
+			Dev string `json:"l3_device"`
+		}
+		if json.Unmarshal(st, &v) == nil && v.Up && v.Dev != "" {
+			out = append(out, v.Dev)
+		}
+	}
+	return out
 }

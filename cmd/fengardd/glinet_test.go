@@ -1,6 +1,9 @@
 package main
 
-import "testing"
+import (
+	"slices"
+	"testing"
+)
 
 func TestVPNDNSPorts(t *testing.T) {
 	env := []byte(`DNSMASQ='cfg01411c wgclient1 ovpnclient1 wgclient2'
@@ -20,5 +23,38 @@ ORIG_PORT_lan2='53'
 		if got[s] != p {
 			t.Errorf("%s = %q, want %q", s, got[s], p)
 		}
+	}
+}
+
+func TestVPNServerNets(t *testing.T) {
+	// trimmed from a gl.inet 4.x router with both servers set up
+	show := []byte(`firewall.cfg01e63d=defaults
+firewall.cfg02dc81=zone
+firewall.cfg02dc81.name='lan'
+firewall.cfg02dc81.network='lan'
+firewall.cfg03dc81=zone
+firewall.cfg03dc81.name='wan'
+firewall.cfg03dc81.network='wan' 'wan6' 'secondwan'
+firewall.cfg03dc81.masq='1'
+firewall.wgserver=zone
+firewall.wgserver.name='wgserver'
+firewall.wgserver.network='wgserver'
+firewall.wgserver.masq='1'
+firewall.ovpnserver=zone
+firewall.ovpnserver.name='ovpnserver'
+firewall.ovpnserver.network='ovpnserver'
+firewall.ovpnserver.masq='1'
+firewall.ovpnserver.enabled='0'
+firewall.wgclient=zone
+firewall.wgclient.name='wgclient'
+firewall.wgclient.network='wgclient1' 'wgclient2'
+firewall.wgclient.masq='1'
+firewall.fake=rule
+firewall.fake.name='wgserver'
+firewall.fake.network='lan'
+`)
+	got := vpnServerNets(show)
+	if want := []string{"ovpnserver", "wgserver"}; !slices.Equal(got, want) {
+		t.Errorf("got %v, want %v", got, want)
 	}
 }

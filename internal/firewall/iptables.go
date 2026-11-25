@@ -87,12 +87,16 @@ func renderIPTables(p Params, ipset, hashlimit, macMatch bool, notes []string) s
 	w("*nat")
 	w(":%s - [0:0]", chDstnat)
 	w(":%s - [0:0]", chSrcnat)
-	tunnel := map[string]bool{}
+	// tunnels and vpn servers always need dns sent to the router, see the nft dstnat chain
+	redirect := map[string]bool{}
 	for _, t := range p.Tunnels {
-		tunnel[t.Iface] = true
+		redirect[t.Iface] = true
+	}
+	for _, v := range p.VPNServers {
+		redirect[v] = true
 	}
 	for _, lan := range lans {
-		if p.BlockBypass || tunnel[lan] {
+		if p.BlockBypass || redirect[lan] {
 			for _, proto := range []string{"udp", "tcp"} {
 				w("-A %s -i %s -p %s --dport 53 ! -d %s -j DNAT --to-destination %s:53", chDstnat, lan, proto, p.RouterIPv4, p.RouterIPv4)
 			}

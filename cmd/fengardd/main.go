@@ -19,6 +19,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime/debug"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -394,8 +395,26 @@ func main() {
 		if vpn.TailscaleSupported() {
 			tunnels = append(tunnels, firewall.VPNParams{Iface: vpn.TailscaleIface, Subnet: vpn.TailscaleCGNAT})
 		}
+		// older installs passed gl.inet aliases like @wan, they aren't interfaces
+		alias := func(n string) bool { return strings.HasPrefix(n, "@") }
+		lans, wans := slices.DeleteFunc(split(*lan), alias), slices.DeleteFunc(split(*wan), alias)
+		if len(wans) == 0 {
+			wans = []string{"fg-nowan"}
+		}
+		var servers []string
+		if *fwOn {
+			// older installs listed them as wan and updating only swaps the program, so check here
+			for _, v := range vpnServerIfaces() {
+				if !slices.Contains(lans, v) {
+					servers = append(servers, v)
+				}
+			}
+			if wans = slices.DeleteFunc(wans, func(w string) bool { return slices.Contains(servers, w) }); len(wans) == 0 {
+				wans = []string{"fg-nowan"}
+			}
+		}
 		return firewall.Params{
-			LAN: split(*lan), WAN: split(*wan),
+			LAN: lans, WAN: wans, VPNServers: servers,
 			RouterIPv4: *dnsIP, RouterIPv6: *blockIP6,
 			ServicePorts: []int{53, 80, 443, port(*httpAddr), port(*httpsAddr)},
 			BlockIP:      *blockIP, HTTPPort: port(*httpAddr), HTTPSPort: port(*httpsAddr),
