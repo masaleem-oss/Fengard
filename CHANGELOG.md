@@ -6,7 +6,39 @@ are on the [releases page](https://github.com/masaleem-oss/Fengard/releases).
 
 ## Unreleased
 
-Nothing yet.
+> [!IMPORTANT]
+> **On Fengard 1.3.3?** A bug in 1.3.3 stops the Update button installing this release (it says "the release
+> isn't signed by the Fengard release key"). The workaround is to go down one version and back up, from the
+> dashboard, with no reinstall:
+>
+> 1. **Settings → Updates → Go back to an older version → 1.3.2 → Go back.** It takes about a minute and keeps
+>    your settings, devices and admin account
+> 2. **Settings → Updates → Update now** to install this release
+>
+> With automatic updates on, step 2 happens on its own overnight. Routers on 1.3.2.2 or older update straight
+> to this release as normal
+
+### Added
+- **Settings → General → Answer for blocked names** picks what blocked names resolve to: Smart (the new
+  default, below), always the block page (how it was before), always 0.0.0.0, or "doesn't exist" (NXDOMAIN)
+
+### Changed
+- Releases are signed with a new key, and Fengard also trusts a backup key
+- The router installer's last message tells Mac users what to do when the dashboard won't open in their
+  browser
+
+### Fixed
+- **Apps on iPhones and Macs kept asking for Local Network access.** Every blocked name pointed at the block
+  page, which lives on a LAN address, so when an ad or tracker inside an app was blocked, iOS and macOS asked
+  whether the app could use the local network. Ads & trackers and your own blocklists now get 0.0.0.0 (and ::),
+  like Pi-hole and AdGuard Home, so nothing connects and nothing asks. Everything else still shows the block page
+- **Devices connected to a GL.iNet router's own WireGuard or OpenVPN server had no DNS.** GL.iNet's VPN server
+  zones masquerade like the WAN, so the installer took them for the internet side and Fengard dropped DNS from
+  them, and nothing answered on the tunnel address those devices are told to use. Fengard now finds GL.iNet's
+  VPN servers while it runs, so updating fixes routers installed before too. Their devices get Fengard's DNS,
+  block page and filtering like the rest of the house, and GL.iNet's own settings still decide whether they
+  can reach the LAN
+- On GL.iNet routers some firewall rules were written for `@wan`, an alias rather than a real interface
 
 ## 1.3.3 - 2026-10-24
 
