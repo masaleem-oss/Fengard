@@ -145,12 +145,14 @@ fi
 [ -n "$LAN_IP" ] || die "couldn't find the router's LAN address (network '$LAN_NET'); set LAN_NET to the LAN network's name"
 [ "$LAN_PREFIX" -ge 16 ] && [ "$LAN_PREFIX" -le 30 ] || die "the LAN subnet /$LAN_PREFIX isn't supported (needs /16 to /30)"
 
-# wan zone is whichever one masquerades
+# wan zone is whichever one masquerades. gl.inet's vpn server zones masquerade too but their
+# clients are inside the house, fengard finds those itself while it runs
 WAN_NETS='' WAN_ZONE='' LAN_ZONE=''
 i=0
 while uci -q get "firewall.@zone[$i]" >/dev/null; do
 	name=$(uci -q get "firewall.@zone[$i].name")
 	nets=$(uci -q get "firewall.@zone[$i].network")
+	case "$name" in wgserver | wgserver[0-9]* | ovpnserver | ovpnserver[0-9]*) i=$((i + 1)) && continue ;; esac
 	if [ "$(uci -q get "firewall.@zone[$i].masq")" = 1 ] || [ "$name" = wan ]; then
 		WAN_NETS="$WAN_NETS $nets"
 		[ -n "$WAN_ZONE" ] || WAN_ZONE=$name
@@ -408,6 +410,8 @@ fg_dev() {
 	d=$(fg_status "$1" | jsonfilter -e '@.l3_device' 2>/dev/null)
 	[ -n "$d" ] || { [ "$(uci -q get "network.$1.type")" = bridge ] && d=br-$1; }
 	[ -n "$d" ] || d=$(uci -q get "network.$1.device" || uci -q get "network.$1.ifname")
+	# @wan style aliases aren't devices, gl.inet's wan6 is one
+	case "$d" in @*) d= ;; esac
 	echo "${d%% *}"
 }
 fg_join() {
@@ -670,6 +674,8 @@ echo "Fengard is running."
 echo "  Dashboard   http://$FG_IP/  or  http://fengard.lan/"
 echo "  DNS         $LAN_IP (devices need no changes)"
 echo "  Uninstall   sh /etc/fengard/uninstall.sh"
+echo "  On a Mac    if the page won't open in Chrome or Firefox, turn the browser on in System Settings,"
+echo "              Privacy & Security, Local Network, then quit and reopen it. Safari usually works straight away"
 # fengard logs this right after the dashboard starts, only when nobody has an account yet
 first=
 for _ in 1 2 3 4 5; do
