@@ -171,8 +171,8 @@ func TestResolveBlockAndCache(t *testing.T) {
 	}
 
 	r, _ = query(addr, "tracker.ads.example", dns.TypeA)
-	if firstA(r) != "192.168.8.1" {
-		t.Errorf("blocked lookup = %v, want block IP", r.Answer)
+	if firstA(r) != "0.0.0.0" {
+		t.Errorf("blocked ad = %v, want 0.0.0.0", r.Answer)
 	}
 	r, _ = query(addr, "ads.example", dns.TypeHTTPS)
 	if len(r.Answer) != 0 {
@@ -292,5 +292,52 @@ func TestRouterOwnLookupsArentFiltered(t *testing.T) {
 	_, addr := startServer(t, up, nil, func(s *Server) { s.TrustLoopback = true })
 	if r, _ := query(addr, "tracker.ads.example", dns.TypeA); firstA(r) != "203.0.113.7" {
 		t.Fatalf("router lookup was filtered: %v", r.Answer)
+	}
+}
+
+// a lan address for blocked ads makes apple devices ask apps for local network access
+func TestBlockAnswer(t *testing.T) {
+	up := startUpstream(t)
+	cases := []struct {
+		mode      string
+		ad, rule  string // A answers, empty means none
+		adV6      string
+		adRcode   int
+		ruleRcode int
+	}{
+		{mode: "", ad: "0.0.0.0", adV6: "::", rule: "192.168.8.1"},
+		{mode: "smart", ad: "0.0.0.0", adV6: "::", rule: "192.168.8.1"},
+		{mode: "page", ad: "192.168.8.1", rule: "192.168.8.1"},
+		{mode: "null", ad: "0.0.0.0", adV6: "::", rule: "0.0.0.0"},
+		{mode: "nxdomain", adRcode: dns.RcodeNameError, ruleRcode: dns.RcodeNameError},
+	}
+	for _, c := range cases {
+		t.Run("mode "+c.mode, func(t *testing.T) {
+			_, addr := startServer(t, up, func(cfg *config.Config) {
+				cfg.Settings.BlockAnswer = c.mode
+				cfg.Groups[0].Block = []string{"rule.example"}
+			})
+			r, err := query(addr, "tracker.ads.example", dns.TypeA)
+			if err != nil || r.Rcode != c.adRcode || firstA(r) != c.ad {
+				t.Errorf("ad = %v %v, want %q rcode %d", r, err, c.ad, c.adRcode)
+			}
+			r, err = query(addr, "tracker.ads.example", dns.TypeAAAA)
+			var v6 string
+			for _, rr := range r.Answer {
+				if a, ok := rr.(*dns.AAAA); ok {
+					v6 = a.AAAA.String()
+				}
+			}
+			if err != nil || v6 != c.adV6 {
+				t.Errorf("ad AAAA = %q %v, want %q", v6, err, c.adV6)
+			}
+			r, err = query(addr, "rule.example", dns.TypeA)
+			if err != nil || r.Rcode != c.ruleRcode || firstA(r) != c.rule {
+				t.Errorf("block rule = %v %v, want %q rcode %d", r, err, c.rule, c.ruleRcode)
+			}
+			if r, _ = query(addr, "ads.example", dns.TypeHTTPS); len(r.Answer) != 0 {
+				t.Errorf("blocked HTTPS record should be empty, got %v", r.Answer)
+			}
+		})
 	}
 }

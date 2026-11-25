@@ -55,7 +55,8 @@ type Settings struct {
 	PortalHTML      string    `json:"portalHtml,omitempty"`   // shown on the captive portal instead of the default
 	BlockPageOff    bool      `json:"blockPageOff,omitempty"` // blocked sites get an empty page
 	BlockCustom     bool      `json:"blockCustom,omitempty"`
-	BlockHTML       string    `json:"blockHtml,omitempty"` // the admins own block page with {site} style placeholders
+	BlockHTML       string    `json:"blockHtml,omitempty"`   // the admins own block page with {site} style placeholders
+	BlockAnswer     string    `json:"blockAnswer,omitempty"` // what blocked names resolve to: smart (empty), page, null or nxdomain
 	PausedTill      time.Time `json:"protectionPausedUntil,omitzero"`
 	Recognize       string    `json:"recognize,omitempty"` // devices with a new private address: auto, ask or off
 	// add-ons that are installed, null in configs from before there were any so they keep everything
@@ -441,6 +442,11 @@ func (c *Config) Validate() error {
 	case "", "auto", "ask", "off":
 	default:
 		bad("recognize must be auto, ask or off")
+	}
+	switch s.BlockAnswer {
+	case "", "smart", "page", "null", "nxdomain":
+	default:
+		bad("blockAnswer must be smart, page, null or nxdomain")
 	}
 	if s.Features == nil {
 		s.Features = clone(Features)

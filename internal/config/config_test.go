@@ -30,6 +30,7 @@ func TestValidateRejects(t *testing.T) {
 		"DoT without name": func(c *Config) { c.Settings.Upstreams = []string{"tls://1.1.1.1"} },
 		"missing default":  func(c *Config) { c.Settings.DefaultGroup = "nope" },
 		"bad domain rule":  func(c *Config) { c.Block = []string{"not a domain"} },
+		"bad block answer": func(c *Config) { c.Settings.BlockAnswer = "redirect" },
 	}
 	for name, mod := range cases {
 		c := Default()

@@ -49,6 +49,7 @@ type Server struct {
 	profiles  atomic.Pointer[map[string][]config.Upstream]
 	ipv4Only  atomic.Pointer[[]netip.Prefix] // no aaaa for these since vpn tunnels only carry ipv4
 	bypass    atomic.Bool                    // answer the firefox doh and icloud relay canaries
+	answer    atomic.Uint32                  // how blocked names are answered, one of the answer consts
 	dnssec    atomic.Bool
 	boot      atomic.Pointer[[]string] // plain dns for looking up doh server names
 	doh       *http.Client
@@ -181,6 +182,7 @@ func (s *Server) Configure(set config.Settings) {
 	boot = append(boot, defaultBoot...)
 	s.boot.Store(&boot)
 	s.bypass.Store(set.BlockBypass)
+	s.answer.Store(answerMode(set.BlockAnswer))
 	s.dnssec.Store(set.DNSSEC)
 	// off means no connections and nothing held in memory
 	if !set.DoH3 && s.doh3.Swap(false) && s.h3 != nil {
@@ -382,7 +384,7 @@ func (s *Server) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 	case policy.SafeSearch:
 		resp = s.safeSearch(r, q, dec.Target)
 	default:
-		resp = s.blocked(r, q)
+		resp = s.blocked(r, q, dec)
 	}
 	if isUDP {
 		resp.Truncate(udpSize(r))
@@ -526,8 +528,63 @@ func reverseIP(name string) net.IP {
 	return nil
 }
 
-func (s *Server) blocked(r *dns.Msg, q dns.Question) *dns.Msg {
+const (
+	answerSmart = iota
+	answerPage
+	answerNull
+	answerNXDomain
+)
+
+func answerMode(setting string) uint32 {
+	switch setting {
+	case "page":
+		return answerPage
+	case "null":
+		return answerNull
+	case "nxdomain":
+		return answerNXDomain
+	}
+	return answerSmart
+}
+
+// an address on the lan makes iphones and macs ask the app for local network access, so smart mode
+// only points at the block page for what a person would open on purpose. ads, trackers and the
+// admins own lists are mostly lookups from inside apps and get 0.0.0.0, nothing connects and nothing asks
+func (s *Server) blocked(r *dns.Msg, q dns.Question, dec policy.Decision) *dns.Msg {
+	mode := s.answer.Load()
+	if mode == answerSmart {
+		mode = answerPage
+		if dec.Action == policy.Block && (dec.Category == "ads" || strings.HasPrefix(dec.Category, "list:")) {
+			mode = answerNull
+		}
+	}
+	switch mode {
+	case answerNull:
+		return nullAnswer(r, q)
+	case answerNXDomain:
+		m := new(dns.Msg)
+		m.SetRcode(r, dns.RcodeNameError)
+		m.RecursionAvailable = true
+		return m
+	}
 	return s.pointAtUs(r, q, blockTTL)
+}
+
+// 0.0.0.0 and :: like pi-hole and adguard home, other types get an empty answer
+func nullAnswer(r *dns.Msg, q dns.Question) *dns.Msg {
+	m := new(dns.Msg)
+	m.SetReply(r)
+	m.RecursionAvailable = true
+	hdr := dns.RR_Header{Name: q.Name, Class: dns.ClassINET, Ttl: blockTTL}
+	switch q.Qtype {
+	case dns.TypeA:
+		hdr.Rrtype = dns.TypeA
+		m.Answer = append(m.Answer, &dns.A{Hdr: hdr, A: net.IPv4zero.To4()})
+	case dns.TypeAAAA:
+		hdr.Rrtype = dns.TypeAAAA
+		m.Answer = append(m.Answer, &dns.AAAA{Hdr: hdr, AAAA: net.IPv6zero})
+	}
+	return m
 }
 
 // no https or svcb records so browsers dont learn real ips or ech keys
