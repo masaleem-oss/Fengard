@@ -13,7 +13,9 @@ import (
 // account can't ship an update. more than one so a new key can be added before
 // the old one is retired
 var releaseKeys = []string{
-	"6p2SKBF9xTq2cfN5qJkcI2vQenGDEFMmQvIKQZNe0R4=", // 2026-10-24
+	"6p2SKBF9xTq2cfN5qJkcI2vQenGDEFMmQvIKQZNe0R4=", // 2026-10-24, lost, kept so 1.3.3's own signature still checks
+	"bzUZAlpG3lPLKEvYJC6ek9uy4p+EQxOwWs1bIObHbug=", // 2026-11-25, signs releases
+	"Fa1fy7MCIJVoLcuH5VswkjSgY9ppq/YpcOQx6SdJ5PE=", // 2026-11-25, backup kept offline
 }
 
 // SHA256SUMS of releases made before signing, going back to one of them is checked against these
