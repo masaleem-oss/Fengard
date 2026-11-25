@@ -93,6 +93,13 @@ async function updates(box) {
 // general
 
 const BLOCK_STARTER = '<h1>Access not allowed</h1>\n<p>{site} isn\'t allowed on this network.</p>';
+// value, label, toast after picking it
+const BLOCK_ANSWERS = [
+  ['smart', 'Smart', 'Ads and your own blocklists now get 0.0.0.0, everything else the block page'],
+  ['page', 'Always the block page', 'Every blocked name now points at the block page'],
+  ['null', 'Always 0.0.0.0', 'Blocked names now get 0.0.0.0 and no block page'],
+  ['nxdomain', 'Always "doesn\'t exist"', 'Blocked names now look like they don\'t exist'],
+];
 const PLACEHOLDERS = [['{site}', 'the blocked site'], ['{reason}', 'why it was blocked'], ['{device}', 'device name'], ['{profile}', 'profile'], ['{time}', 'date and time'], ['{network}', 'network name'], ['{title}', 'heading Fengard would use'], ['{message}', 'sentence Fengard would use']];
 
 // the routers wall clock from the rfc3339 time it sent so the browsers own zone doesnt shift it
@@ -142,6 +149,8 @@ async function general(body) {
         </div></label>`}
       <div class="setting" style="padding-left:0;padding-right:0"><div class="setting-text"><b>Block page</b><small>What someone sees when they open a blocked site. Turned off, they get an empty page with no details and no way to ask for access.</small></div>
         ${switchInput('id="bp-on"', !s.blockPageOff, 'Block page')}</div>
+      <div class="setting" style="padding-left:0;padding-right:0"><div class="setting-text"><b>Answer for blocked names</b><small>Pointing blocked names at the block page makes iPhones and Macs ask apps for Local Network access when an ad or tracker inside them is blocked. Smart sends ads, trackers and your own blocklists to 0.0.0.0 so nothing asks, and keeps the block page for everything else.</small></div>
+        <select class="select select-sm" id="bp-answer" style="width:auto" aria-label="Answer for blocked names">${BLOCK_ANSWERS.map(([v, l]) => `<option value="${v}" ${(s.blockAnswer || 'smart') === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
       <div class="setting" style="padding-left:0;padding-right:0"${s.blockPageOff ? ' hidden' : ''}><div class="setting-text"><b>Use my own block page</b><small>Your own HTML in place of the Fengard page.</small></div>
         ${switchInput('id="bp-custom"', s.blockCustom, 'Use my own block page')}</div>
       <div class="field" style="margin:4px 0 16px"${s.blockPageOff || !s.blockCustom ? ' hidden' : ''}><label for="bp-html" class="label">Block page HTML</label>
@@ -163,6 +172,8 @@ async function general(body) {
   $('#tz-here', body)?.addEventListener('click', (e) => { e.preventDefault(); $('[name=timezone]', body).value = Intl.DateTimeFormat().resolvedOptions().timeZone; e.currentTarget.remove(); });
   $('#bp-on', body).addEventListener('change', (e) => attempt(() => saveSettings({ blockPageOff: !e.target.checked },
     e.target.checked ? 'Block page turned on' : 'Blocked sites now show an empty page')).then(() => general(body)));
+  $('#bp-answer', body).addEventListener('change', (e) => attempt(() => saveSettings({ blockAnswer: e.target.value },
+    BLOCK_ANSWERS.find(([v]) => v === e.target.value)[2])));
   $('#bp-custom', body).addEventListener('change', (e) => attempt(() => saveSettings({ blockCustom: e.target.checked, ...(e.target.checked && !s.blockHtml ? { blockHtml: BLOCK_STARTER } : {}) },
     e.target.checked ? 'Blocked sites now show your page' : 'Back to the Fengard block page')).then(() => general(body)));
   const bp = $('#bp-html', body);
