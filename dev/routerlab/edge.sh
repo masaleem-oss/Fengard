@@ -1,6 +1,6 @@
 #!/bin/bash
 # the situations that would hurt a household on openwrt 24.10 x86 squashfs which has the same layout as router flash
-#   edge.sh [test...]   tests lowram ram128 subnet nonet port53 power-dns power-start sysupgrade stopped missing crash lowflash adguard adguard-gl pkg-fw3 pkg-opkg pkg-apk glinet49 glinetdns
+#   edge.sh [test...]   tests lowram ram128 subnet nonet port53 power-dns power-start sysupgrade stopped missing crash lowflash adguard adguard-gl pkg-fw3 pkg-opkg pkg-apk glinet49 glinetdns glinetvpn glinetvpn-fw3
 # prints EDGE rows for the docs/routers.md table
 # each test has its own vm slot so they can all run at once
 WORK=${WORK:-/var/tmp/routerlab}
@@ -35,7 +35,7 @@ until_ok() { n=$1; shift; for _ in $(seq "$n"); do eval "$*" && return 0; sleep 
 # the guard checks every 20 s and waits 10 min before trying fengard again, this makes it 2 s and 1 min
 fast_guard() { r "$1" "echo \"GUARD_TICK='2'\" >>/etc/fengard/install.env; /etc/init.d/fengard restart"; until_ok 60 fg_ok "$1"; }
 
-[ $# -gt 0 ] || set -- lowram ram128 subnet nonet port53 power-dns power-start sysupgrade stopped missing crash lowflash adguard adguard-gl pkg-fw3 pkg-opkg pkg-apk glinet49 glinetdns
+[ $# -gt 0 ] || set -- lowram ram128 subnet nonet port53 power-dns power-start sysupgrade stopped missing crash lowflash adguard adguard-gl pkg-fw3 pkg-opkg pkg-apk glinet49 glinetdns glinetvpn glinetvpn-fw3
 for t in "$@"; do
 	case $t in
 	lowram)
@@ -220,6 +220,50 @@ for t in "$@"; do
 		uninst 37 >/dev/null
 		row "Removed afterwards: VPN client DNS keeps its port, DNS back to dnsmasq" "[ \"\$(vpnport)\" = 2153 ] && [ -z \"\$(r 37 'uci -q get dhcp.@dnsmasq[0].port')\" ] && until_ok 30 landns 37"
 		V stop glinetdns ;;
+	glinetvpn | glinetvpn-fw3)
+		# gl.inet's wireguard server: its zone masquerades like the wan, clients are told to use 10.0.0.1 for dns.
+		# older installers took it for wan and fengard dropped their dns, updating only swaps the program
+		case "$t" in
+		glinetvpn) img=$IMG slot=39 dev=device what="OpenWrt 24.10 (fw4)" ;;
+		glinetvpn-fw3) img=$WORK/openwrt-21.02.7-x86-64-generic-ext4-combined.img slot=40 dev=ifname what="OpenWrt 21.02 (fw3, like stock GL.iNet)" ;;
+		esac
+		V start "$t" x86 "$img" 256 $slot >/dev/null
+		# a client on the far side of the tunnel, a veth into its own namespace stands in for wireguard
+		r $slot "opkg update >/dev/null 2>&1; opkg install ip-full kmod-veth >/dev/null 2>&1
+			ip link add wgserver type veth peer name vpnpeer && ip netns add vpnc && ip link set vpnpeer netns vpnc
+			ip netns exec vpnc sh -c 'ip addr add 10.0.0.2/24 dev vpnpeer; ip link set vpnpeer up; ip link set lo up; ip route add default via 10.0.0.1'
+			uci set network.wgserver=interface; uci set network.wgserver.proto=static; uci set network.wgserver.$dev=wgserver
+			uci set network.wgserver.ipaddr=10.0.0.1; uci set network.wgserver.netmask=255.255.255.0
+			uci set firewall.wgserver=zone; uci set firewall.wgserver.name=wgserver; uci set firewall.wgserver.network=wgserver
+			uci set firewall.wgserver.input=ACCEPT; uci set firewall.wgserver.output=ACCEPT; uci set firewall.wgserver.forward=REJECT
+			uci set firewall.wgserver.masq=1; uci set firewall.wgserver2wan=forwarding
+			uci set firewall.wgserver2wan.src=wgserver; uci set firewall.wgserver2wan.dest=wan
+			uci commit network; uci commit firewall; /etc/init.d/network reload; sleep 3; /etc/init.d/firewall reload" >/dev/null 2>&1
+		# asks the tunnel address like a gl.inet vpn client, or another server to see fengard catch it
+		vpndns() { r $slot "ip netns exec vpnc nslookup ${2:-openwrt.org} ${1:-10.0.0.1} 2>/dev/null" | grep -q "^Name:${3:+.*}"; }
+		vpnfg() { r $slot ". /etc/fengard/install.env; ip netns exec vpnc nslookup fengard.lan $1 2>/dev/null | grep -q \"\$FG_IP\""; }
+		row "GL.iNet style WireGuard server, $what: its clients get DNS before Fengard" "until_ok 60 vpndns"
+		# the release people are updating from, as it shipped
+		old=$WORK/kit-1.3.3
+		[ -f "$old/install.sh" ] || { mkdir -p "$old" && curl -fsSL -o "$WORK/fengard-1.3.3.zip" https://github.com/masaleem-oss/Fengard/releases/download/v1.3.3/fengard-1.3.3.zip &&
+			unzip -qo "$WORK/fengard-1.3.3.zip" -d "$old" && d=$(dirname "$(find "$old" -name install.sh | head -n 1)") && [ "$d" = "$old" ] || mv "$d"/* "$old"/; }
+		kit; new=$KIT; KIT=$old
+		inst $slot >/dev/null
+		until_ok 60 fg_ok $slot
+		vpndns && echo "  1.3.3 answered the vpn client, the bug didn't show" || echo "  1.3.3: the vpn client gets no DNS, as reported"
+		# what an update from the dashboard does: the new program in place, the old install's service restarts it
+		tar -xzOf "$new/install/linux-bundle.tar.gz" bin/linux-amd64/fengardd | r $slot 'cat >/tmp/fengardd.new'
+		r $slot 'chmod 755 /tmp/fengardd.new && mv /tmp/fengardd.new /usr/bin/fengardd && /etc/init.d/fengard restart'
+		row "Updated from 1.3.3 the way the dashboard does it, $what: WireGuard server clients get DNS" "until_ok 90 fg_ok $slot && until_ok 60 vpndns"
+		row "Updated from 1.3.3: a WireGuard server client asking another DNS server gets Fengard's answer" "until_ok 30 vpnfg 9.9.9.9"
+		row "Updated from 1.3.3: the router's LAN keeps working" "landns $slot fengard.lan"
+		uninst $slot >/dev/null
+		KIT=$new
+		inst $slot >/dev/null
+		row "Fresh install, $what: WireGuard server isn't taken for the WAN, its clients get Fengard's DNS" "until_ok 60 fg_ok $slot && ! r $slot 'ps w | grep -v grep | grep fengardd | grep -q \"\-wan [^ ]*wgserver\"' && until_ok 60 vpndns && until_ok 30 vpnfg 10.0.0.1"
+		uninst $slot >/dev/null
+		row "Removed afterwards, $what: WireGuard server clients get DNS from dnsmasq again" "until_ok 30 untouched $slot && until_ok 60 vpndns"
+		V stop "$t" ;;
 	glinet49)
 		# glinet 4.9 (beryl 7) is fw3 on iptables but also ships an nft that answers list and can't open /dev/stdin
 		V start glinet49 x86 "$WORK/openwrt-21.02.7-x86-64-generic-ext4-combined.img" 256 36 >/dev/null
