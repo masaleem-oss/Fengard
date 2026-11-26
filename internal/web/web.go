@@ -26,6 +26,7 @@ import (
 	"github.com/masaleem-oss/Fengard/internal/features"
 	"github.com/masaleem-oss/Fengard/internal/firewall"
 	"github.com/masaleem-oss/Fengard/internal/identity"
+	"github.com/masaleem-oss/Fengard/internal/integrity"
 	"github.com/masaleem-oss/Fengard/internal/internet"
 	"github.com/masaleem-oss/Fengard/internal/netscan"
 	"github.com/masaleem-oss/Fengard/internal/notify"
@@ -93,6 +94,7 @@ type Server struct {
 	Recognizer *identity.Recognizer
 	Presence   *presence.Watcher
 	Scanner    *netscan.Scanner
+	Integrity  *integrity.Checker
 	Features   *features.Manager
 
 	loginLimit   *ratelimit.Limiter
@@ -130,6 +132,7 @@ func (s *Server) Handler() http.Handler {
 	view("GET /api/traffic/{mac}", s.trafficHistory)
 	view("GET /api/presence", s.addon("presence", s.presenceNow))
 	view("GET /api/scan", s.addon("devicecheck", s.scanReport))
+	view("GET /api/security", s.securityStatus)
 	view("GET /api/portal/preview", s.addon("welcome", s.portalPreview))
 	view("GET /api/blockpage/preview", s.blockPreview)
 	view("GET /api/clock", s.clock)
@@ -187,6 +190,8 @@ func (s *Server) Handler() http.Handler {
 	admin("POST /api/update/rollback", s.updateRollback)
 	admin("POST /api/internet/speedtest", s.addon("speedtest", s.speedTest))
 	admin("POST /api/scan", s.addon("devicecheck", s.scanNow))
+	admin("POST /api/security/check", s.securityCheck)
+	admin("POST /api/security/approve", s.securityApprove)
 	admin("PUT /api/features/{id}", s.setFeature(true))
 	admin("DELETE /api/features/{id}", s.setFeature(false))
 	admin("POST /api/rules/temp", s.addTempAllow)
