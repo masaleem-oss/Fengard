@@ -490,6 +490,33 @@ func slug(name string) string {
 	return s
 }
 
+// moveGroup moves a profile one place up or down the list, the order is only for showing them
+func (s *Server) moveGroup(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	var body struct {
+		By int `json:"by"`
+	}
+	if !decode(w, r, &body) {
+		return
+	}
+	if body.By != -1 && body.By != 1 {
+		httpError(w, http.StatusBadRequest, "by must be -1 or 1")
+		return
+	}
+	if s.update(w, r, "Moved group "+id, func(c *config.Config) error {
+		i := slices.IndexFunc(c.Groups, func(g config.Group) bool { return g.ID == id })
+		if i < 0 {
+			return errors.New("unknown group")
+		}
+		if j := i + body.By; j >= 0 && j < len(c.Groups) {
+			c.Groups[i], c.Groups[j] = c.Groups[j], c.Groups[i]
+		}
+		return nil
+	}) {
+		writeJSON(w, map[string]bool{"ok": true})
+	}
+}
+
 func (s *Server) deleteGroup(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if s.update(w, r, "Deleted group "+id, func(c *config.Config) error {

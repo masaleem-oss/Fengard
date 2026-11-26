@@ -190,3 +190,41 @@ func TestNewProfileIDClash(t *testing.T) {
 		t.Fatalf("same name twice = %d %v", code, body)
 	}
 }
+
+// profiles can be put in the order people want them in
+func TestMoveProfile(t *testing.T) {
+	srv := newTestServer(t)
+	c := newClient(t, srv)
+	c.do("POST", "/api/setup", `{"username":"admin","password":"correct horse battery"}`, true)
+	order := func() string {
+		t.Helper()
+		resp, err := c.c.Get(c.url + "/api/groups")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		var gs []struct{ ID string }
+		json.NewDecoder(resp.Body).Decode(&gs)
+		var ids []string
+		for _, g := range gs {
+			ids = append(ids, g.ID)
+		}
+		return strings.Join(ids, ",")
+	}
+	if got := order(); got != "default,kids,iot" {
+		t.Fatalf("starting order %s", got)
+	}
+	if code, body := c.do("POST", "/api/groups/iot/move", `{"by":-1}`, true); code != 200 {
+		t.Fatalf("move up = %d %v", code, body)
+	}
+	if got := order(); got != "default,iot,kids" {
+		t.Fatalf("after moving iot up: %s", got)
+	}
+	// the top one can't go further up and nothing changes
+	if code, _ := c.do("POST", "/api/groups/default/move", `{"by":-1}`, true); code != 200 || order() != "default,iot,kids" {
+		t.Fatalf("moving the first one up changed the order: %s", order())
+	}
+	if code, _ := c.do("POST", "/api/groups/kids/move", `{"by":3}`, true); code != 400 {
+		t.Fatalf("by 3 = %d, want 400", code)
+	}
+}

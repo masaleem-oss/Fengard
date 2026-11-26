@@ -173,6 +173,7 @@ func (s *Server) Handler() http.Handler {
 	admin("PUT /api/groups/{id}", s.saveGroup)
 	admin("DELETE /api/groups/{id}", s.deleteGroup)
 	admin("POST /api/groups/{id}/pause", s.pauseGroup)
+	admin("POST /api/groups/{id}/move", s.moveGroup)
 	admin("POST /api/categories/update", s.updateCategories)
 	admin("POST /api/rules", s.setRule(true))
 	admin("DELETE /api/rules", s.setRule(false))

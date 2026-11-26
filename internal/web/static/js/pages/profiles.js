@@ -243,7 +243,11 @@ export async function render(el, ctx) {
       label: m < 60 ? `${m} minutes` : m === 1440 ? '24 hours' : `${m / 60} hour${m > 60 ? 's' : ''}`, icon: 'clock',
       onClick: async () => { if (await attempt(() => post(`/api/groups/${g.id}/pause`, { minutes: m }), `Paused ${g.name}`)) load(); },
     }))));
+    const at = groups.findIndex((x) => x.id === g.id);
+    const move = (by) => async () => { if (await attempt(() => post(`/api/groups/${g.id}/move`, { by }), by < 0 ? 'Moved up' : 'Moved down')) { await load(); refreshShell(); } };
     $('#more', ed)?.addEventListener('click', (e) => menu(e.currentTarget, [
+      ...(at > 0 ? [{ label: 'Move up', icon: 'arrow-up', onClick: move(-1) }] : []),
+      ...(at < groups.length - 1 ? [{ label: 'Move down', icon: 'arrow-down', onClick: move(1) }] : []),
       ...(g.default ? [] : [{ label: 'Make default for new devices', icon: 'badge-check', onClick: async () => {
         if (await attempt(() => put('/api/settings', { ...settings, defaultGroup: g.id }), `New devices now join ${g.name}`)) load();
       } }]),
