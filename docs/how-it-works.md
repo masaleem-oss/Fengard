@@ -122,6 +122,7 @@ flowchart LR
 | `/etc/init.d/fengard` | the service; adds one spare LAN address for the dashboard and block page, and runs a small watchdog | yes |
 | dnsmasq | stops answering DNS and keeps doing DHCP; devices are told to use the router for DNS | restored exactly |
 | firewall | a hook that re-applies Fengard's rules after a firewall reload, plus the VPN interface and port | yes |
+| guest Wi-Fi | only when turned on in the dashboard: SSID, password and the guest firewall rule on the router's own guest network, or Fengard's own `fgguest` network, zone and Wi-Fi. What it changed is saved in `guest.undo` first | restored exactly, also when turned off |
 | `/etc/sysupgrade.conf` | keeps Fengard across firmware upgrades | yes |
 
 Most firmware keeps its own web interface on ports 80 and 443, so Fengard listens on free ports and the
