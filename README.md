@@ -345,6 +345,7 @@ takes DNS over and the house stays online. See [how it works](docs/how-it-works.
 | Firewall | Port forwards, WAN hardening (service ports closed, SYN and ICMP limits, invalid packets dropped), per-device DNS flood limit, quarantine for new devices |
 | Returning devices | Phones and laptops that rejoin with a new private Wi-Fi address are matched to the device they were, by DHCP name and fingerprint, the old address going quiet as the new one appears, and the sites they use. Sure matches keep their profile automatically, others are suggested on the Devices page. A copied name alone is never enough |
 | DNS resilience | Cache, serve-stale when the upstream is down, merged duplicate lookups, per-device and global rate limits |
+| Security check | A nightly check of the router against a baseline you approve: new or updated packages, changed programs and startup scripts, SSH keys, login accounts, boot services and cron jobs, open ports, and port forwards or rules open to the internet. New changes raise an alert. It notices, it doesn't undo |
 | Notifications | Discord, Slack, Telegram, ntfy and generic webhooks, by severity |
 | Accounts | Admin and viewer roles, two-factor (TOTP and recovery codes), API keys, idle and absolute session timeouts |
 | Dashboard HTTPS | Served with a CA-signed certificate for its names and IP, so installing the CA makes it green |

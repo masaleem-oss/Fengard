@@ -29,6 +29,7 @@ const PAGES = [
   { id: 'firewall', label: 'Firewall', icon: 'brick-wall' },
   { id: 'vpn', label: 'VPN', icon: 'globe-lock', addon: 'vpn' },
   { section: 'System' },
+  { id: 'security', label: 'Security', icon: 'shield-check' },
   { id: 'settings', label: 'Settings', icon: 'settings' },
 ];
 const pageById = Object.fromEntries(PAGES.filter((p) => p.id).map((p) => [p.id, p]));
@@ -43,6 +44,7 @@ const loaders = {
   forwarding: () => import('./pages/forwarding.js'),
   firewall: () => import('./pages/firewall.js'),
   vpn: () => import('/features/vpn/page.js'),
+  security: () => import('./pages/security.js'),
   settings: () => import('./pages/settings.js'),
 };
 
@@ -455,7 +457,7 @@ async function signOut() {
 }
 
 const SEV_ICON = { info: 'info', warning: 'triangle-alert', critical: 'octagon-x' };
-export const alertIcon = (a) => ({ new_device: 'monitor-smartphone', access_request: 'send', time_request: 'timer', login_failed: 'key-round', dns_flood: 'zap', upstream_down: 'unplug', update: 'download', update_failed: 'triangle-alert', test: 'bell' }[a.kind] || SEV_ICON[a.severity] || 'info');
+export const alertIcon = (a) => ({ new_device: 'monitor-smartphone', access_request: 'send', time_request: 'timer', login_failed: 'key-round', dns_flood: 'zap', upstream_down: 'unplug', update: 'download', update_failed: 'triangle-alert', security_check: 'shield-alert', firmware_changed: 'refresh-cw', test: 'bell' }[a.kind] || SEV_ICON[a.severity] || 'info');
 
 async function alertsPopover(anchor) {
   if ($('.popover')) return closeMenus();

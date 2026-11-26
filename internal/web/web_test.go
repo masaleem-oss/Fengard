@@ -27,7 +27,7 @@ import (
 	"github.com/masaleem-oss/Fengard/internal/vpn"
 )
 
-func newTestServer(t *testing.T) *httptest.Server {
+func newTestServer(t *testing.T, opts ...func(*Server)) *httptest.Server {
 	t.Helper()
 	dir := t.TempDir()
 	db, err := store.Open(filepath.Join(dir, "test.db"))
@@ -57,6 +57,9 @@ func newTestServer(t *testing.T) *httptest.Server {
 		Notifier: notify.New("test"),
 		VPN:      &vpn.Manager{DataDir: dir},
 		Started:  time.Now(),
+	}
+	for _, o := range opts {
+		o(s)
 	}
 	t.Cleanup(func() { s.Log.Close(context.Background()) })
 	t.Cleanup(func() { s.CloseWorkers(context.Background()) })

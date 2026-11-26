@@ -41,6 +41,7 @@ import (
 	"github.com/masaleem-oss/Fengard/internal/features"
 	"github.com/masaleem-oss/Fengard/internal/firewall"
 	"github.com/masaleem-oss/Fengard/internal/identity"
+	"github.com/masaleem-oss/Fengard/internal/integrity"
 	"github.com/masaleem-oss/Fengard/internal/internet"
 	"github.com/masaleem-oss/Fengard/internal/localdns"
 	"github.com/masaleem-oss/Fengard/internal/netscan"
@@ -568,6 +569,9 @@ func main() {
 	}
 	run(func() { scanner.Run(ctx) })
 
+	guard := securityCheck(cfgStore, alrt, must(db.KV("integrity")), *dataDir, *fwOn, routerLoc)
+	run(func() { guard.Run(ctx) })
+
 	addons.OnChange = func(id string, ready bool) {
 		switch id {
 		case "vendors":
@@ -590,7 +594,7 @@ func main() {
 		CPU: cpu, VPN: vpnMgr, Screen: screen, Version: version, Updater: updater,
 		DashboardHosts: split(*hosts), Started: time.Now(),
 		Welcome: gate, Internet: inet, Traffic: meter, Presence: home, Scanner: scanner, Recognizer: rec,
-		Features: addons,
+		Features: addons, Integrity: guard,
 		ProbeURL: probeURL(*blockIP, *httpsAddr, *fwOn),
 	}
 	handler := webSrv.Handler()
@@ -710,6 +714,58 @@ func probeURL(blockIP, httpsAddr string, fwOn bool) string {
 		return "https://" + blockIP + "/__fengard/ping"
 	}
 	return fmt.Sprintf("https://%s:%d/__fengard/ping", blockIP, p)
+}
+
+// securityCheck watches the router for new programs, keys, accounts and open ports
+func securityCheck(cfgStore *config.Store, alrt *alerts.Alerts, kv *store.KV, dataDir string, router bool, loc func() *time.Location) *integrity.Checker {
+	exclude := []string{"/usr/bin/fengardd", "/etc/init.d/fengard", "/etc/fengard"}
+	if dir, err := filepath.Abs(dataDir); err == nil {
+		exclude = append(exclude, dir, filepath.Join(dir, "fengardd"))
+	}
+	if self, err := os.Executable(); err == nil {
+		exclude = append(exclude, self)
+	}
+	return &integrity.Checker{
+		Collector: &integrity.Collector{
+			Exclude: exclude,
+			Forwards: func() []string {
+				var out []string
+				for _, f := range cfgStore.Get().PortForwards {
+					if f.Enabled {
+						out = append(out, fmt.Sprintf("%s %d to %s:%d", f.Proto, f.ExtPort, f.DestIP, f.DestPort))
+					}
+				}
+				return out
+			},
+			// a little air between files so a single core router stays snappy
+			Pause: func() { time.Sleep(20 * time.Millisecond) },
+		},
+		KV: kv, Available: router, Location: loc,
+		Enabled:  func() bool { return !cfgStore.Get().Settings.SecurityCheckOff },
+		Watching: func(w string) bool { return cfgStore.Get().Settings.Watching(w) },
+		OnChanges: func(all, fresh []integrity.Change) {
+			n := len(all)
+			title := fmt.Sprintf("Security check: %d changes since you last approved", n)
+			if n == 1 {
+				title = "Security check: 1 change since you last approved"
+			}
+			var lines []string
+			for i, ch := range fresh {
+				if i == 3 {
+					lines = append(lines, fmt.Sprintf("and %d more", len(fresh)-3))
+					break
+				}
+				lines = append(lines, ch.What)
+			}
+			alrt.Raise("security_check:"+fresh[0].ID, 0, alerts.Alert{Kind: "security_check", Severity: alerts.Warning,
+				Title: title, Detail: strings.Join(lines, "; ") + ". If you didn't make these changes, check the Security page."})
+		},
+		OnFirmware: func(from, to string) {
+			alrt.Raise("firmware:"+to, 0, alerts.Alert{Kind: "firmware_changed", Severity: alerts.Info,
+				Title:  "Firmware changed from " + from + " to " + to,
+				Detail: "The security check took a new baseline, so the upgrade's own changes aren't listed."})
+		},
+	}
 }
 
 func must[T any](v T, err error) T {

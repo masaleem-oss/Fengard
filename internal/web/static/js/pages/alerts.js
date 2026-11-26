@@ -51,6 +51,8 @@ export async function render(el, ctx) {
         actions = g ? `<div class="feed-actions">
           ${[15, 30, 60].map((m) => `<button class="btn btn-sm" data-i="${i}" data-act="bonus" data-min="${m}" data-g="${esc(g.id)}">${icon('timer', 'icon-sm')}+${m === 60 ? '1 h' : m + ' min'} for ${esc(g.name)}</button>`).join('')}
           <a class="btn btn-ghost btn-sm" href="#profiles?id=${encodeURIComponent(g.id)}&tab=time">Time settings</a></div>` : '';
+      } else if (a.kind === 'security_check' || a.kind === 'firmware_changed') {
+        actions = `<div class="feed-actions"><a class="btn btn-ghost btn-sm" href="#security">${a.kind === 'security_check' ? 'Review changes' : 'Security check'}</a></div>`;
       } else if (a.kind === 'new_device' && a.mac) {
         actions = `<div class="feed-actions"><a class="btn btn-ghost btn-sm" href="#devices?mac=${encodeURIComponent(a.mac)}">View device</a></div>`;
       }

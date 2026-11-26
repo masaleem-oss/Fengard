@@ -59,6 +59,9 @@ type Settings struct {
 	BlockAnswer     string    `json:"blockAnswer,omitempty"` // what blocked names resolve to: smart (empty), page, null or nxdomain
 	PausedTill      time.Time `json:"protectionPausedUntil,omitzero"`
 	Recognize       string    `json:"recognize,omitempty"` // devices with a new private address: auto, ask or off
+	// the nightly security check, on unless turned off, and the watches turned off in it
+	SecurityCheckOff  bool     `json:"securityCheckOff,omitempty"`
+	SecurityUnwatched []string `json:"securityUnwatched,omitempty"`
 	// add-ons that are installed, null in configs from before there were any so they keep everything
 	Features []string `json:"features"`
 	// custom lists used to block for everyone, configs from then get every list turned on in every profile once
@@ -460,6 +463,15 @@ func (c *Config) Validate() error {
 		}
 	}
 	s.Features = append([]string{}, feats...)
+	var unwatched []string
+	for _, w := range s.SecurityUnwatched {
+		if !slices.Contains(SecurityWatches, w) {
+			bad("unknown security check watch %q", w)
+		} else if !slices.Contains(unwatched, w) {
+			unwatched = append(unwatched, w)
+		}
+	}
+	s.SecurityUnwatched = unwatched
 
 	if c.Devices == nil {
 		c.Devices = []Device{}
@@ -888,6 +900,12 @@ func (c *Config) UnlinkMAC(mac string) bool {
 
 // the add-ons a release knows, internal/features has what each one is
 var Features = []string{"vpn", "vendors", "speedtest", "devicecheck", "presence", "welcome"}
+
+// what the security check can watch, internal/integrity collects each one
+var SecurityWatches = []string{"packages", "files", "ssh", "accounts", "startup", "ports", "exposure"}
+
+// Watching is false for a security check watch the owner turned off
+func (s *Settings) Watching(watch string) bool { return !slices.Contains(s.SecurityUnwatched, watch) }
 
 // what a new install starts with before setup asks
 var DefaultFeatures = []string{"vendors", "speedtest", "devicecheck"}
