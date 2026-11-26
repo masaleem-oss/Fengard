@@ -7,6 +7,17 @@
   }
   if ($('reload')) $('reload').onclick = function () { location.reload(); };
 
+  // waiting for approval, reload as soon as the admin says yes so the phone sees it's online
+  if (document.body.classList.contains('kind-pending')) {
+    var check = function () {
+      fetch('/__fengard/me.json', { cache: 'no-store' }).then(function (r) { return r.json(); }).then(function (d) {
+        if (d && d.pending === false) location.reload();
+        else setTimeout(check, 5000);
+      }).catch(function () { setTimeout(check, 10000); });
+    };
+    setTimeout(check, 5000);
+  }
+
   var ask = $('ask'), form = $('request');
   if (!ask || !form) return;
   ask.onclick = function () {

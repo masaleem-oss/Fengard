@@ -318,6 +318,8 @@ func (s *Server) updateDevice(w http.ResponseWriter, r *http.Request) {
 		}
 		if body.Approved != nil {
 			d.Approved = *body.Approved
+			// approving a guest the admin turned away before lets it on again
+			d.Denied = d.Denied && !d.Approved
 		}
 		if body.Presence != nil {
 			d.Presence = *body.Presence
