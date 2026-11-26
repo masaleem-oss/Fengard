@@ -100,6 +100,21 @@ for s in $opt_sections; do
 	done
 	for o in $(getstate "ORIG6_$s"); do uci add_list "dhcp.$s.dhcp_option=$o"; done
 done
+# guest wi-fi goes back to how it was before fengard, after the dns options above so they
+# can't put a dns server back on a guest network that's gone. one line at a time so something
+# removed by hand doesn't stop the rest
+GUEST_UNDO=$FG_DIR/guest.undo
+if [ -f "$GUEST_UNDO" ]; then
+	echo "== guest Wi-Fi back to how it was"
+	while IFS= read -r l; do
+		case "$l" in set\ * | delete\ * | add_list\ * | del_list\ *) eval "uci -q $l" ;; esac
+	done <"$GUEST_UNDO"
+	uci commit wireless
+	uci commit network
+	uci commit firewall
+	rm -f "$GUEST_UNDO" "$FG_DIR/guest.json"
+	wifi reload >/dev/null 2>&1
+fi
 uci commit dhcp
 /etc/init.d/dnsmasq restart >/dev/null 2>&1
 /etc/init.d/network reload >/dev/null 2>&1

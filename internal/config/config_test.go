@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/json"
 	"slices"
 	"strings"
 	"testing"
@@ -178,5 +179,39 @@ func TestListsMoveIntoProfilesOnce(t *testing.T) {
 	c.Lists = nil
 	if err := c.Validate(); err != nil || slices.Contains(c.Groups[1].Categories, "list:a") {
 		t.Errorf("err %v, categories %v", err, c.Groups[1].Categories)
+	}
+}
+
+func TestGuestValidate(t *testing.T) {
+	bad := map[string]Guest{
+		"no name":        {Enabled: true, Password: "longenough"},
+		"long name":      {Enabled: true, SSID: strings.Repeat("x", 33), Password: "longenough"},
+		"control char":   {Enabled: true, SSID: "a\nb", Password: "longenough"},
+		"short password": {Enabled: true, SSID: "Guests", Password: "short"},
+		"odd password":   {Enabled: true, SSID: "Guests", Password: "longenoughé"},
+	}
+	for name, g := range bad {
+		c := Default()
+		c.Guest = g
+		if err := c.Validate(); err == nil {
+			t.Errorf("%s: expected validation error", name)
+		}
+	}
+	c := Default()
+	c.Guest = Guest{Enabled: true, SSID: "  Sam's Guests ", Password: "k7pq-m3zt-x9wd-4fhn", Group: "gone"}
+	if err := c.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if c.Guest.SSID != "Sam's Guests" || c.Guest.Group != "" {
+		t.Errorf("got %+v", c.Guest)
+	}
+	// off and never set up stays out of the saved config so older versions see nothing new
+	c = Default()
+	if err := c.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := json.Marshal(c)
+	if strings.Contains(string(b), `"guest"`) {
+		t.Errorf("empty guest settings saved: %s", b)
 	}
 }

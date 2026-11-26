@@ -92,7 +92,7 @@ func renderIPTables(p Params, ipset, hashlimit, macMatch bool, notes []string) s
 	for _, t := range p.Tunnels {
 		redirect[t.Iface] = true
 	}
-	for _, v := range p.VPNServers {
+	for _, v := range append(append([]string{}, p.VPNServers...), p.Guests...) {
 		redirect[v] = true
 	}
 	for _, lan := range lans {
@@ -172,6 +172,23 @@ func renderIPTables(p Params, ipset, hashlimit, macMatch bool, notes []string) s
 		w("-A %s -i %s -j ACCEPT", chForward, t.Iface)
 		w("-A %s -o %s -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT", chForward, t.Iface)
 		w("-A %s -i %s -j ACCEPT", chInput, t.Iface)
+	}
+	// last in the chain since a return skips the rest of fengard's checks
+	for _, g := range p.Guests {
+		if macMatch {
+			for _, m := range macs(p.GuestOK) {
+				w("-A %s -i %s -m mac --mac-source %s -j RETURN", chForward, g, m)
+			}
+		} else {
+			w("# note: no mac match, guests can't be told apart so none get through")
+		}
+		w("-A %s -i %s -j REJECT --reject-with icmp-admin-prohibited", chForward, g)
+	}
+	// an accept here is final on iptables, so only the approval page on fengard's own address
+	if ports := servicePorts(p.webPorts()); p.BlockIP != "" && ports != "" {
+		for _, g := range p.Guests {
+			w("-A %s -i %s -d %s -p tcp -m multiport --dports %s -j ACCEPT", chInput, g, p.BlockIP, strings.ReplaceAll(ports, " ", ""))
+		}
 	}
 	for _, wan := range p.WAN {
 		w("-A %s -i %s -m conntrack --ctstate INVALID -j DROP", chInput, wan)

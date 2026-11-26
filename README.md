@@ -252,7 +252,7 @@ firewalld) and then tells you the one step left: set your router's DHCP DNS serv
 
 Computer mode filters every device by DNS but has limits:
 
-- **No firewall.** Port forwards, bypass blocking, flood limits and the VPN need the router install.
+- **No firewall.** Port forwards, bypass blocking, flood limits, guest Wi-Fi and the VPN need the router install.
 - **The computer must stay on and awake.** While it sleeps, devices lose name lookups.
 - **Its address must not change.** Reserve it in the router's DHCP settings.
 - **Only one DNS server.** Give devices no second DNS server, or they can go around Fengard.
@@ -333,6 +333,7 @@ takes DNS over and the house stays online. See [how it works](docs/how-it-works.
 | Bypass protection | Redirects all DNS to Fengard, blocks DoH, DoT and DoQ, turns off Firefox DoH and iCloud Private Relay |
 | Tor | Blocked by name (Tor Browser, bridges) and by address: the relay list refreshes daily into a firewall set, applied per profile |
 | Remote access VPN | Built-in WireGuard server. Add a phone, scan the QR code, and it gets the same filtering on mobile data. Detects double NAT and says what to forward |
+| Guest Wi-Fi | One switch on the Guest Wi-Fi page. Visitors scan a QR code to join a network kept off your LAN, and each new device waits until you approve it. Uses the router's own guest network when it has one, and turning it off puts the router back as it was. Router install only |
 | Tailscale | When no port can be forwarded, the router can be a Tailscale exit node. Fengard filters `tailscale0` like the LAN and lists Tailscale devices |
 | Custom blocklists | Pick from popular lists (HaGeZi, OISD, AdGuard DNS filter, Steven Black and more) or subscribe to any hosts-file or domain list by URL, up to 16. New ones start off and each profile turns them on. A list no profile uses takes no memory, and one that won't fit in free memory isn't loaded |
 | Check a site | What every profile would do with a domain and why, also from the command palette |

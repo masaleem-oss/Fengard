@@ -7,6 +7,8 @@ import (
 
 	"github.com/masaleem-oss/Fengard/internal/alerts"
 	"github.com/masaleem-oss/Fengard/internal/config"
+	"github.com/masaleem-oss/Fengard/internal/policy"
+	"github.com/masaleem-oss/Fengard/internal/welcome"
 )
 
 // exactly what apple serves, anything else makes the phone show a login sheet
@@ -50,6 +52,11 @@ func (s *Server) captiveCheck(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	info, _ := s.Devices.Lookup(clientIP(r))
 	// a mac on a private address looks like a phone until its browser says otherwise
+	// a device waiting for approval gets the waiting page in the phone's sign in sheet
+	if s.Policy != nil && s.Policy.Decide(info.MAC, welcome.ProbeHost, time.Now()).Action == policy.Quarantine {
+		s.blockPage(w, r)
+		return
+	}
 	if s.Welcome != nil && strings.Contains(r.UserAgent(), "Macintosh") && s.Welcome.Want(info.MAC, info.Hostname) {
 		s.Welcome.Accept(info.MAC)
 	}

@@ -96,6 +96,7 @@ type Server struct {
 	Scanner    *netscan.Scanner
 	Integrity  *integrity.Checker
 	Features   *features.Manager
+	Guest      GuestWiFi
 
 	loginLimit   *ratelimit.Limiter
 	requestLimit *ratelimit.Limiter
@@ -139,6 +140,7 @@ func (s *Server) Handler() http.Handler {
 	view("GET /api/devices/{mac}/summary", s.deviceSummary)
 	view("GET /api/certificate", s.certificateInfo)
 	view("GET /api/vpn", s.addon("vpn", s.vpnInfo))
+	view("GET /api/guest", s.guestInfo)
 	view("GET /api/features", s.listFeatures)
 	view("GET /api/prefs/dashboard", s.getLayout)
 	mux.HandleFunc("PUT /api/prefs/dashboard", s.mutating(s.require(auth.Viewer, s.putLayout)))
@@ -216,6 +218,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/certificate/export", s.require(auth.Admin, s.certificateExport))
 	admin("POST /api/certificate/import", s.certificateImport)
 	admin("PUT /api/vpn", s.addon("vpn", s.vpnSettings))
+	admin("PUT /api/guest", s.guestSettings)
+	admin("POST /api/guest/password", s.guestPassword)
+	admin("POST /api/guest/{mac}/{action}", s.guestAction)
 	admin("POST /api/groups/{id}/bonus", s.groupBonus)
 	// my time page redirects from the dashboard host too
 	mux.HandleFunc("GET /me", func(w http.ResponseWriter, r *http.Request) { http.Redirect(w, r, "/__fengard/me", http.StatusFound) })
@@ -261,7 +266,8 @@ func (s *Server) Handler() http.Handler {
 			s.welcomeJoin(w, r)
 			return
 		}
-		if host, _, _ := strings.Cut(r.Host, ":"); strings.EqualFold(host, welcome.ProbeHost) {
+		// the waiting page shown there loads its script and checks back under /__fengard/
+		if host, _, _ := strings.Cut(r.Host, ":"); strings.EqualFold(host, welcome.ProbeHost) && !strings.HasPrefix(r.URL.Path, "/__fengard/") {
 			s.captiveCheck(w, r)
 			return
 		}
@@ -293,7 +299,8 @@ func (s *Server) Handler() http.Handler {
 			blockAssets.ServeHTTP(w, r)
 			return
 		}
-		if s.isDashboard(r.Host) {
+		// guests never see the admin sign in, only their own page
+		if s.isDashboard(r.Host) && !s.fromGuest(r) {
 			if r.TLS == nil && !s.plainHTTPAllowed(r) && !publicCARequest(r) {
 				s.httpsBootstrap(w, r)
 				return
@@ -489,6 +496,9 @@ func (s *Server) blockPage(w http.ResponseWriter, r *http.Request) {
 		data["Kind"], data["Title"] = "pending", "Waiting for approval"
 		data["Message"] = "This device is new to the network. The admin has been notified and needs to approve it before it can go online."
 		data["CanAsk"] = false
+		if d := s.Config.Get().Device(info.MAC); d != nil && d.Denied {
+			data["Title"], data["Message"] = "Not allowed on this network", "The network admin hasn't let this device go online."
+		}
 	case policy.Allow, policy.SafeSearch:
 		data["Kind"], data["Title"] = "allowed", "This site is now allowed"
 		data["Message"] = "It was unblocked a moment ago. Reload the page to continue."

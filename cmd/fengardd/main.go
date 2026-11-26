@@ -40,6 +40,7 @@ import (
 	"github.com/masaleem-oss/Fengard/internal/dnsserver"
 	"github.com/masaleem-oss/Fengard/internal/features"
 	"github.com/masaleem-oss/Fengard/internal/firewall"
+	"github.com/masaleem-oss/Fengard/internal/guest"
 	"github.com/masaleem-oss/Fengard/internal/identity"
 	"github.com/masaleem-oss/Fengard/internal/integrity"
 	"github.com/masaleem-oss/Fengard/internal/internet"
@@ -218,13 +219,21 @@ func main() {
 		log.Printf("blocklists: %d domains loaded from cache", cat.Set().Len())
 	}()
 
+	// guest wi-fi, only a router install touches the router's settings
+	guestWiFi := &guest.Manager{Enabled: *fwOn, Dir: *dataDir, BlockIP: *blockIP, Ports: []int{port(*httpAddr), port(*httpsAddr)}}
 	tracker := devices.NewTracker(*leases)
 	// on a router only the lan side holds devices, the wan side has the upstream gateway
 	if *fwOn {
-		tracker.Neighbors = devices.LANNeighbors(split(*lan))
+		tracker.Neighbors = func() []devices.Info {
+			return devices.LANNeighbors(append(split(*lan), guestWiFi.Ifaces()...))()
+		}
 	}
 	newDevices := make(chan devices.Info, 256)
 	tracker.OnNew = func(mac, hostname, ip string) {
+		// before the lookup that found it gets its answer, so a new guest waits from the start
+		if guestWiFi.IsGuest(ip) {
+			engine.AddGuest(mac)
+		}
 		select {
 		case newDevices <- devices.Info{MAC: mac, Hostname: hostname, IP: ip}:
 		default: // too many new macs at once next scan gets them
@@ -323,6 +332,7 @@ func main() {
 			log.Printf("vpn: %v", err)
 		}
 		tunnelClients(ctx, cfgStore, tracker)
+		guestWiFi.Want(c.Guest)
 		kick()
 	})
 	run(func() {
@@ -360,7 +370,7 @@ func main() {
 	run(func() { rec.Run(ctx) })
 	// skips lan interfaces that dont exist, so dev runs just go without
 	identity.Sniff(ctx, split(*lan), prints.Set)
-	run(func() { recordNewDevices(ctx, newDevices, cfgStore, alrt, rec) })
+	run(func() { recordNewDevices(ctx, newDevices, cfgStore, alrt, rec, guestWiFi.IsGuest) })
 
 	ca, err := certs.LoadOrCreate(*dataDir)
 	if err != nil {
@@ -426,6 +436,11 @@ func main() {
 				wans = []string{"fg-nowan"}
 			}
 		}
+		// the guest bridge is lan side too, the installer didn't know about it
+		guests := guestWiFi.Ifaces()
+		if wans = slices.DeleteFunc(wans, func(w string) bool { return slices.Contains(guests, w) }); len(wans) == 0 {
+			wans = []string{"fg-nowan"}
+		}
 		return firewall.Params{
 			LAN: lans, WAN: wans, VPNServers: servers,
 			RouterIPv4: *dnsIP, RouterIPv6: *blockIP6,
@@ -437,6 +452,7 @@ func main() {
 			Quarantined:  q, Offline: off, OfflineIPs: tunnelIPs(tracker, off),
 			TorIPs: cat.TorIPs(), TorMACs: tor, TorSrcIPs: tunnelIPs(tracker, tor),
 			Tunnels: tunnels,
+			Guests:  guests, GuestOK: approvedMACs(c),
 			// kernel cap sits above the dns per device limit its just for floods
 			DNSPerSecond: c.Settings.ClientRateQPS * 2,
 		}, nil
@@ -449,10 +465,15 @@ func main() {
 		firewall.Harden()
 	}
 
+	guestWiFi.OnChange = kick
+	run(func() { guestWiFi.Run(ctx) })
+	run(func() { watchGuests(ctx, tracker, engine, guestWiFi) })
+
 	go func() {
 		for range resyncSignals() {
 			log.Printf("firewall: re-sync requested")
 			kick()
+			guestWiFi.Refresh()
 			// the firewall reloads when an interface comes up, like a vpn client taking the default route
 			dns.NetworkChanged()
 		}
@@ -594,7 +615,7 @@ func main() {
 		CPU: cpu, VPN: vpnMgr, Screen: screen, Version: version, Updater: updater,
 		DashboardHosts: split(*hosts), Started: time.Now(),
 		Welcome: gate, Internet: inet, Traffic: meter, Presence: home, Scanner: scanner, Recognizer: rec,
-		Features: addons, Integrity: guard,
+		Features: addons, Integrity: guard, Guest: guestWiFi,
 		ProbeURL: probeURL(*blockIP, *httpsAddr, *fwOn),
 	}
 	handler := webSrv.Handler()
@@ -806,7 +827,7 @@ func serve(srv *http.Server, tlsOn bool) {
 	}
 }
 
-func recordNewDevices(ctx context.Context, ch <-chan devices.Info, cs *config.Store, al *alerts.Alerts, rec *identity.Recognizer) {
+func recordNewDevices(ctx context.Context, ch <-chan devices.Info, cs *config.Store, al *alerts.Alerts, rec *identity.Recognizer, isGuest func(ip string) bool) {
 	for {
 		var batch []devices.Info
 		select {
@@ -829,8 +850,14 @@ func recordNewDevices(ctx context.Context, ch <-chan devices.Info, cs *config.St
 		// a phone back with a new private address goes straight back to its own device
 		now := time.Now()
 		known := map[string]identity.Match{}
+		guests := map[string]bool{}
 		cur := cs.Get()
 		for _, d := range batch {
+			// a guest is never taken for a household device, the admin says who it is
+			if cur.Guest.Enabled && isGuest(d.IP) {
+				guests[d.MAC] = true
+				continue
+			}
 			if cur.Device(d.MAC) == nil {
 				if m, ok := rec.Check(d.MAC, d.Hostname, now); ok && m.Sure {
 					known[d.MAC] = m
@@ -850,10 +877,18 @@ func recordNewDevices(ctx context.Context, ch <-chan devices.Info, cs *config.St
 					merged = append(merged, d.MAC)
 					continue
 				}
-				c.Devices = append(c.Devices, config.Device{
+				dev := config.Device{
 					MAC: d.MAC, Hostname: d.Hostname, Group: c.Settings.DefaultGroup,
 					Approved: !c.Settings.QuarantineNew, FirstSeen: time.Now(),
-				})
+				}
+				// guests wait for the admin whatever quarantine new devices says
+				if guests[d.MAC] {
+					dev.Guest, dev.Approved = true, false
+					if c.Guest.Group != "" {
+						dev.Group = c.Guest.Group
+					}
+				}
+				c.Devices = append(c.Devices, dev)
 				added = append(added, d)
 			}
 			if len(added)+len(merged) == 0 {
@@ -877,6 +912,12 @@ func recordNewDevices(ctx context.Context, ch <-chan devices.Info, cs *config.St
 				Title: "New device joined: " + name, Detail: "IP " + d.IP}
 			if quarantine {
 				a.Severity, a.Detail = alerts.Warning, a.Detail+" · waiting for approval"
+			}
+			if guests[d.MAC] {
+				a.Severity, a.Title = alerts.Warning, "Guest waiting to go online: "+name
+				a.Detail = "IP " + d.IP + " on the guest Wi-Fi. Approve or deny it on the Guest page."
+				al.Raise("new:"+d.MAC, time.Hour, a)
+				continue
 			}
 			al.Raise("new:"+d.MAC, time.Hour, a)
 			rec.Watch(d.MAC, now)

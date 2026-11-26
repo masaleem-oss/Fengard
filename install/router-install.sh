@@ -177,6 +177,8 @@ for s in $(dhcp_sections); do
 	n=$(uci -q get "dhcp.$s.interface")
 	[ -n "$n" ] && [ "$n" != "$LAN_NET" ] && [ "$(uci -q get "dhcp.$s.ignore")" != 1 ] || continue
 	is_wan_net "$n" && continue
+	# the guest wi-fi fengard makes, it finds that one itself while it runs
+	[ "$n" = fgguest ] && continue
 	[ -n "$(net_ip "$n")" ] || continue
 	EXTRA_NETS="$EXTRA_NETS $n"
 done

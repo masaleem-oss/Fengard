@@ -12,6 +12,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/masaleem-oss/Fengard/internal/catalog"
 )
@@ -31,6 +33,7 @@ type Config struct {
 	PortForwards []PortForward `json:"portForwards"`
 	Channels     []Channel     `json:"channels"`
 	VPN          VPN           `json:"vpn"`
+	Guest        Guest         `json:"guest,omitzero"`
 }
 
 type Settings struct {
@@ -130,6 +133,17 @@ type Device struct {
 	PausedTill time.Time `json:"pausedUntil,omitzero"`
 	Presence   bool      `json:"presence,omitempty"` // alerts when it arrives or leaves
 	OldMACs    []string  `json:"oldMacs,omitempty"`  // earlier private addresses of the same device
+	// first joined on the guest wi-fi, so it needs approving whatever quarantineNew says
+	Guest  bool `json:"guest,omitempty"`
+	Denied bool `json:"denied,omitempty"` // the admin said no or kicked it, stays off until approved
+}
+
+// guest wi-fi fengard sets up on the router. later steps hang per guest limits and a vpn off this
+type Guest struct {
+	Enabled  bool   `json:"enabled,omitempty"`
+	SSID     string `json:"ssid,omitempty"`
+	Password string `json:"password,omitempty"` // wpa2, in the qr code guests scan
+	Group    string `json:"group,omitempty"`    // the profile new guests get
 }
 
 type TempAllow struct {
@@ -559,6 +573,23 @@ func (c *Config) Validate() error {
 		}
 		if p.Group != "" && !ids[p.Group] {
 			bad("VPN device %q is in unknown group %q", p.Name, p.Group)
+		}
+	}
+
+	gs := &c.Guest
+	gs.SSID = strings.TrimSpace(gs.SSID)
+	if gs.Group != "" && !ids[gs.Group] {
+		// a deleted guests profile comes back next time guest wi-fi is turned on
+		gs.Group = ""
+	}
+	if gs.Enabled || gs.SSID != "" {
+		if n := len(gs.SSID); n < 1 || n > 32 || !utf8.ValidString(gs.SSID) || strings.ContainsFunc(gs.SSID, unicode.IsControl) {
+			bad("guest Wi-Fi name must be 1-32 characters")
+		}
+	}
+	if gs.Enabled || gs.Password != "" {
+		if n := len(gs.Password); n < 8 || n > 63 || strings.ContainsFunc(gs.Password, func(r rune) bool { return r < 0x20 || r > 0x7e }) {
+			bad("guest Wi-Fi password must be 8-63 plain characters")
 		}
 	}
 
