@@ -6,6 +6,10 @@ are on the [releases page](https://github.com/masaleem-oss/Fengard/releases).
 
 ## Unreleased
 
+Nothing yet.
+
+## 1.3.4.1 - 2026-11-26 (preview)
+
 ### Added
 - Profiles can be moved up and down the list, from the **⋯** menu on a profile
 - The DNS traffic chart on the dashboard shows what share of lookups were blocked when you point at a bar
