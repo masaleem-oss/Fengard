@@ -392,6 +392,9 @@ At least one copy already does this. Its download is a zip with `Application.cmd
 - The official zip is named `fengard-<version>.zip` and unzips to a `fengard-<version>` folder containing
   `Install Fengard.cmd`, `install.sh`, `bin/` and `install/`. A zip with an `.exe` at its top level, or a
   different name, isn't Fengard. Delete it and don't run anything in it.
+- To check a download, compare its checksum with the `SHA256SUMS` file on the same release page:
+  `shasum -a 256 fengard-<version>.zip` on macOS or Linux, `Get-FileHash fengard-<version>.zip` in PowerShell
+  on Windows. The long number has to match the line for that file exactly
 - From 1.3.3, every release's checksums are signed with the Fengard release key, which isn't kept on GitHub. Official
   routers only take updates signed with that key, so a copy can't be delivered through the dashboard's updater.
 
