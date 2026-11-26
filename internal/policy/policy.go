@@ -45,6 +45,44 @@ type Engine struct {
 	mu    sync.Mutex
 	cur   atomic.Pointer[compiled]
 	usage Usage
+	// macs on the guest wi-fi right now, a new one there waits for approval whatever quarantineNew says
+	guests atomic.Pointer[map[string]struct{}]
+}
+
+// SetGuests replaces the macs that are on the guest network
+func (e *Engine) SetGuests(macs []string) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	m := make(map[string]struct{}, len(macs))
+	for _, mac := range macs {
+		m[mac] = struct{}{}
+	}
+	e.guests.Store(&m)
+}
+
+// AddGuest marks one more mac as on the guest network, for a device seen there a moment ago
+func (e *Engine) AddGuest(mac string) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	old := e.guests.Load()
+	m := map[string]struct{}{mac: {}}
+	if old != nil {
+		if _, ok := (*old)[mac]; ok {
+			return
+		}
+		for k := range *old {
+			m[k] = struct{}{}
+		}
+	}
+	e.guests.Store(&m)
+}
+
+func (e *Engine) onGuest(mac string) bool {
+	if m := e.guests.Load(); m != nil && mac != "" {
+		_, ok := (*m)[mac]
+		return ok
+	}
+	return false
 }
 
 // call before the first Rebuild
@@ -323,6 +361,9 @@ func (c *compiled) device(mac string) (name string, g *cgroup, approved bool, pa
 func (e *Engine) Decide(mac, domain string, now time.Time) Decision {
 	c := e.cur.Load()
 	name, g, approved, devPaused := c.device(mac)
+	if _, known := c.devices[mac]; !known && approved && e.onGuest(mac) {
+		approved = false
+	}
 	return c.decide(g, name, approved, devPaused, domain, now)
 }
 
