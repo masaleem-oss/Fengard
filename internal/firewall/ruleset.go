@@ -5,6 +5,7 @@ package firewall
 import (
 	"fmt"
 	"net"
+	"slices"
 	"sort"
 	"strings"
 
@@ -38,6 +39,10 @@ type Params struct {
 	// the routers own vpn servers, like gl.inet's wireguard and openvpn servers. their clients get
 	// fengard's dns and filtering like the lan, but the routers firewall still decides what they reach
 	VPNServers []string
+	// guest wi-fi bridges. lan side for dns and the block page, but only approved macs get forwarded
+	// and the routers own guest zone still keeps them off the lan
+	Guests  []string
+	GuestOK []string
 
 	// per source per second
 	SynPerSecond  int
@@ -53,10 +58,28 @@ type VPNParams struct {
 }
 
 func (p Params) lanIfaces() []string {
-	out := append(append([]string{}, p.LAN...), p.VPNServers...)
+	out := append(append(append([]string{}, p.LAN...), p.VPNServers...), p.Guests...)
 	for _, t := range p.Tunnels {
 		if t.Iface != "" {
 			out = append(out, t.Iface)
+		}
+	}
+	// gl.inet's guest bridge can be in -lan from the installer and a guest too
+	var uniq []string
+	for _, n := range out {
+		if !slices.Contains(uniq, n) {
+			uniq = append(uniq, n)
+		}
+	}
+	return uniq
+}
+
+// the block page ports after the redirect, guests need them on the router to see the approval page
+func (p Params) webPorts() []int {
+	var out []int
+	for _, n := range []int{p.HTTPPort, p.HTTPSPort} {
+		if n > 0 && !slices.Contains(out, n) {
+			out = append(out, n)
 		}
 	}
 	return out
@@ -117,6 +140,9 @@ func Render(p Params) (string, error) {
 	set("tor_devs", "ether_addr", "", macs(p.TorMACs))
 	set("tor_src4", "ipv4_addr", "", torSrc4)
 	set("offline4", "ipv4_addr", "", off4)
+	if len(p.Guests) > 0 {
+		set("guest_ok", "ether_addr", "", macs(p.GuestOK))
+	}
 	w("\tset syn4 {\n\t\ttype ipv4_addr\n\t\tflags dynamic, timeout\n\t\ttimeout 1m\n\t\tsize 65536\n\t}")
 	w("\tset syn6 {\n\t\ttype ipv6_addr\n\t\tflags dynamic, timeout\n\t\ttimeout 1m\n\t\tsize 65536\n\t}")
 	w("\tset dns4 {\n\t\ttype ipv4_addr\n\t\tflags dynamic, timeout\n\t\ttimeout 1m\n\t\tsize 8192\n\t}")
@@ -137,7 +163,7 @@ func Render(p Params) (string, error) {
 		for _, t := range p.Tunnels {
 			w("\t\tiifname %q meta l4proto { tcp, udp } th dport 53 dnat ip to %s:53", t.Iface, p.RouterIPv4)
 		}
-		for _, v := range p.VPNServers {
+		for _, v := range append(append([]string{}, p.VPNServers...), p.Guests...) {
 			w("\t\tiifname %q meta nfproto ipv4 meta l4proto { tcp, udp } th dport 53 ip daddr != %s dnat ip to %s:53", v, p.RouterIPv4, p.RouterIPv4)
 		}
 	}
@@ -169,6 +195,10 @@ func Render(p Params) (string, error) {
 	// invalid and dropping it half loads pages, openwrt leaves this off too
 	w("\t\tiifname %s ct state invalid drop", wan)
 	w("\t\tiifname %s ether saddr @quarantined counter reject with icmpx admin-prohibited", lan)
+	if len(p.Guests) > 0 {
+		w("\t\t# Guests get no internet until the admin approves them")
+		w("\t\tiifname %s ether saddr != @guest_ok counter reject with icmpx admin-prohibited", ifset(p.Guests))
+	}
 	w("\t\tiifname %s oifname %s ether saddr @offline counter reject with icmpx admin-prohibited", lan, wan)
 	w("\t\tiifname %s oifname %s ip saddr @offline4 counter reject with icmpx admin-prohibited", lan, wan)
 	w("\t\t# Tor relays, for profiles that block Tor")
@@ -201,6 +231,11 @@ func Render(p Params) (string, error) {
 			w("\t\tiifname %s udp dport %d accept comment %q", wan, t.Port, "fengard "+t.Iface)
 		}
 		w("\t\tiifname %q accept", t.Iface)
+	}
+	if ports := servicePorts(p.webPorts()); len(p.Guests) > 0 && p.BlockIP != "" && ports != "" {
+		// fw4 has the last word in its own table, the router install adds a guest zone rule for these too
+		w("\t\t# Guests can reach the approval page")
+		w("\t\tiifname %s ip daddr %s tcp dport { %s } accept", ifset(p.Guests), p.BlockIP, ports)
 	}
 	if ports := servicePorts(p.ServicePorts); ports != "" {
 		w("\t\t# Fengard's DNS, block page and dashboard are never exposed to the internet")
