@@ -98,6 +98,19 @@ func TestGuestAPI(t *testing.T) {
 	if d := cs.Get().Device(waitMAC); !d.Approved || d.Denied {
 		t.Errorf("approve: %+v", d)
 	}
+
+	// owners can pick their own password, wpa2 rules apply
+	if code, _ := c.do("POST", "/api/guest/password", `{"password":"our house rules 2026"}`, true); code != 200 || cs.Get().Guest.Password != "our house rules 2026" {
+		t.Errorf("own password = %d, %q", code, cs.Get().Guest.Password)
+	}
+	for _, bad := range []string{`{"password":"short"}`, `{"password":"` + strings.Repeat("x", 64) + `"}`, `{"password":"héllo wörld!"}`} {
+		if code, _ := c.do("POST", "/api/guest/password", bad, true); code != 400 {
+			t.Errorf("%s = %d, want 400", bad, code)
+		}
+	}
+	if cs.Get().Guest.Password != "our house rules 2026" {
+		t.Error("a rejected password changed the saved one")
+	}
 	_, g = c.do("GET", "/api/guest", "", false)
 	if len(g["guests"].([]any)) != 1 || len(g["waiting"].([]any)) != 0 {
 		t.Errorf("after approve %v", g)

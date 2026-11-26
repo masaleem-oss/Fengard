@@ -82,15 +82,32 @@ export async function render(el, ctx) {
           <div><div class="t-xs t-3">Password</div>
             <div class="row"><span class="mono" style="font-size:16px">${shown ? esc(v.password) : '••••-••••-••••-••••'}</span>
               <button class="btn btn-ghost btn-sm" id="show">${icon(shown ? 'eye-off' : 'eye', 'icon-sm')}${shown ? 'Hide' : 'Show'}</button></div></div>
-          ${admin ? `<div><button class="btn btn-sm" id="newpw">${icon('refresh-cw', 'icon-sm')}New password</button></div>` : ''}
+          ${admin ? `<form class="stack" id="pwform" style="gap:6px">
+            <label class="label" for="pw">Change the password</label>
+            <div class="row" style="flex-wrap:wrap">
+              <input class="input mono" id="pw" minlength="8" maxlength="63" placeholder="Your own, 8 to 63 characters" autocomplete="off" spellcheck="false" style="max-width:250px">
+              <button class="btn btn-sm" type="submit">Save</button>
+              <button class="btn btn-sm btn-ghost" type="button" id="newpw">${icon('refresh-cw', 'icon-sm')}Random</button></div>
+            <span class="help" id="pw-help">Or leave it and press Random for a long one nobody will guess.</span></form>` : ''}
           <p class="t-xs t-3">Each new device waits on a "waiting for approval" page until you approve it below.</p>
         </div>
       </div></div>`;
     $('.qr svg', box)?.setAttribute('style', 'width:100%;height:100%');
     $('#show', box).addEventListener('click', () => { shown = !shown; drawJoin(); });
-    $('#newpw', box)?.addEventListener('click', async () => {
-      const ok = await confirmDialog({ title: 'Make a new password?', confirm: 'New password', message: 'The old code and password stop working, and everyone on the guest Wi-Fi is disconnected for a moment. Approved guests stay approved, but they need to scan the new code.' });
-      if (ok && await attempt(() => post('/api/guest/password'), 'New password set')) load();
+    const setPassword = async (password) => {
+      const ok = await confirmDialog({ title: 'Change the password?', confirm: 'Change password', message: 'The old code and password stop working, and everyone on the guest Wi-Fi is disconnected for a moment. Approved guests stay approved, but they need to scan the new code.' });
+      if (ok && await attempt(() => post('/api/guest/password', password ? { password } : {}), 'Password changed')) load();
+    };
+    $('#newpw', box)?.addEventListener('click', () => setPassword(''));
+    $('#pwform', box)?.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const pw = $('#pw', box).value;
+      const bad = pw.length < 8 || pw.length > 63 ? 'It has to be 8 to 63 characters.'
+        : /[^\x20-\x7e]/.test(pw) ? 'Use letters, numbers, spaces and the usual symbols, not emoji or accents.' : '';
+      $('#pw-help', box).textContent = bad || 'Or leave it and press Random for a long one nobody will guess.';
+      $('#pw-help', box).classList.toggle('t-danger', !!bad);
+      if (bad) { $('#pw', box).focus(); return; }
+      setPassword(pw);
     });
   };
 

@@ -149,12 +149,27 @@ func guestGroup(c *config.Config) {
 	c.Guest.Group = guestGroupID
 }
 
+// guestPassword sets the password the owner typed, or makes a random one when none was given
 func (s *Server) guestPassword(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Password string `json:"password"`
+	}
+	// no body at all asks for a random one, like before
+	if r.ContentLength != 0 && !decode(w, r, &body) {
+		return
+	}
+	pw := body.Password
+	if pw == "" {
+		pw = guest.NewPassword()
+	} else if err := guest.CheckPassword(pw); err != nil {
+		httpError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	if s.update(w, r, "New guest Wi-Fi password", func(c *config.Config) error {
 		if c.Guest.SSID == "" {
 			c.Guest.SSID = defaultSSID(c.Settings.BoxName)
 		}
-		c.Guest.Password = guest.NewPassword()
+		c.Guest.Password = pw
 		return nil
 	}) {
 		writeJSON(w, map[string]bool{"ok": true})
