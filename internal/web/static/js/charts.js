@@ -25,7 +25,7 @@ export function bucketize(hours, days) {
 }
 
 // names and value let it chart other things than queries, eg bytes down and up
-export function stackedBars(container, data, { height = 220, names = ['Allowed', 'Blocked'], value = fmt, tick = compact, title = 'Queries over time' } = {}) {
+export function stackedBars(container, data, { height = 220, names = ['Allowed', 'Blocked'], value = fmt, tick = compact, title = 'Queries over time', share = false } = {}) {
   const W = container.clientWidth || 600, H = height;
   const pad = { l: 44, r: 8, t: 10, b: 26 };
   const iw = W - pad.l - pad.r, ih = H - pad.t - pad.b;
@@ -79,7 +79,7 @@ export function stackedBars(container, data, { height = 220, names = ['Allowed',
     }
     tip.innerHTML = `<b>${esc(when)}</b>
       <div class="tt-row"><i style="background:var(--chart-base)"></i><span>${names[0]}</span><span>${value(d.total - d.blocked)}</span></div>
-      <div class="tt-row"><i style="background:var(--accent)"></i><span>${names[1]}</span><span>${value(d.blocked)}</span></div>`;
+      <div class="tt-row"><i style="background:var(--accent)"></i><span>${names[1]}</span><span>${value(d.blocked)}${share && d.total ? ` · ${Math.round((d.blocked * 100) / d.total)}%` : ''}</span></div>`;
     tip.hidden = false;
     const scale = svgEl.getBoundingClientRect().width / W;
     let left = (pad.l + i * slot + slot / 2) * scale;

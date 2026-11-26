@@ -285,7 +285,7 @@ export async function render(el, ctx) {
         const sig = JSON.stringify(pts) + document.documentElement.dataset.theme + range;
         if (sig === last && !force) return;
         last = sig;
-        stackedBars($('.chart', c.body), bucketize(pts, range), { height: 240 });
+        stackedBars($('.chart', c.body), bucketize(pts, range), { height: 240, share: true });
       });
       $('[data-range]', c.box).addEventListener('click', async (e) => {
         const b = e.target.closest('[data-d]');
