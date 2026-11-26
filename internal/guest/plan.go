@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/netip"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -25,6 +26,9 @@ type Want struct {
 	Ports          []int          // the block page ports after the redirect from 80 and 443
 	Used           []netip.Prefix // addresses on the router right now so a new subnet doesn't clash
 	NewSyntax      bool           // openwrt 21 and newer, bridges are their own device sections
+	// radios that also carry a client link, like a repeater uplink. mediatek drivers can't run a
+	// guest network beside it, even gl.inet's own one comes up open as HT_AP1, so those stay off
+	Busy []string
 }
 
 // State is what fengard set up, saved so turning it off puts back exactly what was there
@@ -64,7 +68,7 @@ func MakePlan(r Router, w Want) (Plan, error) {
 		return Plan{}, errors.New("this router has no Wi-Fi radios")
 	}
 	if net, zone, ifaces := existing(r); net != "" {
-		return planExisting(r, w, net, zone, ifaces), nil
+		return planExisting(r, w, net, zone, ifaces)
 	}
 	return planOwn(r, w)
 }
@@ -254,7 +258,7 @@ func wifiOps(do, undo *[]Op, s *Section, w Want) {
 	}
 }
 
-func planExisting(r Router, w Want, net string, zone *Section, ifaces []*Section) Plan {
+func planExisting(r Router, w Want, net string, zone *Section, ifaces []*Section) (Plan, error) {
 	ns := r.Network.Section(net)
 	gw, sub, _ := subnetOf(ns)
 	st := State{
@@ -277,9 +281,17 @@ func planExisting(r Router, w Want, net string, zone *Section, ifaces []*Section
 		nchanged = true
 	}
 	if nchanged {
-		reload = append(reload, "ifup:"+net)
+		reload = append(reload, "network")
 	}
 	for _, s := range ifaces {
+		if slices.Contains(w.Busy, s.Get("device")) {
+			// kept off so it can never come up open with the driver's default name
+			if s.Get("disabled") != "1" {
+				change(&do, &undo, s, "wireless", "disabled", "1")
+			}
+			st.Notes = append(st.Notes, busyNote(r, s.Get("device")))
+			continue
+		}
 		st.WiFi = append(st.WiFi, s.Name)
 		wifiOps(&do, &undo, s, w)
 		if radio := r.Wireless.Section(s.Get("device")); radio != nil && radio.Get("disabled") == "1" {
@@ -317,11 +329,35 @@ func planExisting(r Router, w Want, net string, zone *Section, ifaces []*Section
 			reload = append(reload, "dnsmasq")
 		}
 	}
+	if len(st.WiFi) == 0 {
+		return Plan{}, errors.New("every radio on this router is busy repeating another network, so guest Wi-Fi has no radio to run on")
+	}
 	do = append(do, webRuleOps(st.Zone, w)...)
 	undo = append(undo, del("firewall."+webRule))
 	st.Undo = reversed(undo)
 	st.Reload = append(reload, "wifi", "firewall")
-	return Plan{State: st, Do: do}
+	return Plan{State: st, Do: do}, nil
+}
+
+// busyNote says which band stays without guest wi-fi and why
+func busyNote(r Router, device string) string {
+	band := device
+	if d := r.Wireless.Section(device); d != nil {
+		band = bandName(d)
+	}
+	return "Guest Wi-Fi is off on " + band + " because the router uses that band to repeat another network, and the Wi-Fi chip can't run a guest network beside it."
+}
+
+func bandName(d *Section) string {
+	switch b := d.Get("band"); {
+	case b == "2g" || d.Get("hwmode") == "11g" || d.Get("hwmode") == "11b":
+		return "2.4 GHz"
+	case b == "5g" || d.Get("hwmode") == "11a":
+		return "5 GHz"
+	case b == "6g":
+		return "6 GHz"
+	}
+	return d.Name
 }
 
 func dhcpOps(section, net string, gw netip.Addr) []Op {
@@ -405,6 +441,10 @@ func planOwn(r Router, w Want) (Plan, error) {
 	undo = append(undo, del("firewall."+webRule))
 
 	for _, radio := range r.Wireless.OfType("wifi-device") {
+		if slices.Contains(w.Busy, radio.Name) {
+			st.Notes = append(st.Notes, busyNote(r, radio.Name))
+			continue
+		}
 		s := "wireless." + ownNet + "_" + safeName(radio.Name)
 		st.WiFi = append(st.WiFi, ownNet+"_"+safeName(radio.Name))
 		do = append(do, set(s, "wifi-iface"), set(s+".device", radio.Name), set(s+".mode", "ap"),
@@ -414,6 +454,9 @@ func planOwn(r Router, w Want) (Plan, error) {
 		if radio.Get("disabled") == "1" {
 			st.Notes = append(st.Notes, fmt.Sprintf("The %s radio is switched off in the router's settings, so guests can't use it.", radio.Name))
 		}
+	}
+	if len(st.WiFi) == 0 {
+		return Plan{}, errors.New("every radio on this router is busy repeating another network, so guest Wi-Fi has no radio to run on")
 	}
 	st.Undo = reversed(undo)
 	st.Reload = []string{"network", "wifi", "dnsmasq", "firewall"}
@@ -438,4 +481,61 @@ func Rename(st State, w Want) []Op {
 		ops = append(ops, set("wireless."+s+".ssid", w.SSID), set("wireless."+s+".key", w.Password))
 	}
 	return ops
+}
+
+type iwBlock struct {
+	iface, essid, mode string
+	ghz                float64
+}
+
+var iwChannel = regexp.MustCompile(`Channel: \S+ \(([0-9.]+) GHz\)`)
+
+// BusyRadios reads iwinfo for client links with a real network, like a repeater uplink, and gives
+// the radios on the same band. it goes by band since gl.inet keeps its repeater outside uci
+func BusyRadios(iwinfo []byte, wireless *Package) []string {
+	var blocks []iwBlock
+	for _, line := range strings.Split(string(iwinfo), "\n") {
+		if line != "" && line[0] != ' ' && line[0] != '\t' {
+			b := iwBlock{iface: strings.Fields(line)[0]}
+			if m := essidRe.FindStringSubmatch(line); m != nil {
+				b.essid = m[1]
+			}
+			blocks = append(blocks, b)
+			continue
+		}
+		if len(blocks) == 0 {
+			continue
+		}
+		b := &blocks[len(blocks)-1]
+		if i := strings.Index(line, "Mode: "); i >= 0 && b.mode == "" {
+			b.mode = strings.Fields(line[i+6:])[0]
+		}
+		if m := iwChannel.FindStringSubmatch(line); m != nil {
+			b.ghz, _ = strconv.ParseFloat(m[1], 64)
+		}
+	}
+	bands := map[string]bool{}
+	for _, b := range blocks {
+		if b.mode != "Client" || b.essid == "" || b.essid == "unknown" || b.ghz == 0 {
+			continue
+		}
+		switch {
+		case b.ghz < 3:
+			bands["2.4 GHz"] = true
+		case b.ghz < 5.9:
+			bands["5 GHz"] = true
+		default:
+			bands["6 GHz"] = true
+		}
+	}
+	var out []string
+	if wireless == nil {
+		return nil
+	}
+	for _, d := range wireless.OfType("wifi-device") {
+		if bands[bandName(d)] {
+			out = append(out, d.Name)
+		}
+	}
+	return out
 }

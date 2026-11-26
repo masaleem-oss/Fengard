@@ -19,6 +19,7 @@ type fakeRouter struct {
 	ubus     map[string]string
 	hostapds []string
 	essid    map[string]string // what iwinfo says each radio broadcasts, unset ones answer nothing
+	iwinfo   string            // what plain iwinfo prints
 }
 
 func newFake(show map[string]string) *fakeRouter {
@@ -151,6 +152,8 @@ func (f *fakeRouter) exec(_ context.Context, stdin []byte, name string, args ...
 			return nil, fmt.Errorf("exit status 1")
 		}
 		return []byte(show(p)), nil
+	case call == "iwinfo":
+		return []byte(f.iwinfo), nil
 	case len(args) == 2 && name == "iwinfo" && args[1] == "info":
 		if e, ok := f.essid[args[0]]; ok {
 			return []byte(args[0] + "   ESSID: \"" + e + "\"\n          Mode: Master\n"), nil

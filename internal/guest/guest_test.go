@@ -158,8 +158,7 @@ func TestPlanExisting(t *testing.T) {
 			t.Errorf("undo missing %s", w)
 		}
 	}
-	// only the guest interface restarts, a whole network reload drops the lan too
-	if !slices.Equal(st.Reload, []string{"ifup:guest", "dnsmasq", "wifi", "firewall"}) {
+	if !slices.Equal(st.Reload, []string{"network", "dnsmasq", "wifi", "firewall"}) {
 		t.Errorf("reload %v", st.Reload)
 	}
 
@@ -498,5 +497,57 @@ func TestOpenRadiosTurnGuestOff(t *testing.T) {
 	m.Sync(ctx)
 	if st := m.Status(); st.State != "on" || st.Error != "" {
 		t.Errorf("good radios: %+v", st)
+	}
+}
+
+// iwinfo from a gl-mt3000 repeating a 2.4 GHz network on apcli0
+const mt3000Repeating = `apcli0    ESSID: "NoEscape"
+          Mode: Client  Channel: 6 (2.437 GHz) HT Mode: HE20
+          Encryption: unknown
+apclix0   ESSID: unknown
+          Mode: Client  Channel: 44 (5.220 GHz) HT Mode: HE20
+ra0       ESSID: "Fengard"
+          Mode: Master  Channel: 6 (2.437 GHz) HT Mode: HE20
+ra1       ESSID: "HT_AP1"
+          Mode: Master  Channel: 6 (2.437 GHz) HT Mode: HE20
+rax0      ESSID: "Fengard"
+          Mode: Master  Channel: 44 (5.220 GHz) HT Mode: HE20
+rax1      ESSID: "HT_AP3"
+          Mode: Master  Channel: 44 (5.220 GHz) HT Mode: HE20
+`
+
+func TestBusyRadios(t *testing.T) {
+	w := ParseShow("wireless", []byte(glinet["wireless"]))
+	if got := BusyRadios([]byte(mt3000Repeating), w); !slices.Equal(got, []string{"mt798111"}) {
+		t.Errorf("busy %v, want the 2.4 GHz radio only", got)
+	}
+	// apclix0 isn't joined to anything, so 5 GHz is free
+	if got := BusyRadios([]byte(strings.ReplaceAll(mt3000Repeating, `"NoEscape"`, "unknown")), w); len(got) != 0 {
+		t.Errorf("busy %v with no uplink", got)
+	}
+}
+
+// like gl.inet's own guest wi-fi, a repeating band gets no guest network and its radio isn't touched,
+// so the uplink and the internet stay up
+func TestRepeatingBandLeftAlone(t *testing.T) {
+	f := newFake(glinet)
+	f.ubus["network.interface.guest"] = `{"up": true, "l3_device": "br-guest"}`
+	f.iwinfo = mt3000Repeating
+	f.essid = map[string]string{"rax1": "Guests"}
+	m := manager(t, f)
+	m.RadioWait = 50 * time.Millisecond
+	g := config.Guest{Enabled: true, SSID: "Guests", Password: "k7pq-m3zt-x9wd-4fhn"}
+	m.Want(g)
+	m.Sync(context.Background())
+	st := m.Status()
+	if st.State != "on" || !slices.Equal(st.WiFi, []string{"guest5g"}) {
+		t.Fatalf("status %+v", st)
+	}
+	if !slices.ContainsFunc(st.Notes, func(n string) bool { return strings.Contains(n, "2.4 GHz") }) {
+		t.Errorf("no note about 2.4 GHz: %v", st.Notes)
+	}
+	w := f.snapshot()["wireless"]
+	if strings.Contains(w, "guest2g.ssid='Guests'") || !strings.Contains(w, "guest2g.disabled='1'") {
+		t.Errorf("the repeating band's guest radio was changed:\n%s", w)
 	}
 }

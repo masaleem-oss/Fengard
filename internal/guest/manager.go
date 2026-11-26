@@ -344,10 +344,6 @@ func (m *Manager) reload(ctx context.Context, state string, what []string) []str
 
 func (m *Manager) reloadOne(ctx context.Context, state, what string) error {
 	c, step := reloadCmd[what], reloadStep[what]
-	// one interface only, a full network reload restarts the lan and drops everyone for half a minute
-	if net, ok := strings.CutPrefix(what, "ifup:"); ok && net != "" {
-		c, step = []string{"ifup", net}, "Restarting the guest network"
-	}
 	if c == nil {
 		return nil
 	}
@@ -417,7 +413,12 @@ func (m *Manager) enable(ctx context.Context, g config.Guest) {
 		m.fail(g, err)
 		return
 	}
-	plan, err := MakePlan(r, m.want4(g))
+	w := m.want4(g)
+	// a radio that also repeats another network can't carry guest wi-fi, gl.inet leaves it off too
+	if out, err := m.run(ctx, nil, "iwinfo"); err == nil {
+		w.Busy = BusyRadios(out, r.Wireless)
+	}
+	plan, err := MakePlan(r, w)
 	if err != nil {
 		m.fail(g, err)
 		return
