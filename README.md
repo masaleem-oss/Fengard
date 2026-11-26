@@ -14,6 +14,8 @@
   Parental controls, ad blocking and screen time for every device on your home network,
   running on the router itself: OpenWrt, GL.iNet and other OpenWrt-based routers.
   A self-hosted alternative to Pi-hole and AdGuard Home that kids can't get around by changing DNS.
+  
+
 </p>
 
 <p align="center">
@@ -24,6 +26,14 @@
   <img alt="Firewall: nftables and iptables" src="https://img.shields.io/badge/firewall-nftables%20%7C%20iptables-8f78ff">
   <img alt="Runs on Windows, macOS and Linux" src="https://img.shields.io/badge/computer%20mode-Windows%20%7C%20macOS%20%7C%20Linux-555">
 </p>
+
+> [!CAUTION]
+> **The only official Fengard is [github.com/masaleem-oss/Fengard](https://github.com/masaleem-oss/Fengard).**
+> Copies of this project are being published under other GitHub accounts and presented as the official one.
+> Fengard runs as root on your router and sees all of your network's traffic, so a modified copy could take over
+> your whole network. At least one copy already ships malware instead of Fengard
+> ([VirusTotal report](https://www.virustotal.com/gui/file/cbba223d0e911592ab2f88aecaf6b1529323a0b5168f3ac74064c73801f53319)). Only download from this repository's [Releases page](https://github.com/masaleem-oss/Fengard/releases).
+> See [Official sources](#official-sources) for how to check, and what to do if you installed a copy.
 
 <p align="center">
   <a href="#install">Install</a> ·
@@ -57,6 +67,7 @@
 - [Performance](docs/how-it-works.md#performance)
 - [Configuration reference](docs/configuration.md#configuration-reference)
 - [Security](docs/how-it-works.md#security)
+- [Official sources](#official-sources)
 - [Troubleshooting](#troubleshooting)
 - [FAQ](#faq)
 - [Development](docs/development.md#development)
@@ -116,6 +127,10 @@ router will show somewhat different numbers; Fengard 1.3.1.3 uses about 33 MB on
 [`dev/memcompare`](dev/memcompare) has the script to run it yourself.
 
 ## Install
+
+> [!IMPORTANT]
+> Only install Fengard from [masaleem-oss/Fengard](https://github.com/masaleem-oss/Fengard/releases).
+> Copies on other accounts are not made or checked by us. See [Official sources](#official-sources).
 
 Download **`fengard-<version>.zip`** from the [latest release](https://github.com/masaleem-oss/Fengard/releases/latest),
 unzip it, and run the installer:
@@ -349,6 +364,50 @@ takes DNS over and the house stays online. See [how it works](docs/how-it-works.
 
 Command line flags, environment, files and the HTTP API are in the
 [configuration reference](docs/configuration.md).
+
+## Official sources
+
+Fengard is made by [masaleem-oss](https://github.com/masaleem-oss), and these are the only official places to get it:
+
+| What | Where |
+|---|---|
+| Source code | [github.com/masaleem-oss/Fengard](https://github.com/masaleem-oss/Fengard) |
+| Downloads | [github.com/masaleem-oss/Fengard/releases](https://github.com/masaleem-oss/Fengard/releases) |
+| One-line router install | `https://github.com/masaleem-oss/Fengard/releases/latest/download/router-install.sh` |
+| Bug reports and questions | [Issues](https://github.com/masaleem-oss/Fengard/issues) |
+
+There is no other official GitHub account, mirror, website or package. Repositories on other accounts that use the
+Fengard name, logo, README or screenshots and call themselves official are impostors, even if they look identical.
+Their downloads may be modified, and Fengard runs as root on your router with every device's traffic going through it.
+
+At least one copy already does this. Its download is a zip with `Application.cmd`, `utility.exe` and
+`certificate.txt` inside, which is malware and not Fengard at all:
+[VirusTotal report](https://www.virustotal.com/gui/file/cbba223d0e911592ab2f88aecaf6b1529323a0b5168f3ac74064c73801f53319) (SHA-256 `cbba223d0e911592ab2f88aecaf6b1529323a0b5168f3ac74064c73801f53319`).
+
+**How to check what you're looking at**
+
+- The address bar says `github.com/masaleem-oss/Fengard`, exactly. Check the account name, not just the repo name.
+- Install commands and download links in the README point to `github.com/masaleem-oss/...` and nowhere else.
+- Official downloads come from the Releases page, never from a zip file inside the repository's code.
+- The official zip is named `fengard-<version>.zip` and unzips to a `fengard-<version>` folder containing
+  `Install Fengard.cmd`, `install.sh`, `bin/` and `install/`. A zip with an `.exe` at its top level, or a
+  different name, isn't Fengard. Delete it and don't run anything in it.
+- From 1.3.3, every release's checksums are signed with the Fengard release key, which isn't kept on GitHub. Official
+  routers only take updates signed with that key, so a copy can't be delivered through the dashboard's updater.
+
+**If you installed Fengard from somewhere else**
+
+1. [Uninstall it](#uninstall). If you ran a `.exe` from a copy, treat that computer as infected too: scan it
+   with your antivirus, and change passwords you've used on it from a different, clean device.
+2. Change your router's root password, and the passwords of any accounts you logged into from that network
+   while it was running.
+3. Install again from the [official releases](https://github.com/masaleem-oss/Fengard/releases).
+
+**Seen an impostor?** Please [report the repository to GitHub](https://github.com/contact/report-content) and
+[open an issue](https://github.com/masaleem-oss/Fengard/issues) here so others can be warned.
+
+Fengard is open source under Apache 2.0, so anyone may fork and change the code. The license doesn't give
+anyone the right to use the Fengard name to pass a copy off as the official project (section 6).
 
 ## Troubleshooting
 
