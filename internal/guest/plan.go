@@ -40,11 +40,13 @@ type State struct {
 	Subnet  string   `json:"subnet"`
 	Gateway string   `json:"gateway"`
 	WiFi    []string `json:"wifi"` // wifi-iface sections fengard looks after
-	SSID    string   `json:"ssid"`
-	KeySum  string   `json:"keySum"`
-	Undo    []Op     `json:"undo"`
-	Reload  []string `json:"reload"` // what to reload after changing it, in order
-	Notes   []string `json:"notes,omitempty"`
+	// radio interfaces kept down on a band the router repeats on, the driver can bring them up open
+	Quiet  []string `json:"quiet,omitempty"`
+	SSID   string   `json:"ssid"`
+	KeySum string   `json:"keySum"`
+	Undo   []Op     `json:"undo"`
+	Reload []string `json:"reload"` // what to reload after changing it, in order
+	Notes  []string `json:"notes,omitempty"`
 	// false until the changes are committed and checked, a restart before that undoes them
 	Done bool `json:"done,omitempty"`
 	// reloads not run yet, a restart halfway through runs the rest
@@ -136,9 +138,14 @@ func existing(r Router) (string, *Section, []*Section) {
 		if z == nil || slices.Contains(fields(z, "network"), "lan") {
 			continue
 		}
+		// isolated means guests can't reach the lan. gl.inet also forwards its guest zone to its vpn
+		// client zones, switched off unless a vpn is set up, and those lead out like the wan does
 		isolated := true
 		for _, f := range r.Firewall.OfType("forwarding") {
-			if f.Get("src") == z.Get("name") && f.Get("dest") != wan {
+			if f.Get("src") != z.Get("name") || f.Get("enabled") == "0" || f.Get("dest") == wan {
+				continue
+			}
+			if dz := zoneNamed(r, f.Get("dest")); dz == nil || dz.Get("masq") != "1" || slices.Contains(fields(dz, "network"), "lan") {
 				isolated = false
 			}
 		}
@@ -157,6 +164,15 @@ func existing(r Router) (string, *Section, []*Section) {
 		}
 	}
 	return "", nil, nil
+}
+
+func zoneNamed(r Router, name string) *Section {
+	for _, z := range r.Firewall.OfType("zone") {
+		if z.Get("name") == name {
+			return z
+		}
+	}
+	return nil
 }
 
 // the router address and subnet from ipaddr and netmask, either style
@@ -290,6 +306,9 @@ func planExisting(r Router, w Want, net string, zone *Section, ifaces []*Section
 				change(&do, &undo, s, "wireless", "disabled", "1")
 			}
 			st.Notes = append(st.Notes, busyNote(r, s.Get("device")))
+			if i := s.Get("ifname"); i != "" {
+				st.Quiet = append(st.Quiet, i)
+			}
 			continue
 		}
 		st.WiFi = append(st.WiFi, s.Name)

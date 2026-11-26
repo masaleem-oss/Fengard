@@ -244,7 +244,39 @@ func (m *Manager) Sync(ctx context.Context) {
 		m.failed = ""
 		m.mu.Unlock()
 	}
+	m.mu.Lock()
+	still := m.have
+	m.mu.Unlock()
+	if on && still != nil {
+		m.quiet(ctx, still)
+	}
 	m.refresh(ctx)
+}
+
+// quiet takes down the guest radio on a band the router repeats on if the driver brought it up
+// anyway, gl.inet's mediatek driver does that with no settings, as an open network called HT_AP1
+func (m *Manager) quiet(ctx context.Context, st *State) {
+	for _, i := range st.Quiet {
+		out, err := m.run(ctx, nil, "ip", "-o", "link", "show", i)
+		if err != nil || !linkUp(out) {
+			continue
+		}
+		if _, err := m.run(ctx, nil, "ip", "link", "set", i, "down"); err != nil {
+			log.Printf("guest wi-fi: couldn't take %s down: %v", i, err)
+			continue
+		}
+		log.Printf("guest wi-fi: took %s down, it came up on a band the router repeats on", i)
+	}
+}
+
+// linkUp reads the flags in ip -o link show, like <BROADCAST,MULTICAST,UP,LOWER_UP>
+func linkUp(out []byte) bool {
+	s := string(out)
+	a, b := strings.Index(s, "<"), strings.Index(s, ">")
+	if a < 0 || b < a {
+		return false
+	}
+	return slices.Contains(strings.Split(s[a+1:b], ","), "UP")
 }
 
 func (m *Manager) step(state, step string) {
@@ -456,6 +488,7 @@ func (m *Manager) enable(ctx context.Context, g config.Guest) {
 	m.have = &st
 	m.mu.Unlock()
 	notes := m.reloadPending(ctx, "applying", &st)
+	m.quiet(ctx, &st)
 	if err := m.radiosOK(ctx, &st); err != nil {
 		m.unsafe(ctx, g, err)
 		return

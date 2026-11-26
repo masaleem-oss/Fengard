@@ -534,6 +534,8 @@ func TestRepeatingBandLeftAlone(t *testing.T) {
 	f.ubus["network.interface.guest"] = `{"up": true, "l3_device": "br-guest"}`
 	f.iwinfo = mt3000Repeating
 	f.essid = map[string]string{"rax1": "Guests"}
+	// the driver brings the 2.4 GHz guest radio up open as HT_AP1 regardless
+	f.up = map[string]bool{"ra1": true}
 	m := manager(t, f)
 	m.RadioWait = 50 * time.Millisecond
 	g := config.Guest{Enabled: true, SSID: "Guests", Password: "k7pq-m3zt-x9wd-4fhn"}
@@ -549,5 +551,14 @@ func TestRepeatingBandLeftAlone(t *testing.T) {
 	w := f.snapshot()["wireless"]
 	if strings.Contains(w, "guest2g.ssid='Guests'") || !strings.Contains(w, "guest2g.disabled='1'") {
 		t.Errorf("the repeating band's guest radio was changed:\n%s", w)
+	}
+	if f.up["ra1"] {
+		t.Error("ra1 was left up, an open network on the repeating band")
+	}
+	// it comes back on its own later, the next sync takes it down again
+	f.up["ra1"] = true
+	m.Sync(context.Background())
+	if f.up["ra1"] {
+		t.Error("ra1 coming back up wasn't noticed")
 	}
 }

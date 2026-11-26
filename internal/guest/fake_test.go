@@ -20,6 +20,7 @@ type fakeRouter struct {
 	hostapds []string
 	essid    map[string]string // what iwinfo says each radio broadcasts, unset ones answer nothing
 	iwinfo   string            // what plain iwinfo prints
+	up       map[string]bool   // links that are up, for ip link
 }
 
 func newFake(show map[string]string) *fakeRouter {
@@ -152,6 +153,15 @@ func (f *fakeRouter) exec(_ context.Context, stdin []byte, name string, args ...
 			return nil, fmt.Errorf("exit status 1")
 		}
 		return []byte(show(p)), nil
+	case len(args) == 4 && name == "ip" && args[0] == "-o" && args[1] == "link":
+		flags := "BROADCAST,MULTICAST"
+		if f.up[args[3]] {
+			flags += ",UP,LOWER_UP"
+		}
+		return []byte("9: " + args[3] + ": <" + flags + "> mtu 1500 state DOWN\n"), nil
+	case len(args) == 4 && name == "ip" && args[0] == "link" && args[1] == "set" && args[3] == "down":
+		delete(f.up, args[2])
+		return nil, nil
 	case call == "iwinfo":
 		return []byte(f.iwinfo), nil
 	case len(args) == 2 && name == "iwinfo" && args[1] == "info":
@@ -276,6 +286,18 @@ firewall.guest_zone.forward='REJECT'
 firewall.guest_forward=forwarding
 firewall.guest_forward.src='guest'
 firewall.guest_forward.dest='wan'
+firewall.ovpnclient=zone
+firewall.ovpnclient.name='ovpnclient'
+firewall.ovpnclient.network='ovpnclient'
+firewall.ovpnclient.masq='1'
+firewall.guest2ovpnclient=forwarding
+firewall.guest2ovpnclient.src='guest'
+firewall.guest2ovpnclient.dest='ovpnclient'
+firewall.guest2ovpnclient.enabled='0'
+firewall.guest2wgclient=forwarding
+firewall.guest2wgclient.src='guest'
+firewall.guest2wgclient.dest='wgclient'
+firewall.guest2wgclient.enabled='0'
 firewall.guest_dhcp=rule
 firewall.guest_dhcp.name='Allow-DHCP'
 firewall.guest_dhcp.src='guest'
