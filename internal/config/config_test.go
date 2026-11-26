@@ -31,6 +31,7 @@ func TestValidateRejects(t *testing.T) {
 		"missing default":  func(c *Config) { c.Settings.DefaultGroup = "nope" },
 		"bad domain rule":  func(c *Config) { c.Block = []string{"not a domain"} },
 		"bad block answer": func(c *Config) { c.Settings.BlockAnswer = "redirect" },
+		"unknown watch":    func(c *Config) { c.Settings.SecurityUnwatched = []string{"kernel"} },
 	}
 	for name, mod := range cases {
 		c := Default()
@@ -53,6 +54,20 @@ func TestNormalizes(t *testing.T) {
 	}
 	if c.Devices[0].MAC != "aa:bb:cc:dd:ee:ff" {
 		t.Errorf("MAC = %s", c.Devices[0].MAC)
+	}
+}
+
+func TestSecurityWatches(t *testing.T) {
+	c := Default()
+	if !c.Settings.Watching("ports") || c.Settings.SecurityCheckOff {
+		t.Fatal("a new install should watch everything")
+	}
+	c.Settings.SecurityUnwatched = []string{"ports", "ports", "ssh"}
+	if err := c.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(c.Settings.SecurityUnwatched, []string{"ports", "ssh"}) || c.Settings.Watching("ports") {
+		t.Errorf("unwatched %v", c.Settings.SecurityUnwatched)
 	}
 }
 
