@@ -50,3 +50,25 @@ func TestReadsIwinfo(t *testing.T) {
 		t.Fatalf("clients %v", c)
 	}
 }
+
+// polling iwinfo every 20 s with nobody to watch made mediatek drivers fill the kernel log
+func TestNoPollingWithNobodyTracked(t *testing.T) {
+	var tracked []string
+	calls := 0
+	w := &Watcher{
+		Tracked: func() []string { return tracked },
+		Clients: func(context.Context) (map[string]bool, error) { calls++; return map[string]bool{}, nil },
+	}
+	ctx := context.Background()
+	for range 3 {
+		w.Check(ctx, time.Now())
+	}
+	if calls != 1 || !w.Available() {
+		t.Fatalf("with nobody tracked it should ask once to learn wifi works, asked %d times, available %v", calls, w.Available())
+	}
+	tracked = []string{"aa:bb:cc:dd:ee:01"}
+	w.Check(ctx, time.Now())
+	if calls != 2 {
+		t.Fatalf("a tracked device should start the polling again, asked %d times", calls)
+	}
+}

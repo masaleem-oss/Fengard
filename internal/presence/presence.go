@@ -4,9 +4,11 @@ package presence
 import (
 	"bufio"
 	"context"
+	"os"
 	"os/exec"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -63,6 +65,22 @@ func (w *Watcher) Check(ctx context.Context, now time.Time) {
 		w.mu.Unlock()
 		return
 	}
+	var tracked []string
+	if w.Tracked != nil {
+		tracked = w.Tracked()
+	}
+	// nobody to watch, so leave the wifi driver alone once we know it answers
+	if len(tracked) == 0 {
+		w.mu.Lock()
+		known := w.available
+		if known {
+			w.state, w.lastSeen = nil, nil
+		}
+		w.mu.Unlock()
+		if known {
+			return
+		}
+	}
 	clients, err := w.Clients(ctx)
 	if err != nil {
 		w.mu.Lock()
@@ -73,10 +91,6 @@ func (w *Watcher) Check(ctx context.Context, now time.Time) {
 	away := w.Away
 	if away == 0 {
 		away = 10 * time.Minute
-	}
-	var tracked []string
-	if w.Tracked != nil {
-		tracked = w.Tracked()
 	}
 	type change struct {
 		mac  string
@@ -146,12 +160,15 @@ var macRe = regexp.MustCompile(`^([0-9A-Fa-f]{2}(:[0-9A-Fa-f]{2}){5})\s`)
 
 // Wifi asks iwinfo which clients are on each access point the router runs
 func Wifi(ctx context.Context) (map[string]bool, error) {
-	out, err := exec.CommandContext(ctx, "iwinfo").Output()
+	aps, err := apList(ctx)
 	if err != nil {
 		return nil, err
 	}
 	clients := map[string]bool{}
-	for _, iface := range accessPoints(string(out)) {
+	for _, iface := range aps {
+		if !isUp(iface) {
+			continue
+		}
 		list, err := exec.CommandContext(ctx, "iwinfo", iface, "assoclist").Output()
 		if err != nil {
 			continue
@@ -161,6 +178,48 @@ func Wifi(ctx context.Context) (map[string]bool, error) {
 		}
 	}
 	return clients, nil
+}
+
+// iwinfo with no interface asks every wifi interface, and mediatek drivers log an error
+// for each one that's down, so the access points are looked up rarely and down ones skipped
+var aps struct {
+	sync.Mutex
+	list []string
+	at   time.Time
+}
+
+// a router with no access point yet, like guest wifi still off, gets looked at again sooner
+const (
+	apRefresh      = time.Hour
+	apRefreshEmpty = 5 * time.Minute
+)
+
+func apList(ctx context.Context) ([]string, error) {
+	aps.Lock()
+	defer aps.Unlock()
+	wait := apRefresh
+	if len(aps.list) == 0 {
+		wait = apRefreshEmpty
+	}
+	if !aps.at.IsZero() && time.Since(aps.at) < wait {
+		return aps.list, nil
+	}
+	out, err := exec.CommandContext(ctx, "iwinfo").Output()
+	if err != nil {
+		return nil, err
+	}
+	aps.list, aps.at = accessPoints(string(out)), time.Now()
+	return aps.list, nil
+}
+
+// an interface that can't be read counts as up so a missing /sys never hides clients
+func isUp(iface string) bool {
+	b, err := os.ReadFile("/sys/class/net/" + iface + "/flags")
+	if err != nil {
+		return true
+	}
+	flags, err := strconv.ParseUint(strings.TrimSpace(strings.TrimPrefix(string(b), "0x")), 16, 32)
+	return err != nil || flags&1 != 0
 }
 
 // interfaces whose block says Mode: Master
