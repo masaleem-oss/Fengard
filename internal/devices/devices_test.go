@@ -65,3 +65,19 @@ func TestNewDeviceCallback(t *testing.T) {
 		t.Fatalf("new devices = %v", fresh)
 	}
 }
+
+// the upstream gateway on the wan side showed up under Devices and got the Everyone profile
+func TestNeighborsOnlyFromTheLAN(t *testing.T) {
+	out := []byte(`192.168.8.110 dev br-lan lladdr 2e:f4:80:08:8a:1a REACHABLE
+10.0.150.1 dev apclix0 lladdr 00:11:22:33:44:55 REACHABLE
+192.168.9.20 dev br-guest lladdr 66:77:88:99:aa:bb STALE
+192.168.8.2 dev br-lan FAILED
+`)
+	got := ParseNeighborsOn(out, []string{"br-lan", "br-guest"})
+	if len(got) != 2 || got[0].IP != "192.168.8.110" || got[1].IP != "192.168.9.20" {
+		t.Fatalf("got %+v", got)
+	}
+	if all := ParseNeighborsOn(out, nil); len(all) != 3 {
+		t.Fatalf("no interfaces given should keep every neighbor, got %+v", all)
+	}
+}

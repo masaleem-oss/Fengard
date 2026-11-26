@@ -218,6 +218,10 @@ func main() {
 	}()
 
 	tracker := devices.NewTracker(*leases)
+	// on a router only the lan side holds devices, the wan side has the upstream gateway
+	if *fwOn {
+		tracker.Neighbors = devices.LANNeighbors(split(*lan))
+	}
 	newDevices := make(chan devices.Info, 256)
 	tracker.OnNew = func(mac, hostname, ip string) {
 		select {

@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -293,11 +294,18 @@ func parseLooseMAC(s string) net.HardwareAddr {
 	return hw
 }
 
-func ParseNeighbors(out []byte) []Info {
+func ParseNeighbors(out []byte) []Info { return ParseNeighborsOn(out, nil) }
+
+// ParseNeighborsOn keeps the neighbors on these interfaces, all of them when ifaces is empty. on a
+// router the wan side has neighbors too, like the upstream gateway, and those aren't devices here
+func ParseNeighborsOn(out []byte, ifaces []string) []Info {
 	var res []Info
 	for _, line := range bytes.Split(out, []byte("\n")) {
 		f := strings.Fields(string(line))
 		if len(f) < 5 || net.ParseIP(f[0]) == nil {
+			continue
+		}
+		if len(ifaces) > 0 && !onIface(f, ifaces) {
 			continue
 		}
 		for i := 1; i+1 < len(f); i++ {
@@ -310,6 +318,28 @@ func ParseNeighbors(out []byte) []Info {
 		}
 	}
 	return res
+}
+
+func onIface(f []string, ifaces []string) bool {
+	for i := 1; i+1 < len(f); i++ {
+		if f[i] == "dev" {
+			return slices.Contains(ifaces, f[i+1])
+		}
+	}
+	return false
+}
+
+// LANNeighbors reads the neighbor table for just these interfaces, linux only
+func LANNeighbors(ifaces []string) func() []Info {
+	return func() []Info {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		out, err := exec.CommandContext(ctx, "ip", "neigh", "show").Output()
+		if err != nil {
+			return nil
+		}
+		return ParseNeighborsOn(out, ifaces)
+	}
 }
 
 // Forget makes a mac count as new again next time it shows up
