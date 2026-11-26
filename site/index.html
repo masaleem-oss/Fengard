@@ -1,0 +1,410 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fengard · DNS filtering and a firewall for any OpenWrt router</title>
+<meta name="description" content="Parental controls, ad blocking and screen time for every device, running on the OpenWrt or GL.iNet router you already have. Enforced in the kernel, so changing DNS doesn't get around it. Open source.">
+<meta name="theme-color" content="#101014">
+<link rel="icon" type="image/svg+xml" href="assets/logo.svg">
+<link rel="canonical" href="https://masaleem-oss.github.io/Fengard/">
+<meta property="og:title" content="Fengard">
+<meta property="og:description" content="Kernel-enforced firewall and DNS filtering for any OpenWrt router. Per-device profiles, screen time, a WireGuard VPN and a full dashboard.">
+<meta property="og:image" content="https://masaleem-oss.github.io/Fengard/assets/social-preview.png">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="preload" href="assets/fonts/plex-sans-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="style.css">
+<script>try{var t=localStorage.getItem('fg-site-theme');if(t)document.documentElement.dataset.theme=t}catch(e){}</script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="nav" id="top">
+  <div class="wrap nav-row">
+    <a class="brand" href="#top" aria-label="Fengard home">
+      <img src="assets/logo.svg" alt="" width="28" height="28">
+      <span>Fengard</span>
+    </a>
+    <nav class="nav-links" aria-label="Sections">
+      <a href="#how">How it works</a>
+      <a href="#features">Features</a>
+      <a href="#routers">Routers</a>
+      <a href="#install">Install</a>
+      <a href="#faq">FAQ</a>
+    </nav>
+    <div class="nav-end">
+      <button class="icon-btn" id="theme" type="button" aria-label="Switch between light and dark">
+        <svg class="ico ico-dark"><use href="assets/icons.svg#i-moon"/></svg>
+        <svg class="ico ico-light"><use href="assets/icons.svg#i-sun"/></svg>
+      </button>
+      <a class="icon-btn" href="https://github.com/masaleem-oss/Fengard" aria-label="Fengard on GitHub">
+        <svg class="ico gh" viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" stroke="none" d="M8 0a8 8 0 0 0-2.53 15.59c.4.07.55-.17.55-.38v-1.33c-2.23.48-2.7-1.07-2.7-1.07-.36-.92-.89-1.17-.89-1.17-.73-.5.06-.49.06-.49.8.06 1.23.83 1.23.83.72 1.22 1.88.87 2.33.66.07-.52.28-.87.5-1.07-1.78-.2-3.65-.89-3.65-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.6 7.6 0 0 1 4 0c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.28.82 2.15 0 3.07-1.87 3.75-3.66 3.95.29.25.54.73.54 1.48v2.2c0 .21.15.46.55.38A8 8 0 0 0 8 0Z"/></svg>
+      </a>
+      <a class="btn btn-sm btn-primary" href="#install">Get Fengard</a>
+    </div>
+  </div>
+</header>
+
+<main id="main">
+
+<section class="hero">
+  <div class="wrap hero-grid">
+    <div class="hero-copy">
+      <p class="eyebrow"><span class="dot"></span><span id="ver-line">Open source · Apache 2.0</span></p>
+      <h1>The filter they can't route around.</h1>
+      <p class="lede">Fengard puts per-device filtering, screen time and a real firewall on the OpenWrt or GL.iNet
+        router you already have. Every lookup from every device goes through it, because the router's kernel sends
+        them there. Changing DNS doesn't help.</p>
+      <div class="cta-row">
+        <a class="btn btn-primary" id="dl" href="https://github.com/masaleem-oss/Fengard/releases/latest">
+          <svg class="ico"><use href="assets/icons.svg#i-download"/></svg><span id="dl-label">Download</span></a>
+        <a class="btn" href="#how">How it works</a>
+      </div>
+      <ul class="hero-facts" aria-label="At a glance">
+        <li><b>One Go binary</b><span>nothing else to install</span></li>
+        <li><b>~25 MB</b><span>of router memory</span></li>
+        <li><b>No reflashing</b><span>uninstalls in one step</span></li>
+      </ul>
+    </div>
+
+    <div class="trace panel" id="trace" aria-label="Try a lookup">
+      <div class="panel-head">
+        <span class="panel-title"><svg class="ico"><use href="assets/icons.svg#i-terminal"/></svg>Try a lookup</span>
+        <span class="mono t-3 small" id="trace-dev">Leo's phone</span>
+      </div>
+      <form class="trace-form" id="trace-form" autocomplete="off">
+        <div class="seg" role="radiogroup" aria-label="Profile" id="trace-profile">
+          <button type="button" role="radio" aria-checked="false" data-p="everyone">Everyone</button>
+          <button type="button" role="radio" aria-checked="true" data-p="kids" class="on">Kids</button>
+          <button type="button" role="radio" aria-checked="false" data-p="iot">Smart home</button>
+        </div>
+        <div class="trace-input">
+          <label class="sr" for="trace-domain">Domain</label>
+          <input id="trace-domain" class="mono" value="tiktok.com" spellcheck="false" inputmode="url" aria-describedby="trace-hint">
+          <label class="sr" for="trace-via">Sent to</label>
+          <select id="trace-via">
+            <option value="router">via the router</option>
+            <option value="google">straight to 8.8.8.8</option>
+            <option value="doh">over DNS-over-HTTPS</option>
+          </select>
+          <button class="btn btn-primary btn-sm" type="submit">Look up</button>
+        </div>
+        <div class="chips" id="trace-hint">
+          <button type="button" data-d="tiktok.com">tiktok.com</button>
+          <button type="button" data-d="doubleclick.net">doubleclick.net</button>
+          <button type="button" data-d="roblox.com">roblox.com</button>
+          <button type="button" data-d="secure-login-paypa1.com">secure-login-paypa1.com</button>
+          <button type="button" data-d="wikipedia.org">wikipedia.org</button>
+        </div>
+      </form>
+      <ol class="steps" id="trace-steps" aria-live="polite"></ol>
+      <div class="verdict" id="trace-verdict" hidden></div>
+    </div>
+  </div>
+</section>
+
+<section class="numbers" aria-label="Fengard in numbers">
+  <div class="wrap num-grid">
+    <div class="num"><b data-count="25" data-suffix=" MB">25 MB</b><span>of memory on a router, with 535k blocked domains loaded</span></div>
+    <div class="num"><b data-count="16" data-suffix=" µs">16 µs</b><span>of router time per lookup under sustained load</span></div>
+    <div class="num"><b data-count="1.4" data-dec="1" data-suffix="M/s">1.4M/s</b><span>flood from one device dropped in the kernel, others unaffected</span></div>
+    <div class="num"><b data-count="13" data-suffix="">13</b><span>emulated routers every release is installed on before it ships</span></div>
+  </div>
+</section>
+
+<section class="section" id="how">
+  <div class="wrap">
+    <div class="sec-head">
+      <p class="kicker">How it works</p>
+      <h2>Every lookup goes one way.</h2>
+      <p class="sec-lede">Fengard runs beside the router's own firmware. DHCP stays where it was. DNS, filtering and the
+        firewall rules become Fengard's, in its own nftables table or iptables chains, and come out again if it ever stops.</p>
+    </div>
+
+    <div class="flow" role="img" aria-label="Device, kernel firewall, Fengard DNS, policy engine, upstream resolver">
+      <div class="flow-node"><svg class="ico"><use href="assets/icons.svg#i-smartphone"/></svg><b>Device</b><span>asks any DNS server</span></div>
+      <div class="flow-line"><i></i></div>
+      <div class="flow-node"><svg class="ico"><use href="assets/icons.svg#i-brick-wall"/></svg><b>Kernel</b><span>redirects it to Fengard</span></div>
+      <div class="flow-line"><i></i></div>
+      <div class="flow-node accent"><img src="assets/logo.svg" alt="" width="22" height="22"><b>Fengard</b><span>rate limit, cache, policy</span></div>
+      <div class="flow-line"><i></i></div>
+      <div class="flow-node"><svg class="ico"><use href="assets/icons.svg#i-globe-lock"/></svg><b>Upstream</b><span>DoH, HTTP/3 or DoT</span></div>
+    </div>
+
+    <div class="bypass">
+      <div class="bypass-list" role="tablist" aria-label="Ways around a filter">
+        <button role="tab" aria-selected="true" class="on" data-b="dns"><span>Another DNS server</span><em class="tag ok">redirected</em></button>
+        <button role="tab" aria-selected="false" data-b="doh"><span>DNS-over-HTTPS</span><em class="tag ok">refused</em></button>
+        <button role="tab" aria-selected="false" data-b="dot"><span>DNS-over-TLS and QUIC</span><em class="tag ok">refused</em></button>
+        <button role="tab" aria-selected="false" data-b="tor"><span>Tor Browser and bridges</span><em class="tag ok">blocked</em></button>
+        <button role="tab" aria-selected="false" data-b="canary"><span>Firefox DoH, iCloud Private Relay</span><em class="tag ok">turned off</em></button>
+        <button role="tab" aria-selected="false" data-b="flood"><span>A device flooding lookups</span><em class="tag ok">dropped</em></button>
+      </div>
+      <div class="bypass-detail panel" role="tabpanel" aria-live="polite">
+        <p class="bypass-say" id="bypass-say"></p>
+        <pre class="code" id="bypass-code"></pre>
+        <p class="t-3 small" id="bypass-note"></p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="section alt" id="memory">
+  <div class="wrap mem-grid">
+    <div>
+      <p class="kicker">Memory</p>
+      <h2>Routers don't have much. We use little.</h2>
+      <p class="sec-lede">The same seven blocklists, 534k domains, started cold side by side and left for six minutes.
+        Measured on one PC so both ran under the same conditions; a real router reads a little different.</p>
+      <p class="t-3 small">Fengard 1.3.1.3 and AdGuard Home 0.107.79 with its default settings. The script is in
+        <a href="https://github.com/masaleem-oss/Fengard/tree/main/dev/memcompare"><code>dev/memcompare</code></a>, so you can run it yourself.</p>
+    </div>
+    <div class="mem panel" id="mem" aria-label="Memory after six minutes">
+      <div class="mem-row"><span class="mem-name"><img src="assets/logo.svg" alt="" width="16" height="16">Fengard</span>
+        <div class="mem-bar"><i class="accent" style="--v:.267"></i></div><b class="mono">28 MB</b></div>
+      <div class="mem-row"><span class="mem-name">AdGuard Home</span>
+        <div class="mem-bar"><i style="--v:1"></i></div><b class="mono">105 MB</b></div>
+      <div class="mem-scale mono"><span>0</span><span>25</span><span>50</span><span>75</span><span>100 MB</span></div>
+      <p class="t-3 small">On a GL-MT3000 with these lists Fengard uses about 33 MB.</p>
+    </div>
+  </div>
+</section>
+
+<section class="section" id="tour">
+  <div class="wrap">
+    <div class="sec-head">
+      <p class="kicker">The dashboard</p>
+      <h2>Everything on one router, in one place.</h2>
+    </div>
+    <div class="tour">
+      <div class="tabs" role="tablist" aria-label="Dashboard pages" id="tour-tabs">
+        <button role="tab" aria-selected="true" class="on" data-s="dashboard">Overview</button>
+        <button role="tab" aria-selected="false" data-s="devices">Devices</button>
+        <button role="tab" aria-selected="false" data-s="profiles">Profiles</button>
+        <button role="tab" aria-selected="false" data-s="activity">Activity</button>
+        <button role="tab" aria-selected="false" data-s="filtering">Filtering</button>
+        <button role="tab" aria-selected="false" data-s="check-site">Check a site</button>
+        <button role="tab" aria-selected="false" data-s="phones">On a phone</button>
+      </div>
+      <figure class="shot" id="tour-shot">
+        <div class="shot-frame"><img id="tour-img" src="assets/shots/dashboard.png" alt="Fengard overview: lookups, blocked share, devices online and the DNS traffic chart" width="2160" height="1350" loading="lazy"></div>
+        <div class="shot-phones" id="tour-phones" hidden>
+          <img src="assets/shots/blockpage-phone.png" alt="The block page on a phone, with the reason and a request access button" loading="lazy">
+          <img src="assets/shots/mytime-phone.png" alt="The My time page on a phone, with time left today and each limit" loading="lazy">
+        </div>
+        <figcaption id="tour-cap">Lookups, what got blocked and why, devices online and response time. Cards can be moved, resized or removed.</figcaption>
+      </figure>
+    </div>
+  </div>
+</section>
+
+<section class="section alt" id="features">
+  <div class="wrap">
+    <div class="sec-head">
+      <p class="kicker">Features</p>
+      <h2>A family network, not just an ad blocker.</h2>
+    </div>
+    <div class="feat-grid">
+      <div class="feat-col">
+        <h3><svg class="ico"><use href="assets/icons.svg#i-users"/></svg>For the people on it</h3>
+        <dl>
+          <dt>Profiles</dt><dd>Categories, 55 single apps like TikTok, Roblox and Fortnite, SafeSearch, schedules and their own DNS servers.</dd>
+          <dt>Screen time</dt><dd>A daily limit per person and per app, counted once across all their devices.</dd>
+          <dt>Block page</dt><dd>Says why, with a Request access button you can approve from the alert.</dd>
+          <dt>My time</dt><dd><code>fengard.lan/me</code> on their own phone shows time left and asks for more.</dd>
+          <dt>New devices</dt><dd>Can wait for your approval before they get online.</dd>
+        </dl>
+      </div>
+      <div class="feat-col">
+        <h3><svg class="ico"><use href="assets/icons.svg#i-network"/></svg>For the network</h3>
+        <dl>
+          <dt>Ads and trackers</dt><dd>Gone network-wide, with HaGeZi, OISD, AdGuard and Steven Black lists one click away.</dd>
+          <dt>Encrypted upstream</dt><dd>DNS over TLS, HTTPS and HTTP/3, through fengard-h3, our own small QUIC client.</dd>
+          <dt>Local names</dt><dd>Every device answers as <code>name.lan</code>, and <code>.lan</code> never leaks upstream.</dd>
+          <dt>Firewall</dt><dd>Port forwards, WAN hardening, SYN and flood limits, invalid packets dropped.</dd>
+          <dt>Device check</dt><dd>A weekly look for open Telnet, cameras without a password and UPnP holes.</dd>
+        </dl>
+      </div>
+      <div class="feat-col">
+        <h3><svg class="ico"><use href="assets/icons.svg#i-shield-check"/></svg>For you</h3>
+        <dl>
+          <dt>WireGuard</dt><dd>Scan a QR code and a phone gets the same filtering on mobile data.</dd>
+          <dt>Alerts</dt><dd>To Discord, Slack, Telegram, ntfy or a webhook, by severity.</dd>
+          <dt>Accounts</dt><dd>Admin and viewer roles, two-factor, API keys.</dd>
+          <dt>Undo</dt><dd>Every settings change is versioned, with rollback, backup and restore.</dd>
+          <dt>Signed updates</dt><dd>From the dashboard in about a minute, test-run first, rolled back if it doesn't start.</dd>
+        </dl>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="section" id="compare">
+  <div class="wrap">
+    <div class="sec-head">
+      <p class="kicker">Compared</p>
+      <h2>Same ground, plus the parts a household needs.</h2>
+      <p class="sec-lede">Pi-hole and AdGuard Home are great DNS blockers. This is what each does out of the box; both can do more with extra setup.</p>
+    </div>
+    <div class="table-wrap">
+      <table class="cmp">
+        <thead><tr><th scope="col"></th><th scope="col" class="us"><img src="assets/logo.svg" alt="" width="16" height="16">Fengard</th><th scope="col">Pi-hole</th><th scope="col">AdGuard Home</th></tr></thead>
+        <tbody>
+          <tr><th scope="row">Network-wide ad and tracker blocking</th><td class="us y">Yes</td><td class="y">Yes</td><td class="y">Yes</td></tr>
+          <tr><th scope="row">Per-device profiles</th><td class="us y">Yes</td><td class="y">Groups</td><td class="y">Per client</td></tr>
+          <tr><th scope="row">Runs on the router itself</th><td class="us y">Any OpenWrt router</td><td class="n">Needs another machine</td><td class="y">Yes</td></tr>
+          <tr><th scope="row">Stops other DNS servers, DoH and DoT</th><td class="us y">In the kernel</td><td class="n">Your own rules</td><td class="n">Your own rules</td></tr>
+          <tr><th scope="row">Daily screen time per person</th><td class="us y">Yes</td><td class="n">No</td><td class="n">No</td></tr>
+          <tr><th scope="row">Block page with Request access</th><td class="us y">Yes</td><td class="n">No</td><td class="n">No</td></tr>
+          <tr><th scope="row">WireGuard VPN with the same filtering</th><td class="us y">Built in</td><td class="n">No</td><td class="n">No</td></tr>
+          <tr><th scope="row">Port forwarding and WAN hardening</th><td class="us y">Yes</td><td class="n">No</td><td class="n">No</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<section class="section alt" id="routers">
+  <div class="wrap">
+    <div class="sec-head">
+      <p class="kicker">Routers</p>
+      <h2>Will it run on mine?</h2>
+      <p class="sec-lede">Anything on OpenWrt 19.07 or newer with SSH and 128 MB of memory. That includes GL.iNet, whose firmware is OpenWrt underneath.</p>
+    </div>
+    <div class="rt">
+      <div class="rt-search">
+        <svg class="ico"><use href="assets/icons.svg#i-search"/></svg>
+        <label class="sr" for="rt-q">Find your router</label>
+        <input id="rt-q" placeholder="Try Flint 2, Archer C7 or MT7621" spellcheck="false" autocomplete="off">
+      </div>
+      <div class="rt-results" id="rt-results" aria-live="polite"></div>
+      <p class="t-3 small">Lab results are from emulated routers for each CPU type, installed by the real installer every release.
+        <a href="https://github.com/masaleem-oss/Fengard/blob/main/docs/routers.md">See every check</a>.
+        Running it on something not listed? <a href="https://github.com/masaleem-oss/Fengard/issues/new/choose">Tell us</a>.</p>
+    </div>
+  </div>
+</section>
+
+<section class="section" id="install">
+  <div class="wrap install-grid">
+    <div>
+      <p class="kicker">Install</p>
+      <h2>A double-click, then a password.</h2>
+      <p class="sec-lede">The installer finds your router, asks for its root password and does the rest. If anything
+        fails it rolls back on its own, and it never moves DNS over until Fengard starts at boot.</p>
+      <ol class="how-steps">
+        <li><span><b>Download</b> <code id="zip-name">fengard-&lt;version&gt;.zip</code> from the official releases and unzip it.</span></li>
+        <li><span><b>Run the installer</b> and choose <em>1 Install on my router</em>.</span></li>
+        <li><span><b>Open</b> <code>http://fengard.lan</code> and create the admin account.</span></li>
+      </ol>
+    </div>
+    <div class="inst panel">
+      <div class="tabs small-tabs" role="tablist" aria-label="Ways to install" id="inst-tabs">
+        <button role="tab" aria-selected="true" class="on" data-i="win">Windows</button>
+        <button role="tab" aria-selected="false" data-i="nix">macOS, Linux</button>
+        <button role="tab" aria-selected="false" data-i="ssh">Over SSH</button>
+        <button role="tab" aria-selected="false" data-i="pkg">Package</button>
+      </div>
+      <div class="inst-body" role="tabpanel">
+        <p class="inst-say" id="inst-say"></p>
+        <div class="code-wrap"><pre class="code" id="inst-code"></pre>
+          <button class="copy" type="button" id="inst-copy" aria-label="Copy"><svg class="ico"><use href="assets/icons.svg#i-copy"/></svg></button></div>
+        <pre class="code term" aria-label="The installer's menu">Fengard setup
+
+  1  Install on my router      OpenWrt and GL.iNet
+  2  Run on this computer      filters by DNS only
+  3  Remove from my router
+  4  Remove from this computer</pre>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="section official" id="official">
+  <div class="wrap off-grid">
+    <div>
+      <p class="kicker warn"><svg class="ico"><use href="assets/icons.svg#i-triangle-alert"/></svg>Official sources</p>
+      <h2>Only from here.</h2>
+      <p class="sec-lede">Copies of Fengard are being published under other GitHub accounts, and at least one ships
+        malware instead. Fengard runs as root on your router and sees every device's traffic, so where you get it matters.</p>
+    </div>
+    <ul class="off-list">
+      <li><svg class="ico"><use href="assets/icons.svg#i-badge-check"/></svg><span>The code and every download live at
+        <a href="https://github.com/masaleem-oss/Fengard"><b>github.com/masaleem-oss/Fengard</b></a>. Check the account name, not just the project name.</span></li>
+      <li><svg class="ico"><use href="assets/icons.svg#i-download"/></svg><span>Downloads come from its
+        <a href="https://github.com/masaleem-oss/Fengard/releases">Releases page</a>, never a zip in the code, and never with an <code>.exe</code> at the top.</span></li>
+      <li><svg class="ico"><use href="assets/icons.svg#i-fingerprint"/></svg><span>Compare a download with <code>SHA256SUMS</code> on the same release:
+        <code>shasum -a 256 fengard-&lt;version&gt;.zip</code>, or <code>Get-FileHash</code> on Windows.</span></li>
+      <li><svg class="ico"><use href="assets/icons.svg#i-key-round"/></svg><span>Updates are signed with a key that isn't kept on GitHub, so a copy can't arrive through the dashboard's updater.</span></li>
+    </ul>
+  </div>
+</section>
+
+<section class="section" id="faq">
+  <div class="wrap faq-wrap">
+    <div class="sec-head">
+      <p class="kicker">FAQ</p>
+      <h2>Fair questions.</h2>
+    </div>
+    <div class="faq">
+      <details><summary>Can kids get around it with DoH, a VPN or another DNS server?</summary>
+        <p>Changing DNS doesn't help: every lookup is redirected back to Fengard, and DoH, DoT, DoQ and Tor are blocked in
+          the router's firewall. Known VPN and proxy services are blocked by the "VPN, proxy &amp; DNS bypass" category.
+          No filter catches every VPN, so for younger kids pair it with a schedule or a device pause.</p></details>
+      <details><summary>Do I have to flash my router?</summary>
+        <p>No. If it already runs OpenWrt or GL.iNet firmware, Fengard installs next to it and uninstalls cleanly. If it
+          runs stock firmware that isn't OpenWrt-based, run Fengard on an always-on computer instead, or flash OpenWrt.</p></details>
+      <details><summary>Will it slow my internet down?</summary>
+        <p>No. Only DNS lookups go through Fengard, answered in milliseconds and mostly from cache. Everything else is plain
+          kernel routing.</p></details>
+      <details><summary>What happens if Fengard stops?</summary>
+        <p>A small watchdog checks it every 20 seconds. If it's stopped, crashing or missing, plain dnsmasq takes over DNS
+          within about a minute and a half and Fengard's firewall rules come out. Filtering is off while that happens, but
+          nobody loses internet.</p></details>
+      <details><summary>What about phones with private Wi-Fi addresses?</summary>
+        <p>Most keep one private address per network. When one changes, Fengard recognises it from its DHCP name and
+          fingerprint, the old address going quiet, and the sites it uses, and puts it back in its profile. Guesses it
+          isn't sure about wait for you, and a copied name is never enough.</p></details>
+      <details><summary>Is it a Pi-hole or AdGuard Home alternative?</summary>
+        <p>Yes. It blocks ads, trackers and malware network-wide like they do, and adds screen time, app blocking, a block
+          page and firewall enforcement. If AdGuard Home is on the router, the installer offers to turn it off and
+          removing Fengard turns it back on.</p></details>
+    </div>
+  </div>
+</section>
+
+<section class="closing">
+  <div class="wrap closing-inner">
+    <img src="assets/logo.svg" alt="" width="56" height="56">
+    <h2>Put a guard on the gate.</h2>
+    <p class="sec-lede">Free and open source. Installs in a few minutes, leaves in one.</p>
+    <div class="cta-row center">
+      <a class="btn btn-primary" id="dl2" href="https://github.com/masaleem-oss/Fengard/releases/latest"><svg class="ico"><use href="assets/icons.svg#i-download"/></svg><span id="dl2-label">Download</span></a>
+      <a class="btn" href="https://github.com/masaleem-oss/Fengard">Read the code</a>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer class="foot">
+  <div class="wrap foot-row">
+    <div class="foot-brand"><img src="assets/logo.svg" alt="" width="22" height="22"><span>Fengard</span>
+      <span class="t-3 small" id="foot-ver"></span></div>
+    <nav class="foot-links" aria-label="Links">
+      <a href="https://github.com/masaleem-oss/Fengard/releases">Releases</a>
+      <a href="https://github.com/masaleem-oss/Fengard/blob/main/CHANGELOG.md">Changelog</a>
+      <a href="https://github.com/masaleem-oss/Fengard/blob/main/docs/how-it-works.md">How it works</a>
+      <a href="https://github.com/masaleem-oss/Fengard/blob/main/docs/configuration.md">Reference</a>
+      <a href="https://github.com/masaleem-oss/Fengard/issues">Issues</a>
+      <a href="https://github.com/masaleem-oss/Fengard/security/advisories/new">Report a security issue</a>
+    </nav>
+    <p class="t-3 small foot-legal">Apache 2.0 · Made by <a href="https://github.com/masaleem-oss">masaleem-oss</a> ·
+      IBM Plex fonts under the SIL Open Font License, icons from Lucide (ISC)</p>
+  </div>
+</footer>
+
+<script src="app.js" defer></script>
+</body>
+</html>
