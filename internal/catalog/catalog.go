@@ -202,6 +202,29 @@ func (c *Catalog) UpdateCustom(ctx context.Context, url string) error {
 	return c.Load()
 }
 
+// FetchMissing downloads custom lists that were never downloaded, like the ones a restored backup
+// brings. they used to sit at downloading until the daily update or a refresh
+func (c *Catalog) FetchMissing(ctx context.Context) {
+	c.update.Lock()
+	defer c.update.Unlock()
+	got := false
+	for _, cs := range c.Custom() {
+		if _, err := os.Stat(filepath.Join(c.dir, cacheName(cs.URL))); !errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err := c.download(ctx, cs.URL); err != nil {
+			log.Printf("blocklist download: %s: %v", showURL(cs.URL), err)
+			continue
+		}
+		got = true
+	}
+	if got {
+		if err := c.Load(); err != nil {
+			log.Printf("loading custom blocklists: %v", err)
+		}
+	}
+}
+
 func cacheName(url string) string {
 	// a login or token in the url shouldnt end up in a file name or an error
 	if u, err := neturl.Parse(url); err == nil && (u.User != nil || u.RawQuery != "") {

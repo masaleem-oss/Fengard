@@ -275,6 +275,14 @@ func main() {
 		if sig := fmt.Sprint(src); sig != lastLists {
 			lastLists = sig
 			cat.SetCustom(src)
+			// lists from a restored backup or another tab have nothing cached yet
+			if !*noUpdate {
+				go func() {
+					ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+					defer cancel()
+					cat.FetchMissing(ctx)
+				}()
+			}
 		}
 		screen.SetLocation(location(c.Settings.Timezone))
 		engine.Rebuild(c, cat.Set())

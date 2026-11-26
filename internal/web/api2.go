@@ -329,7 +329,7 @@ func (s *Server) saveList(w http.ResponseWriter, r *http.Request) {
 		s.startWorker(func(parent context.Context) {
 			ctx, cancel := context.WithTimeout(parent, 2*time.Minute)
 			defer cancel()
-			s.Catalog.UpdateCustom(ctx, l.URL)
+			s.Catalog.FetchMissing(ctx)
 		})
 	}
 	writeJSON(w, l)
