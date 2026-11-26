@@ -22,6 +22,7 @@
     document.documentElement.dataset.theme = next;
     store.set('fg-site-theme', next);
     tourShow(tourCur);
+    recolorDots();
   });
 
   // nav border once the page moves
@@ -45,6 +46,67 @@
     instShow(instCur);
   };
   let version = '';
+
+  // ---------- the fence: react bits' dot grid behind the hero and the closing ----------
+  const cssVar = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+  const grids = [];
+  const dotColors = () => ({ baseColor: cssVar('--dot') || '#2b2838', activeColor: cssVar('--accent') || '#8f78ff' });
+  function recolorDots() { const c = dotColors(); grids.forEach((g) => g.set(c)); }
+  if (window.createDotGrid) {
+    const hero = $('#hero-dots');
+    const closing = $('#closing-dots');
+    const g1 = hero && window.createDotGrid(hero, { dotSize: 3, gap: 22, proximity: 150, shockRadius: 260, shockStrength: 4, glow: 0.6, ...dotColors() });
+    const g2 = closing && window.createDotGrid(closing, { dotSize: 3, gap: 22, proximity: 130, intro: false, ...dotColors() });
+    [g1, g2].forEach((g) => { if (g) grids.push(g); });
+    matchMedia('(prefers-color-scheme: light)').addEventListener?.('change', recolorDots);
+  }
+
+  // ---------- headline settles out of noise, once ----------
+  (() => {
+    const h = $('#hero-title');
+    if (!h || still) return;
+    const text = h.textContent;
+    const pool = 'abcdefghijklmnopqrstuvwxyz0123456789.-:';
+    h.setAttribute('aria-label', text);
+    // letters sit inside a word that can't break, so lines only wrap at spaces
+    h.innerHTML = text.split(' ').map((w) => `<span class="word" aria-hidden="true">${[...w].map((c) => `<span class="ch">${esc(c)}</span>`).join('')}</span>`).join(' ');
+    const cells = $$('.ch', h);
+    const real = cells.map((c) => c.textContent);
+    let t0 = 0;
+    const each = 28, scramble = 380;
+    const tick = (now) => {
+      let busy = false;
+      cells.forEach((c, i) => {
+        if (now - t0 < 120 + i * each + scramble) {
+          busy = true;
+          c.classList.add('noise');
+          c.textContent = pool[(Math.random() * pool.length) | 0];
+        } else if (c.classList.contains('noise')) {
+          c.classList.toggle('noise', false);
+          c.textContent = real[i];
+        }
+      });
+      if (busy) requestAnimationFrame(tick);
+      else cells.forEach((c) => { c.style.width = ''; });
+    };
+    // measure after the font is in, or the widths are the fallback font's
+    (document.fonts?.ready || Promise.resolve()).then(() => {
+      // each letter keeps its real width so the line doesn't wobble while it scrambles
+      cells.forEach((c) => { c.style.width = `${c.getBoundingClientRect().width}px`; c.style.textAlign = 'center'; });
+      t0 = performance.now();
+      requestAnimationFrame(tick);
+    });
+  })();
+
+  // ---------- spotlight on panels ----------
+  $$('.panel, .feat-col, .flow-node, .bypass-list button, .table-wrap').forEach((el) => el.classList.add('spot'));
+  document.addEventListener('pointermove', (e) => {
+    const el = e.target.closest?.('.spot, .rt-card');
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    el.style.setProperty('--mx', `${e.clientX - r.left}px`);
+    el.style.setProperty('--my', `${e.clientY - r.top}px`);
+  }, { passive: true });
 
   // ---------- try a lookup ----------
   // a small copy of what fengard's policy engine checks, in the same order
@@ -202,7 +264,7 @@
     },
     flood: {
       say: 'One device hammering DNS is cut off in the kernel before its packets fill a socket. In the lab a single device sending 1.4 million lookups a second left everyone else resolving with no failures.',
-      code: '<span class="c"># chain input, 2× the per-device limit set on the Settings page</span>\niifname { "br-lan" } meta nfproto ipv4 udp dport 53 \\\n  update @dns4 { ip saddr limit rate over 200/second burst 800 packets } <span class="k">counter drop</span>',
+      code: '<span class="c"># chain input, 2× the per-device limit set on the Settings page</span>\niifname { "br-lan" } meta nfproto ipv4 udp dport 53 \\\n  update @dns4 { ip saddr limit rate over 200/second \\\n  burst 800 packets } <span class="k">counter drop</span>',
       note: 'Normal devices make under 20 lookups a second.',
     },
   };
@@ -271,7 +333,7 @@
     const terms = q.split(/\s+/).filter(Boolean);
     const hits = ROUTERS.filter((r) => terms.every((t) => (r.n + ' ' + r.k + ' ' + r.cpu).toLowerCase().includes(t)));
     const list = q ? hits : ROUTERS.slice(0, 6);
-    $('#rt-results').innerHTML = list.map((r) => `<article class="rt-card"><h3>${esc(r.n)}<span class="badge ${BADGE[r.s][1]}">${BADGE[r.s][0]}</span></h3>
+    $('#rt-results').innerHTML = list.map((r) => `<article class="rt-card spot"><h3>${esc(r.n)}<span class="badge ${BADGE[r.s][1]}">${BADGE[r.s][0]}</span></h3>
       <div class="meta"><span>linux-${esc(r.cpu)}</span><span>${esc(r.fw)}</span><span>${esc(r.mem)}</span></div><p>${esc(r.note)}</p></article>`).join('')
       + (q && !hits.length ? `<div class="rt-empty"><b>Not in our list yet.</b> If it runs OpenWrt 19.07 or newer and has 128 MB of memory, it almost certainly works: the installer checks first and stops cleanly if it doesn't fit. <a href="${REPO}/issues/new/choose">Tell us how it goes</a> and it'll be added.</div>` : '')
       + (!q ? `<div class="rt-empty">${ROUTERS.length - 6} more, plus any router on OpenWrt 19.07 or newer. Search by model, chip like MT7621, or CPU like mipsle.</div>` : '');

@@ -8,6 +8,7 @@ OUT=${1:-$ROOT/_site}
 rm -rf "$OUT"
 mkdir -p "$OUT/assets/fonts" "$OUT/assets/shots"
 cp "$ROOT/site/index.html" "$ROOT/site/style.css" "$ROOT/site/app.js" "$OUT/"
+cp -r "$ROOT/site/vendor" "$OUT/"
 cp "$ROOT/docs/logo.svg" "$ROOT/docs/social-preview.png" "$OUT/assets/"
 cp "$ROOT/internal/web/static/img/icons.svg" "$ROOT/internal/web/static/img/LICENSE-lucide.txt" "$OUT/assets/"
 cp "$ROOT"/internal/web/static/fonts/*.woff2 "$ROOT/internal/web/static/fonts/LICENSE-IBM-Plex.txt" "$OUT/assets/fonts/"
