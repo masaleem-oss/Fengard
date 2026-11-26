@@ -6,7 +6,16 @@ are on the [releases page](https://github.com/masaleem-oss/Fengard/releases).
 
 ## Unreleased
 
-Nothing yet.
+### Added
+- **Guest Wi-Fi, from the new Guest Wi-Fi page.** One switch sets up a Wi-Fi network for visitors that is kept
+  off your LAN, with a name you choose and a long random WPA2 password. Guests scan a big QR code to join, and
+  **New password** changes it whenever you like. Every new device on it waits on Fengard's "waiting for
+  approval" page, even with **Quarantine new devices** off, and you get an alert. Approve, deny or kick
+  guests from the page; kicked and denied devices stay off until you approve them. Guests get their own
+  **Guests** profile (malware and adult blocked) that you can change on the Profiles page. Router install only
+- Guest Wi-Fi uses the router's own guest network when it has one, like GL.iNet's, and only changes its name,
+  password and a firewall rule for the approval page. Other routers get a separate network, firewall zone and
+  Wi-Fi that Fengard adds. Turning it off or uninstalling Fengard puts back exactly what was there before
 
 ## 1.3.4.1 - 2026-11-26 (preview)
 
