@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"sync"
@@ -32,11 +33,13 @@ const (
 )
 
 type Manager struct {
-	Enabled   bool   // only on a router install, a computer never touches anything
-	Dir       string // where the state and undo files go
-	BlockIP   string
-	Ports     []int
-	Exec      Exec                  // nil runs the real commands
+	Enabled bool   // only on a router install, a computer never touches anything
+	Dir     string // where the state and undo files go
+	BlockIP string
+	Ports   []int
+	Exec    Exec // nil runs the real commands
+	// how long the guest radios get to come up with the guest network's name, 30 s when zero
+	RadioWait time.Duration
 	Addrs     func() []netip.Prefix // addresses on the router now, nil reads them
 	NewSyntax func() bool           // nil reads /etc/openwrt_release
 	OnChange  func()                // the guest bridge came or went, so the firewall needs a resync
@@ -452,6 +455,10 @@ func (m *Manager) enable(ctx context.Context, g config.Guest) {
 	m.have = &st
 	m.mu.Unlock()
 	notes := m.reloadPending(ctx, "applying", &st)
+	if err := m.radiosOK(ctx, &st); err != nil {
+		m.unsafe(ctx, g, err)
+		return
+	}
 	log.Printf("guest wi-fi: on, %s network %s %s", st.Mode, st.Network, st.Subnet)
 	m.mu.Lock()
 	m.status = Status{State: "on", Mode: st.Mode, Network: st.Network, Device: st.Device, Subnet: st.Subnet, Gateway: st.Gateway,
@@ -476,6 +483,10 @@ func (m *Manager) rename(ctx context.Context, g config.Guest) {
 	m.have = &st
 	m.mu.Unlock()
 	notes := m.reload(ctx, "applying", []string{"wifi"})
+	if err := m.radiosOK(ctx, &st); err != nil {
+		m.unsafe(ctx, g, err)
+		return
+	}
 	m.mu.Lock()
 	m.status.State, m.status.Step, m.status.Notes = "on", "", append(slices.Clone(st.Notes), notes...)
 	m.mu.Unlock()
@@ -659,3 +670,67 @@ func newSyntax() bool {
 
 // ErrNotRouter is what turning guest wi-fi on says on a computer install
 var ErrNotRouter = errors.New("guest Wi-Fi needs Fengard installed on the router")
+
+var essidRe = regexp.MustCompile(`ESSID: "(.*)"`)
+
+// radiosOK checks the guest radios really broadcast the guest network. gl.inet's mediatek driver
+// has brought them up open and unnamed (HT_AP1) when it didn't take the settings, so a radio that
+// shows any other name means guest wi-fi isn't safe to leave on. radios iwinfo can't read are skipped
+func (m *Manager) radiosOK(ctx context.Context, st *State) error {
+	r, err := m.read(ctx)
+	if err != nil || r.Wireless == nil {
+		return nil
+	}
+	var ifs []string
+	for _, n := range st.WiFi {
+		if s := r.Wireless.Section(n); s != nil && s.Get("ifname") != "" {
+			ifs = append(ifs, s.Get("ifname"))
+		}
+	}
+	if len(ifs) == 0 {
+		return nil
+	}
+	m.step("applying", "Checking the guest Wi-Fi came up with its name and password")
+	wait := m.RadioWait
+	if wait == 0 {
+		wait = 30 * time.Second
+	}
+	deadline := time.Now().Add(wait)
+	for {
+		bad := ""
+		for _, i := range ifs {
+			out, err := m.run(ctx, nil, "iwinfo", i, "info")
+			match := essidRe.FindSubmatch(out)
+			if err != nil || match == nil {
+				continue
+			}
+			if got := string(match[1]); got != st.SSID {
+				bad = fmt.Sprintf("%s came up as %q instead of %q", i, got, st.SSID)
+			}
+		}
+		if bad == "" {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return errors.New(bad)
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(min(2*time.Second, wait/4)):
+		}
+	}
+}
+
+// unsafe turns guest wi-fi straight back off when the radios came up wrong, an open network
+// with the driver's default name is worse than no guest wi-fi
+// with the same settings it isn't tried again until the owner changes them, each try restarts the wi-fi
+func (m *Manager) unsafe(ctx context.Context, want config.Guest, err error) {
+	log.Printf("guest wi-fi: %v, turning it off again", err)
+	m.disable(ctx)
+	m.mu.Lock()
+	m.failed = sig(want)
+	m.status.State, m.status.Error = "error", "The router's Wi-Fi didn't take the guest network's name and password ("+err.Error()+
+		"), so Fengard turned guest Wi-Fi off again rather than leave an open network up."
+	m.mu.Unlock()
+}

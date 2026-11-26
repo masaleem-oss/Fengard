@@ -18,6 +18,7 @@ type fakeRouter struct {
 	skip     string // a line uci batch drops without saying so
 	ubus     map[string]string
 	hostapds []string
+	essid    map[string]string // what iwinfo says each radio broadcasts, unset ones answer nothing
 }
 
 func newFake(show map[string]string) *fakeRouter {
@@ -150,6 +151,11 @@ func (f *fakeRouter) exec(_ context.Context, stdin []byte, name string, args ...
 			return nil, fmt.Errorf("exit status 1")
 		}
 		return []byte(show(p)), nil
+	case len(args) == 2 && name == "iwinfo" && args[1] == "info":
+		if e, ok := f.essid[args[0]]; ok {
+			return []byte(args[0] + "   ESSID: \"" + e + "\"\n          Mode: Master\n"), nil
+		}
+		return nil, nil
 	case call == "ubus list hostapd.*":
 		return []byte(strings.Join(f.hostapds, "\n")), nil
 	case strings.HasPrefix(call, "ubus call hostapd."):
@@ -228,6 +234,7 @@ wireless.guest2g=wifi-iface
 wireless.guest2g.device='mt798111'
 wireless.guest2g.network='guest'
 wireless.guest2g.mode='ap'
+wireless.guest2g.ifname='ra1'
 wireless.guest2g.ssid='GL-MT3000-a1b-Guest'
 wireless.guest2g.encryption='none'
 wireless.guest2g.isolate='1'
@@ -236,6 +243,7 @@ wireless.guest5g=wifi-iface
 wireless.guest5g.device='mt798112'
 wireless.guest5g.network='guest'
 wireless.guest5g.mode='ap'
+wireless.guest5g.ifname='rax1'
 wireless.guest5g.ssid='GL-MT3000-a1b-5G-Guest'
 wireless.guest5g.encryption='psk2'
 wireless.guest5g.key='oldguestpw'

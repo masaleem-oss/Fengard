@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/masaleem-oss/Fengard/internal/config"
 )
@@ -457,5 +458,45 @@ func TestRestartMidway(t *testing.T) {
 	data, _ = os.ReadFile(filepath.Join(m.Dir, StateFile))
 	if strings.Contains(string(data), "pending") {
 		t.Errorf("pending left in %s", data)
+	}
+}
+
+// on a gl-mt3000 the mediatek driver brought the guest radios up open as HT_AP1 instead of the guest
+// network, fengard has to notice and turn guest wi-fi straight back off, and not retry every minute
+func TestOpenRadiosTurnGuestOff(t *testing.T) {
+	f := newFake(glinet)
+	f.ubus["network.interface.guest"] = `{"up": true, "l3_device": "br-guest"}`
+	f.essid = map[string]string{"ra1": "HT_AP1", "rax1": "Guests"}
+	before := f.snapshot()
+	m := manager(t, f)
+	m.RadioWait = 50 * time.Millisecond
+	ctx := context.Background()
+	g := config.Guest{Enabled: true, SSID: "Guests", Password: "k7pq-m3zt-x9wd-4fhn"}
+	m.Want(g)
+	m.Sync(ctx)
+	st := m.Status()
+	if st.State != "error" || !strings.Contains(st.Error, `"HT_AP1"`) {
+		t.Fatalf("status %+v", st)
+	}
+	after := f.snapshot()
+	for pkg := range before {
+		if after[pkg] != before[pkg] {
+			t.Errorf("%s not put back after the radios came up wrong", pkg)
+		}
+	}
+	batches := len(f.calls("uci batch"))
+	m.Sync(ctx)
+	if n := len(f.calls("uci batch")); n != batches {
+		t.Errorf("tried again with the same settings, %d batches", n-batches)
+	}
+
+	// radios that come up right leave it on
+	f.essid["ra1"] = "Guests"
+	g.SSID = "Guests"
+	g.Password = "a-different-password"
+	m.Want(g)
+	m.Sync(ctx)
+	if st := m.Status(); st.State != "on" || st.Error != "" {
+		t.Errorf("good radios: %+v", st)
 	}
 }
