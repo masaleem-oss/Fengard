@@ -6,7 +6,14 @@ are on the [releases page](https://github.com/masaleem-oss/Fengard/releases).
 
 ## Unreleased
 
-Nothing yet.
+### Added
+- **Security check.** A new **Security** page takes a baseline of the router and checks it every night around
+  2 am, or when you press **Check now**, for anything new or tampered with: installed packages, programs and
+  startup scripts changed since the firmware was installed, SSH keys, accounts that can log in, services and
+  scheduled jobs, open ports, and port forwards or firewall rules that let the internet in. New changes raise
+  one alert, sent to your notification channels like any other, and you approve them one by one or all at
+  once. Each of these can be turned off. A firmware upgrade takes a new baseline instead of listing
+  everything it changed. It only notices changes, it doesn't undo them, and it runs on routers only
 
 ## 1.3.4.1 - 2026-11-26 (preview)
 
