@@ -340,11 +340,15 @@ func (m *Manager) reload(ctx context.Context, state string, what []string) []str
 }
 
 func (m *Manager) reloadOne(ctx context.Context, state, what string) error {
-	c := reloadCmd[what]
+	c, step := reloadCmd[what], reloadStep[what]
+	// one interface only, a full network reload restarts the lan and drops everyone for half a minute
+	if net, ok := strings.CutPrefix(what, "ifup:"); ok && net != "" {
+		c, step = []string{"ifup", net}, "Restarting the guest network"
+	}
 	if c == nil {
 		return nil
 	}
-	m.step(state, reloadStep[what])
+	m.step(state, step)
 	_, err := m.run(ctx, nil, c[0], c[1:]...)
 	if err != nil {
 		log.Printf("guest wi-fi: %v", err)
@@ -495,8 +499,11 @@ func (m *Manager) disable(ctx context.Context) {
 	}
 	// wi-fi first so nothing is left pointing at a network that's gone
 	order := []string{}
-	for _, w := range []string{"wifi", "network", "dnsmasq", "firewall"} {
-		if slices.Contains(st.Reload, w) {
+	if slices.Contains(st.Reload, "wifi") {
+		order = append(order, "wifi")
+	}
+	for _, w := range st.Reload {
+		if w != "wifi" {
 			order = append(order, w)
 		}
 	}

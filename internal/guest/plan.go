@@ -277,7 +277,7 @@ func planExisting(r Router, w Want, net string, zone *Section, ifaces []*Section
 		nchanged = true
 	}
 	if nchanged {
-		reload = append(reload, "network")
+		reload = append(reload, "ifup:"+net)
 	}
 	for _, s := range ifaces {
 		st.WiFi = append(st.WiFi, s.Name)

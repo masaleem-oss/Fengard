@@ -2,6 +2,7 @@ package guest
 
 import (
 	"crypto/rand"
+	"errors"
 	"strings"
 )
 
@@ -32,4 +33,17 @@ func NewPassword() string {
 		n++
 	}
 	return out.String()
+}
+
+// CheckPassword is wpa2's rule for a passphrase: 8 to 63 printable ascii characters
+func CheckPassword(p string) error {
+	if len(p) < 8 || len(p) > 63 {
+		return errors.New("the password has to be 8 to 63 characters")
+	}
+	for _, c := range p {
+		if c < 0x20 || c > 0x7e {
+			return errors.New("the password can only use letters, numbers, spaces and the usual symbols")
+		}
+	}
+	return nil
 }

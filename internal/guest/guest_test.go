@@ -157,7 +157,8 @@ func TestPlanExisting(t *testing.T) {
 			t.Errorf("undo missing %s", w)
 		}
 	}
-	if !slices.Equal(st.Reload, []string{"network", "dnsmasq", "wifi", "firewall"}) {
+	// only the guest interface restarts, a whole network reload drops the lan too
+	if !slices.Equal(st.Reload, []string{"ifup:guest", "dnsmasq", "wifi", "firewall"}) {
 		t.Errorf("reload %v", st.Reload)
 	}
 
