@@ -6,6 +6,10 @@ are on the [releases page](https://github.com/masaleem-oss/Fengard/releases).
 
 ## Unreleased
 
+Nothing yet.
+
+## 1.3.4.2 - 2026-11-26 (preview)
+
 ### Added
 - **Security check.** A new **Security** page takes a baseline of the router and checks it every night around
   2 am, or when you press **Check now**, for anything new or tampered with: installed packages, programs and
