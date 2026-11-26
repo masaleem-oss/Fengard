@@ -27,6 +27,7 @@ const PAGES = [
   { id: 'dns', label: 'DNS', icon: 'globe' },
   { id: 'forwarding', label: 'Port forwarding', icon: 'arrow-left-right' },
   { id: 'firewall', label: 'Firewall', icon: 'brick-wall' },
+  { id: 'guest', label: 'Guest Wi-Fi', icon: 'wifi' },
   { id: 'vpn', label: 'VPN', icon: 'globe-lock', addon: 'vpn' },
   { section: 'System' },
   { id: 'settings', label: 'Settings', icon: 'settings' },
@@ -42,6 +43,7 @@ const loaders = {
   dns: () => import('./pages/dns.js'),
   forwarding: () => import('./pages/forwarding.js'),
   firewall: () => import('./pages/firewall.js'),
+  guest: () => import('./pages/guest.js'),
   vpn: () => import('/features/vpn/page.js'),
   settings: () => import('./pages/settings.js'),
 };
