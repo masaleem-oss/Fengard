@@ -6,7 +6,23 @@ are on the [releases page](https://github.com/masaleem-oss/Fengard/releases).
 
 ## Unreleased
 
-Nothing yet.
+### Added
+- Profiles can be moved up and down the list, from the **⋯** menu on a profile
+- The DNS traffic chart on the dashboard shows what share of lookups were blocked when you point at a bar
+
+### Fixed
+- **"Using HTTP/2, not HTTP/3" alerts on a busy server or a poor connection.** When an HTTP/3 lookup failed
+  Fengard blamed HTTP/3 even if HTTP/2 to the same server failed right after, so a slow resolver, a bad
+  mobile connection or a reboot before the internet was up moved lookups to HTTP/2 for up to half an hour and
+  raised the alert. HTTP/3 now only counts as failing when HTTP/2 to that server works. A new WAN or VPN
+  connection also starts with a clean slate, and the DNS page no longer says HTTP/2 after one slow answer
+- The kernel log on GL.iNet and other MediaTek routers filled with `RT_PRIV_IOCTL interface is down` every
+  20 seconds. The Presence add-on asked every Wi-Fi interface, including switched-off ones, for its clients.
+  It now skips interfaces that are down and doesn't poll at all while no device has presence turned on
+- The router's upstream gateway, on the WAN side, showed up under **Devices** and got the default profile.
+  Only devices on the LAN side are listed now
+- Custom blocklists from a restored backup stayed at "Downloading…" until the daily update or a refresh.
+  They download straight away now
 
 ## 1.3.4 - 2026-11-25
 
