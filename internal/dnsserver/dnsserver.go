@@ -213,7 +213,8 @@ func (s *Server) NetworkChanged() {
 	s.h3Health.Range(func(_, v any) bool {
 		h := v.(*h3Health)
 		h.mu.Lock()
-		h.waitUntil = time.Time{}
+		// a new path starts with a clean slate, old failures shouldn't make the next one a long wait
+		h.waitUntil, h.fails, h.lastErr = time.Time{}, 0, ""
 		h.mu.Unlock()
 		return true
 	})
@@ -757,11 +758,20 @@ func (s *Server) exchangeDoH(req *dns.Msg, url string) (*dns.Msg, error) {
 	if err != nil {
 		return nil, err
 	}
+	var failed *h3Attempt
 	if s.doh3.Load() {
-		if m, err := s.exchangeDoH3(body, url); err == nil {
+		m, attempt, err := s.exchangeDoH3(body, url)
+		if err == nil {
 			return m, nil
 		}
+		failed = attempt
 	}
+	m, err := s.exchangeDoH2(body, url)
+	failed.done(err == nil)
+	return m, err
+}
+
+func (s *Server) exchangeDoH2(body []byte, url string) (*dns.Msg, error) {
 	hreq, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
 		return nil, err
@@ -812,14 +822,16 @@ func (s *Server) health(url string) *h3Health {
 	return h.(*h3Health)
 }
 
-func (s *Server) exchangeDoH3(body []byte, url string) (*dns.Msg, error) {
+// exchangeDoH3 tries http/3. a failure comes back as an attempt that only counts against http/3
+// once http/2 to the same server has answered, see done
+func (s *Server) exchangeDoH3(body []byte, url string) (*dns.Msg, *h3Attempt, error) {
 	h := s.health(url)
 	h.mu.Lock()
 	now := time.Now()
 	// after a failure one lookup at a time finds out whether http/3 is back, the rest use http/2 meanwhile
 	if now.Before(h.waitUntil) || h.probing {
 		h.mu.Unlock()
-		return nil, errors.New("http/3 backing off")
+		return nil, nil, errors.New("http/3 backing off")
 	}
 	probe := h.fails > 0
 	h.probing = probe
@@ -844,26 +856,49 @@ func (s *Server) exchangeDoH3(body []byte, url string) (*dns.Msg, error) {
 	}
 	if err != nil {
 		s.Counters.DoH3Fell.Add(1)
-		if h.round != round {
-			return nil, err // another lookup on the same connection already counted this
-		}
-		h.round++
-		h.fails++
-		h.lastErr = err.Error()
-		// one slow answer from a server that works is the resolver, not http/3
-		if !h.worked || h.fails >= 2 {
-			h.waitUntil = time.Now().Add(min(h3MinBackoff<<min(h.fails-1, 10), h3MaxBackoff))
-		}
-		// three in a row is a couple of minutes on http/2, worth telling people who picked http/3
-		if h.fails == h3DownAfter && s.OnHTTP3Down != nil {
-			go s.OnHTTP3Down(url, strings.TrimPrefix(h.lastErr, "h3: "))
-		}
-		return nil, err
+		return nil, &h3Attempt{s: s, h: h, round: round, url: url, err: err}, err
 	}
 	s.Counters.DoH3.Add(1)
 	h.worked, h.fails, h.lastErr, h.lastOK = true, 0, "", time.Now()
-	return m, nil
+	return m, nil, nil
 }
+
+// h3Attempt is an http/3 lookup that failed, waiting to hear how http/2 did
+type h3Attempt struct {
+	s     *Server
+	h     *h3Health
+	round int
+	url   string
+	err   error
+}
+
+// done counts the failure against http/3 only when http/2 to the same server answered. when http/2
+// fails too the server is busy or the connection is down, and dropping to http/2 wouldn't help
+func (a *h3Attempt) done(http2OK bool) {
+	if a == nil || !http2OK {
+		return
+	}
+	h := a.h
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.round != a.round {
+		return // another lookup on the same connection already counted this
+	}
+	h.round++
+	h.fails++
+	h.lastErr = a.err.Error()
+	// one slow answer from a server that works is the resolver, not http/3
+	if h.backingOff() {
+		h.waitUntil = time.Now().Add(min(h3MinBackoff<<min(h.fails-1, 10), h3MaxBackoff))
+	}
+	// three in a row is a couple of minutes on http/2, worth telling people who picked http/3
+	if h.fails == h3DownAfter && a.s.OnHTTP3Down != nil {
+		go a.s.OnHTTP3Down(a.url, strings.TrimPrefix(h.lastErr, "h3: "))
+	}
+}
+
+// whether lookups are being sent over http/2 for now, call with mu held
+func (h *h3Health) backingOff() bool { return h.fails > 0 && (!h.worked || h.fails >= 2) }
 
 // Transport is how a dns-over-https upstream is being reached
 type Transport struct {
@@ -886,7 +921,7 @@ func (s *Server) Transports() []Transport {
 			h := s.health(u.URL)
 			h.mu.Lock()
 			switch {
-			case h.fails > 0:
+			case h.backingOff():
 				t.Error, t.RetryAt = strings.TrimPrefix(h.lastErr, "h3: "), h.waitUntil
 			case h.worked:
 				t.Using = "HTTP/3"

@@ -182,7 +182,11 @@ func TestDoH3ConcurrentFailuresCountOnce(t *testing.T) {
 	var wg sync.WaitGroup
 	for range 10 {
 		wg.Add(1)
-		go func() { defer wg.Done(); s.exchangeDoH3(body, url) }()
+		go func() {
+			defer wg.Done()
+			_, a, _ := s.exchangeDoH3(body, url)
+			a.done(true) // as if http/2 answered
+		}()
 	}
 	wg.Wait()
 	h := s.health(url)
@@ -216,7 +220,8 @@ func TestHTTP3DownReportedOnce(t *testing.T) {
 	s.OnHTTP3Down = func(u, reason string) { got <- u }
 	body, _ := new(dns.Msg).SetQuestion("example.org.", dns.TypeA).Pack()
 	for range h3DownAfter + 1 {
-		s.exchangeDoH3(body, url)
+		_, a, _ := s.exchangeDoH3(body, url)
+		a.done(true)
 		h := s.health(url)
 		h.mu.Lock()
 		h.waitUntil = time.Time{}
@@ -234,5 +239,67 @@ func TestHTTP3DownReportedOnce(t *testing.T) {
 	case <-got:
 		t.Fatal("reported twice")
 	case <-time.After(100 * time.Millisecond):
+	}
+}
+
+// a busy server or a bad connection fails over http/2 too, that's no reason to stop using http/3
+func TestDoH3NotBlamedWhenHTTP2FailsToo(t *testing.T) {
+	s := &Server{}
+	s.Init()
+	pc, _ := net.ListenPacket("udp", "127.0.0.1:0") // swallows http/3, nothing on tcp so http/2 fails fast
+	defer pc.Close()
+	url := "https://" + pc.LocalAddr().String() + "/dns-query"
+	s.Configure(config.Settings{Upstreams: []string{url}, DoH3: true})
+	down := make(chan string, 1)
+	s.OnHTTP3Down = func(u, _ string) { down <- u }
+	q := new(dns.Msg)
+	q.SetQuestion("example.org.", dns.TypeA)
+	for range h3DownAfter {
+		if _, err := s.exchangeDoH(q.Copy(), url); err == nil {
+			t.Fatal("lookup to a dead server worked")
+		}
+	}
+	h := s.health(url)
+	h.mu.Lock()
+	fails, wait := h.fails, h.waitUntil
+	h.mu.Unlock()
+	if fails != 0 || !wait.IsZero() {
+		t.Fatalf("http/3 got blamed for a dead server: fails %d, waiting until %v", fails, wait)
+	}
+	select {
+	case <-down:
+		t.Fatal("alerted that http/3 is down when the whole server was")
+	case <-time.After(100 * time.Millisecond):
+	}
+}
+
+// a new wan or vpn path starts fresh instead of carrying a long backoff over
+func TestNetworkChangeForgetsHTTP3Failures(t *testing.T) {
+	s := &Server{}
+	s.Init()
+	h := s.health("https://dns.example/dns-query")
+	h.worked, h.fails, h.lastErr, h.waitUntil = true, 6, "timeout", time.Now().Add(time.Hour)
+	s.NetworkChanged()
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.fails != 0 || !h.waitUntil.IsZero() || h.lastErr != "" || !h.worked {
+		t.Fatalf("after a network change: %+v", h)
+	}
+}
+
+// one slow answer from a server where http/3 works doesn't move lookups to http/2, so the page shouldn't say it did
+func TestTransportsStayHTTP3AfterOneSlowAnswer(t *testing.T) {
+	s := &Server{}
+	s.Init()
+	url := "https://dns.example/dns-query"
+	s.Configure(config.Settings{Upstreams: []string{url}, DoH3: true})
+	h := s.health(url)
+	h.worked, h.fails, h.lastErr = true, 1, "context deadline exceeded"
+	if tr := s.Transports(); len(tr) != 1 || tr[0].Using != "HTTP/3" || tr[0].Error != "" {
+		t.Fatalf("one slow answer: %+v", tr)
+	}
+	h.fails = 2
+	if tr := s.Transports(); tr[0].Using != "HTTP/2" || tr[0].Error == "" {
+		t.Fatalf("two in a row backs off and should say so: %+v", tr)
 	}
 }
