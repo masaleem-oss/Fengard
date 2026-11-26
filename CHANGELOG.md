@@ -6,6 +6,10 @@ are on the [releases page](https://github.com/masaleem-oss/Fengard/releases).
 
 ## Unreleased
 
+Nothing yet.
+
+## 1.3.4.3 - 2026-11-26 (preview)
+
 ### Added
 - **Guest Wi-Fi, from the new Guest Wi-Fi page.** One switch sets up a Wi-Fi network for visitors that is kept
   off your LAN, with a name you choose and a long random WPA2 password. Guests scan a big QR code to join, and
