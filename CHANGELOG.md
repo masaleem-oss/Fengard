@@ -21,7 +21,10 @@ Nothing yet.
   password and a firewall rule for the approval page. Other routers get a separate network, firewall zone and
   Wi-Fi that Fengard adds. Turning it off or uninstalling Fengard puts back exactly what was there before
 - A router repeating another Wi-Fi network keeps guest Wi-Fi off on that band, the same as GL.iNet's own guest
-  Wi-Fi, so the uplink and the internet stay up. The page says which band and why
+  Wi-Fi, so the uplink and the internet stay up. The page says which band and why, and if the Wi-Fi chip brings
+  that band's guest radio up anyway, as an open network named HT_AP1, Fengard takes it down again
+- GL.iNet's own guest network is used even though its firewall zone can forward to GL.iNet's VPN client zones,
+  instead of Fengard adding a second guest network, which made the Wi-Fi chip restart both bands
 - After switching guest Wi-Fi on, Fengard checks each guest radio really broadcasts the guest network's name. If
   one comes up open or with another name, guest Wi-Fi is switched straight back off and the page says what
   happened
