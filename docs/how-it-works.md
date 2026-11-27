@@ -124,6 +124,7 @@ flowchart LR
 | firewall | a hook that re-applies Fengard's rules after a firewall reload, plus the VPN interface and port | yes |
 | guest Wi-Fi | only when turned on in the dashboard: SSID, password and the guest firewall rule on the router's own guest network, or Fengard's own `fgguest` network, zone and Wi-Fi. What it changed is saved in `guest.undo` first | restored exactly, also when turned off |
 | `/etc/sysupgrade.conf` | keeps Fengard across firmware upgrades | yes |
+| LuCI page | **Services → Fengard** in the router's own web interface, when it has LuCI. Firmware upgrades and restored backups keep only what `/etc/sysupgrade.conf` lists, so `fengardd` puts the page back each time it starts, and brings `/etc/fengard/uninstall.sh` up to date with the running version | yes |
 
 Most firmware keeps its own web interface on ports 80 and 443, so Fengard listens on free ports and the
 firewall redirects the spare address's 80 and 443 to them. If any step fails the installer rolls back on its

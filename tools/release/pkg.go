@@ -14,6 +14,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/masaleem-oss/Fengard/internal/routerui"
 )
 
 // one file going into an ipk or apk, paths have no leading slash
@@ -274,17 +276,17 @@ func adbBlock(out *bytes.Buffer, typ uint32, payload []byte) {
 
 // what goes in the package next to the program
 func pkgFiles(root string, bin, routerInstall, routerUninstall []byte, version string) []pkgFile {
-	return []pkgFile{
+	files := []pkgFile{
 		{"usr/bin/fengardd", bin, 0o755},
 		{"usr/share/fengard/router-install.sh", routerInstall, 0o755},
 		{"usr/share/fengard/router-uninstall.sh", routerUninstall, 0o755},
 		{"usr/share/fengard/version", []byte(version + "\n"), 0o644},
-		{"usr/libexec/fengard-luci", lf(read(root, "install/luci/fengard-luci")), 0o755},
-		{"usr/share/luci/menu.d/luci-app-fengard.json", lf(read(root, "install/luci/menu.json")), 0o644},
-		{"usr/share/rpcd/acl.d/luci-app-fengard.json", lf(read(root, "install/luci/acl.json")), 0o644},
-		{"www/luci-static/resources/view/fengard.js", lf(read(root, "install/luci/fengard.js")), 0o644},
-		{"www/luci-static/resources/fengard/logo.svg", read(root, "internal/web/static/img/logo.svg"), 0o644},
 	}
+	// the same luci page fengardd puts back after a firmware upgrade drops it
+	for _, f := range routerui.LuCIFiles(read(root, "internal/web/static/img/logo.svg")) {
+		files = append(files, pkgFile{f.Path, f.Data, int64(f.Mode)})
+	}
+	return files
 }
 
 func pkgName(name, version, target, ext string) string {

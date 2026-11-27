@@ -261,7 +261,9 @@ Computer mode filters every device by DNS but has limits:
 
 - **Router:** option 3 in the menu, or `sh /etc/fengard/uninstall.sh` on the router. Add `--purge` to also delete
   settings and history. If you installed the package, removing `fengard` in **System → Software** (or
-  `opkg remove fengard`, `apk del fengard`) does the same, keeping settings for a reinstall.
+  `opkg remove fengard`, `apk del fengard`) does the same, keeping settings for a reinstall. After a firmware
+  upgrade or a restored backup the package is no longer listed there, even though Fengard kept running; use
+  `sh /etc/fengard/uninstall.sh` then.
 - **Computer:** option 4 in the menu. Then set your router's DHCP DNS server back to automatic.
 
 ## Screenshots
