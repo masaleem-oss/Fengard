@@ -105,10 +105,22 @@ func (m *Manager) Want(g config.Guest) {
 func (m *Manager) Status() Status {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	m.load()
 	s := m.status
 	s.Router = m.Enabled
 	if s.State == "" {
 		s.State = "off"
+	}
+	// a change the sync loop hasn't picked up yet shows as under way, so the page right after the
+	// switch says setting up or turning off and keeps checking, not the state from before
+	if m.Enabled && m.wantSet && (s.State == "off" || s.State == "on" || s.State == "error") {
+		on := m.want.Enabled && m.want.SSID != "" && m.want.Password != ""
+		switch {
+		case on && m.have == nil && m.failed != sig(m.want):
+			s.State, s.Step, s.Error = "applying", "Starting", ""
+		case !on && m.have != nil:
+			s.State, s.Step = "removing", "Starting"
+		}
 	}
 	s.WiFi, s.Notes = slices.Clone(s.WiFi), slices.Clone(s.Notes)
 	s.Kick = len(m.kickers) > 0

@@ -824,3 +824,28 @@ func TestOldOwnNetworkMovesToRouters(t *testing.T) {
 		t.Errorf("off didn't put the router back")
 	}
 }
+
+// the page asks right after the switch, before the sync loop has started on it
+func TestStatusShowsChangeUnderWay(t *testing.T) {
+	f := mt3000()
+	m := manager(t, f)
+	m.RadioWait = 50 * time.Millisecond
+	g := config.Guest{Enabled: true, SSID: "Guests", Password: "k7pq-m3zt-x9wd-4fhn"}
+	m.Want(g)
+	if st := m.Status().State; st != "applying" {
+		t.Errorf("before the sync: %q, want applying", st)
+	}
+	m.Sync(context.Background())
+	if st := m.Status().State; st != "on" {
+		t.Errorf("after: %q, want on", st)
+	}
+	g.Enabled = false
+	m.Want(g)
+	if st := m.Status().State; st != "removing" {
+		t.Errorf("before turning off: %q, want removing", st)
+	}
+	m.Sync(context.Background())
+	if st := m.Status().State; st != "off" {
+		t.Errorf("after: %q, want off", st)
+	}
+}
