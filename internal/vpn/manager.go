@@ -23,6 +23,8 @@ import (
 type Manager struct {
 	DataDir string
 	WAN     []string // for the double nat check
+	// the wan interfaces right now when they can change while running, else WAN
+	WANs func() []string
 
 	mu      sync.Mutex
 	applied string
@@ -148,7 +150,11 @@ type Reachability struct {
 
 // public lookup can take seconds so it runs in the background
 func (m *Manager) Reachability(ctx context.Context) Reachability {
-	r := Reachability{WANIP: wanAddress(m.WAN)}
+	wans := m.WAN
+	if m.WANs != nil {
+		wans = m.WANs()
+	}
+	r := Reachability{WANIP: wanAddress(wans)}
 	if ip := net.ParseIP(r.WANIP); ip != nil && ip.IsPrivate() {
 		r.DoubleNAT = true
 	}

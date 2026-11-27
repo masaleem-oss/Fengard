@@ -259,7 +259,9 @@ func main() {
 	}
 	dns.Init()
 
-	vpnMgr := &vpn.Manager{DataDir: *dataDir, WAN: split(*wan)}
+	// a router's wan interfaces come and go, like a repeater's uplink
+	wanIfs := newWANWatch(split(*wan), *fwOn)
+	vpnMgr := &vpn.Manager{DataDir: *dataDir, WAN: split(*wan), WANs: wanIfs.Devices}
 	vpnMgr.Detect()
 
 	has := func(id string) bool { return cfgStore.Get().Settings.Has(id) }
@@ -420,7 +422,7 @@ func main() {
 		}
 		// older installs passed gl.inet aliases like @wan, they aren't interfaces
 		alias := func(n string) bool { return strings.HasPrefix(n, "@") }
-		lans, wans := slices.DeleteFunc(split(*lan), alias), slices.DeleteFunc(split(*wan), alias)
+		lans, wans := slices.DeleteFunc(split(*lan), alias), slices.DeleteFunc(wanIfs.Devices(), alias)
 		if len(wans) == 0 {
 			wans = []string{"fg-nowan"}
 		}
@@ -460,6 +462,7 @@ func main() {
 	if *fwOn {
 		glinetAdGuardOff()
 		glinetVPNDNS()
+		go fixInitTriggers(ctx)
 	}
 	if *harden {
 		firewall.Harden()
