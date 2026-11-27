@@ -504,6 +504,23 @@ func TestBlackhole(t *testing.T) {
 	t.Logf("gave up after %v", time.Since(start).Round(time.Millisecond))
 }
 
+// a lookup that runs out of time on a working connection blames the server, not udp
+func TestSlowAnswerIsNotNoReply(t *testing.T) {
+	s := startServer(t, serverOpts{})
+	defer s.stop()
+	cl := newClient(s.pool)
+	defer cl.Close()
+	if err := ask(cl, url(s.addr()), "warm.test", 5*time.Second); err != nil {
+		t.Fatal(err)
+	}
+	err := ask(cl, url(s.addr()), "slow.test", 100*time.Millisecond)
+	var te *h3.TimeoutError
+	if !errors.As(err, &te) || te.NoReply() || !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("want a slow answer, got %v", err)
+	}
+	t.Logf("%v", err)
+}
+
 func TestUnreachable(t *testing.T) {
 	// a port nobody listens on, linux answers with icmp port unreachable
 	pc, _ := net.ListenPacket("udp", "127.0.0.1:0")

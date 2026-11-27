@@ -88,3 +88,32 @@ func retryable(err error) bool {
 	}
 	return errors.Is(err, ErrIdle) || errors.Is(err, ErrReset) || errors.Is(err, errGoingAway) || errors.Is(err, errClosed) || errors.Is(err, errStale)
 }
+
+// TimeoutError is a lookup that ran out of time, saying how far its connection got. "context deadline
+// exceeded" alone can't tell a path that drops udp from a slow server
+type TimeoutError struct {
+	msg string
+	err error // the context's own error, so errors.Is still finds it
+}
+
+func (e *TimeoutError) Error() string { return e.msg }
+func (e *TimeoutError) Unwrap() error { return e.err }
+
+// NoReply is true when nothing at all came back from the server over udp
+func (e *TimeoutError) NoReply() bool { return e.msg == msgNoReply }
+
+const (
+	msgNoReply   = "h3: no reply from the server over UDP"
+	msgHandshake = "h3: QUIC handshake didn't finish in time"
+	msgSlow      = "h3: server took too long to answer"
+)
+
+func (c *Conn) timedOut(err error) error {
+	switch {
+	case !c.heard.Load():
+		return &TimeoutError{msgNoReply, err}
+	case !c.ready.Load():
+		return &TimeoutError{msgHandshake, err}
+	}
+	return &TimeoutError{msgSlow, err}
+}

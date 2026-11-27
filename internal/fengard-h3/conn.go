@@ -113,6 +113,7 @@ type Conn struct {
 	lastActivity atomic.Int64
 	idleNanos    atomic.Int64
 	ready        atomic.Bool
+	heard        atomic.Bool // a packet from the server decrypted, so udp gets through both ways
 	goingAway    atomic.Bool
 	dead         atomic.Bool // failed, the loop just hasn't finished closing
 	statusMu     sync.Mutex
@@ -719,6 +720,7 @@ func (c *Conn) packet(sp space, h header, pkt []byte, now time.Time) bool {
 		}
 		return false
 	}
+	c.heard.Store(true)
 	if h.long && pkt[0]&0x0c != 0 || !h.long && pkt[0]&0x18 != 0 {
 		c.closeWith(transportErr(errProtocolViolation, "reserved bits set"))
 		return true

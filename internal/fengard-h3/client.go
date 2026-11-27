@@ -113,6 +113,9 @@ func (cl *Client) Exchange(ctx context.Context, rawURL string, msg []byte) ([]by
 	for attempt := 0; ; attempt++ {
 		c := cl.conn(u.Hostname(), port, time.Now())
 		body, err := c.roundTrip(ctx, req)
+		if err != nil && ctx.Err() != nil && errors.Is(err, ctx.Err()) {
+			return nil, c.timedOut(err)
+		}
 		if err == nil || attempt == 1 || !retryable(err) || ctx.Err() != nil {
 			return body, err
 		}
