@@ -139,6 +139,16 @@ if [ -f /etc/sysupgrade.conf ]; then
 fi
 rm -f "$INIT" "$BIN" /etc/fengard/firewall.include
 rm -rf /tmp/fengard-features
+# the services > fengard page in luci. fengardd puts it back on every start, after a firmware upgrade
+# too when the package is gone, so this removes it for installer and package installs alike. a failed
+# package install keeps it, it's where luci shows how the install went
+if [ -z "$ROLLBACK" ]; then
+	rm -f /usr/libexec/fengard-luci /usr/share/luci/menu.d/luci-app-fengard.json \
+		/usr/share/rpcd/acl.d/luci-app-fengard.json /www/luci-static/resources/view/fengard.js
+	rm -rf /www/luci-static/resources/fengard /usr/share/fengard
+	rm -rf /tmp/luci-indexcache* /tmp/luci-modulecache
+	[ -x /etc/init.d/rpcd ] && /etc/init.d/rpcd reload >/dev/null 2>&1
+fi
 if [ -n "$PURGE" ]; then
 	rm -rf /etc/fengard "$FG_DIR"
 	echo "   removed Fengard's settings and history"
