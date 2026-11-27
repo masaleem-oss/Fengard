@@ -6,7 +6,10 @@ are on the [releases page](https://github.com/masaleem-oss/Fengard/releases).
 
 ## Unreleased
 
-Nothing yet.
+### Fixed
+- The Guest Wi-Fi page updates by itself while guest Wi-Fi turns on or off. It used to show the old state right
+  after the switch, and stopped checking if the browser lost Wi-Fi while the guest network started, so it stayed
+  on "Setting up…" until a refresh
 
 ## 1.3.4.5 - 2026-11-27 (preview)
 
