@@ -41,8 +41,9 @@ type Server struct {
 	Welcome       func(mac, hostname string) bool        // true sends this phones captive check to us
 	TrustLoopback bool                                   // on the router loopback is the router itself
 	Note          func(mac, domain string, at time.Time) // what each device looks up, for recognizing it later
-	// a resolver kept failing over http/3 and lookups to it are on http/2 now
-	OnHTTP3Down func(url, reason string)
+	// a resolver kept failing over http/3 and lookups to it are on http/2 now. worksWith is another
+	// resolver http/3 works with right now, empty when there's none, so the path isn't blocking udp
+	OnHTTP3Down func(url, reason, worksWith string)
 
 	upstreams atomic.Pointer[[]config.Upstream]
 	// profiles with their own resolvers
@@ -786,6 +787,7 @@ func (s *Server) exchangeDoH2(body []byte, url string) (*dns.Msg, error) {
 	if resp.StatusCode != http.StatusOK {
 		return nil, errors.New("DoH upstream returned HTTP " + resp.Status)
 	}
+	s.sawAltSvc(url, altSvcH3(resp.Header.Values("Alt-Svc")))
 	data, err := io.ReadAll(io.LimitReader(resp.Body, 65536))
 	if err != nil {
 		return nil, err
@@ -807,6 +809,63 @@ type h3Health struct {
 	waitUntil time.Time
 	lastErr   string
 	lastOK    time.Time
+	altSvc    altSvc // what the server's http/2 answers say about http/3
+	// http/3 kept failing and the server says it doesn't offer it, so http/2 is just how it works
+	notOffered bool
+}
+
+type altSvc int8
+
+const (
+	altUnknown altSvc = iota // no Alt-Svc header, plenty of servers that do http/3 send none
+	altH3                    // advertises h3
+	altNone                  // sends Alt-Svc without h3, or clears it
+)
+
+// altSvcH3 reads Alt-Svc headers like `h3=":443"; ma=86400, h2=":443"`
+func altSvcH3(values []string) altSvc {
+	if len(values) == 0 {
+		return altUnknown
+	}
+	for _, v := range values {
+		for entry := range strings.SplitSeq(v, ",") {
+			proto, _, _ := strings.Cut(entry, "=")
+			if strings.EqualFold(strings.TrimSpace(proto), "h3") {
+				return altH3
+			}
+		}
+	}
+	return altNone
+}
+
+func (s *Server) sawAltSvc(url string, a altSvc) {
+	if a == altUnknown {
+		return
+	}
+	h := s.health(url)
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.altSvc = a
+	// it offers http/3 now, so try it again soon instead of after the long wait
+	if a == altH3 && h.notOffered {
+		h.notOffered, h.waitUntil = false, time.Time{}
+	}
+}
+
+// worksWith names another resolver http/3 answered for lately, empty when there's none
+func (s *Server) worksWith(url string) string {
+	found := ""
+	s.h3Health.Range(func(k, v any) bool {
+		h := v.(*h3Health)
+		h.mu.Lock()
+		ok := k.(string) != url && h.worked && h.fails == 0 && time.Since(h.lastOK) < h3RecentOK
+		h.mu.Unlock()
+		if ok {
+			found = k.(string)
+		}
+		return !ok
+	})
+	return found
 }
 
 const (
@@ -815,6 +874,7 @@ const (
 	h3MinBackoff = 30 * time.Second
 	h3MaxBackoff = 30 * time.Minute
 	h3DownAfter  = 3
+	h3RecentOK   = 10 * time.Minute // http/3 to another resolver this recently means udp gets out
 )
 
 func (s *Server) health(url string) *h3Health {
@@ -859,7 +919,7 @@ func (s *Server) exchangeDoH3(body []byte, url string) (*dns.Msg, *h3Attempt, er
 		return nil, &h3Attempt{s: s, h: h, round: round, url: url, err: err}, err
 	}
 	s.Counters.DoH3.Add(1)
-	h.worked, h.fails, h.lastErr, h.lastOK = true, 0, "", time.Now()
+	h.worked, h.fails, h.lastErr, h.lastOK, h.notOffered = true, 0, "", time.Now(), false
 	return m, nil, nil
 }
 
@@ -891,14 +951,26 @@ func (a *h3Attempt) done(http2OK bool) {
 	if h.backingOff() {
 		h.waitUntil = time.Now().Add(min(h3MinBackoff<<min(h.fails-1, 10), h3MaxBackoff))
 	}
+	if h.fails >= h3DownAfter && h.altSvc == altNone {
+		// the server says it has no http/3, so nothing is wrong and there's no point asking often
+		h.notOffered = true
+	}
+	if h.notOffered {
+		h.waitUntil = time.Now().Add(h3MaxBackoff)
+		return
+	}
 	// three in a row is a couple of minutes on http/2, worth telling people who picked http/3
 	if h.fails == h3DownAfter && a.s.OnHTTP3Down != nil {
-		go a.s.OnHTTP3Down(a.url, strings.TrimPrefix(h.lastErr, "h3: "))
+		reason := strings.TrimPrefix(h.lastErr, "h3: ")
+		// off the lock, worksWith locks the other servers' health
+		go func() { a.s.OnHTTP3Down(a.url, reason, a.s.worksWith(a.url)) }()
 	}
 }
 
 // whether lookups are being sent over http/2 for now, call with mu held
-func (h *h3Health) backingOff() bool { return h.fails > 0 && (!h.worked || h.fails >= 2) }
+func (h *h3Health) backingOff() bool {
+	return h.notOffered || h.fails > 0 && (!h.worked || h.fails >= 2)
+}
 
 // Transport is how a dns-over-https upstream is being reached
 type Transport struct {
@@ -907,6 +979,8 @@ type Transport struct {
 	Error     string    `json:"error,omitempty"`
 	RetryAt   time.Time `json:"retryAt,omitzero"`
 	LastHTTP3 time.Time `json:"lastHttp3,omitzero"`
+	// the server doesn't offer http/3, so http/2 is normal for it and nothing to warn about
+	NoHTTP3 bool `json:"noHttp3,omitempty"`
 }
 
 func (s *Server) Transports() []Transport {
@@ -921,6 +995,8 @@ func (s *Server) Transports() []Transport {
 			h := s.health(u.URL)
 			h.mu.Lock()
 			switch {
+			case h.notOffered:
+				t.NoHTTP3 = true
 			case h.backingOff():
 				t.Error, t.RetryAt = strings.TrimPrefix(h.lastErr, "h3: "), h.waitUntil
 			case h.worked:

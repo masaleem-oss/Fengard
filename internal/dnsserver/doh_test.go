@@ -217,7 +217,7 @@ func TestHTTP3DownReportedOnce(t *testing.T) {
 	url := "https://" + pc.LocalAddr().String() + "/dns-query"
 	s.Configure(config.Settings{Upstreams: []string{url}, DoH3: true})
 	got := make(chan string, 10)
-	s.OnHTTP3Down = func(u, reason string) { got <- u }
+	s.OnHTTP3Down = func(u, _, _ string) { got <- u }
 	body, _ := new(dns.Msg).SetQuestion("example.org.", dns.TypeA).Pack()
 	for range h3DownAfter + 1 {
 		_, a, _ := s.exchangeDoH3(body, url)
@@ -251,7 +251,7 @@ func TestDoH3NotBlamedWhenHTTP2FailsToo(t *testing.T) {
 	url := "https://" + pc.LocalAddr().String() + "/dns-query"
 	s.Configure(config.Settings{Upstreams: []string{url}, DoH3: true})
 	down := make(chan string, 1)
-	s.OnHTTP3Down = func(u, _ string) { down <- u }
+	s.OnHTTP3Down = func(u, _, _ string) { down <- u }
 	q := new(dns.Msg)
 	q.SetQuestion("example.org.", dns.TypeA)
 	for range h3DownAfter {
@@ -301,5 +301,146 @@ func TestTransportsStayHTTP3AfterOneSlowAnswer(t *testing.T) {
 	h.fails = 2
 	if tr := s.Transports(); tr[0].Using != "HTTP/2" || tr[0].Error == "" {
 		t.Fatalf("two in a row backs off and should say so: %+v", tr)
+	}
+}
+
+func TestAltSvcH3(t *testing.T) {
+	for _, c := range []struct {
+		in   []string
+		want altSvc
+	}{
+		{nil, altUnknown},
+		{[]string{`h3=":443"; ma=86400`}, altH3},
+		{[]string{`h2=":443"; ma=60, H3=":443"`}, altH3},
+		{[]string{`h2=":443"`}, altNone},
+		{[]string{"clear"}, altNone},
+		{[]string{`h3-29=":443"`}, altNone},
+	} {
+		if got := altSvcH3(c.in); got != c.want {
+			t.Errorf("%q: got %d want %d", c.in, got, c.want)
+		}
+	}
+}
+
+// a doh server whose answers carry this Alt-Svc, http/3 to it gets nowhere since nothing listens on udp
+func altSvcServer(t *testing.T, alt *atomic.Value) (*Server, string) {
+	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		q := new(dns.Msg)
+		q.Unpack(body)
+		a := new(dns.Msg)
+		a.SetReply(q)
+		out, _ := a.Pack()
+		if v := alt.Load().(string); v != "" {
+			w.Header().Set("Alt-Svc", v)
+		}
+		w.Write(out)
+	}))
+	srv.EnableHTTP2 = true
+	srv.StartTLS()
+	t.Cleanup(srv.Close)
+	s := &Server{}
+	s.Init()
+	pool := x509.NewCertPool()
+	pool.AddCert(srv.Certificate())
+	s.doh.Transport.(*http.Transport).TLSClientConfig.RootCAs = pool
+	url := srv.URL + "/dns-query"
+	s.Configure(config.Settings{Upstreams: []string{url}, DoH3: true})
+	return s, url
+}
+
+func failHTTP3(t *testing.T, s *Server, url string, n int) {
+	t.Helper()
+	for range n {
+		q := new(dns.Msg)
+		q.SetQuestion("example.org.", dns.TypeA)
+		if _, err := s.exchangeDoH(q, url); err != nil {
+			t.Fatal(err)
+		}
+		h := s.health(url)
+		h.mu.Lock()
+		if !h.notOffered {
+			h.waitUntil = time.Time{}
+		}
+		h.mu.Unlock()
+	}
+}
+
+// a server that says it has no http/3 isn't a network problem: no alert, and the page says so plainly
+func TestHTTP3NotOfferedIsNeutral(t *testing.T) {
+	var alt atomic.Value
+	alt.Store(`h2=":443"`)
+	s, url := altSvcServer(t, &alt)
+	down := make(chan string, 1)
+	s.OnHTTP3Down = func(u, _, _ string) { down <- u }
+	failHTTP3(t, s, url, h3DownAfter)
+	select {
+	case <-down:
+		t.Fatal("warned about a server that doesn't offer http/3")
+	case <-time.After(100 * time.Millisecond):
+	}
+	tr := s.Transports()
+	if len(tr) != 1 || !tr[0].NoHTTP3 || tr[0].Using != "HTTP/2" || tr[0].Error != "" {
+		t.Fatalf("status: %+v", tr)
+	}
+	if h := s.health(url); time.Until(h.waitUntil) < h3MaxBackoff-time.Minute {
+		t.Fatalf("asks again in %v", time.Until(h.waitUntil))
+	}
+	// once it advertises http/3 it gets tried again straight away
+	alt.Store(`h3=":443"; ma=86400`)
+	fell := s.Counters.DoH3Fell.Load()
+	failHTTP3(t, s, url, 2)
+	if tr := s.Transports(); tr[0].NoHTTP3 {
+		t.Fatalf("still not offered: %+v", tr)
+	}
+	if s.Counters.DoH3Fell.Load() == fell {
+		t.Fatal("http/3 wasn't tried again")
+	}
+}
+
+// with no Alt-Svc at all nothing is known, so the usual alert goes out
+func TestHTTP3NoAltSvcStillAlerts(t *testing.T) {
+	var alt atomic.Value
+	alt.Store("")
+	s, url := altSvcServer(t, &alt)
+	down := make(chan string, 1)
+	s.OnHTTP3Down = func(u, _, _ string) { down <- u }
+	failHTTP3(t, s, url, h3DownAfter)
+	select {
+	case <-down:
+	case <-time.After(time.Second):
+		t.Fatal("not reported")
+	}
+	if tr := s.Transports(); tr[0].NoHTTP3 {
+		t.Fatalf("called not offered without being told: %+v", tr)
+	}
+}
+
+// the alert names a resolver http/3 works with, so it doesn't blame the network for one server
+func TestHTTP3DownSaysWhichWorks(t *testing.T) {
+	var alt atomic.Value
+	alt.Store(`h3=":443"`)
+	s, url := altSvcServer(t, &alt)
+	other := s.health("https://other.example/dns-query")
+	other.worked, other.lastOK = true, time.Now()
+	stale := s.health("https://stale.example/dns-query")
+	stale.worked, stale.lastOK = true, time.Now().Add(-time.Hour)
+	got := make(chan string, 1)
+	s.OnHTTP3Down = func(_, _, works string) { got <- works }
+	failHTTP3(t, s, url, h3DownAfter)
+	select {
+	case w := <-got:
+		if w != "https://other.example/dns-query" {
+			t.Fatalf("works with %q", w)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("not reported")
+	}
+	// nobody else on http/3 leaves it empty
+	other.mu.Lock()
+	other.fails = 1
+	other.mu.Unlock()
+	if w := s.worksWith(url); w != "" {
+		t.Fatalf("works with %q", w)
 	}
 }
