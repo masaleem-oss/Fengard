@@ -8,6 +8,14 @@ are on the [releases page](https://github.com/masaleem-oss/Fengard/releases).
 
 Nothing yet.
 
+## 1.3.4.5 - 2026-11-27 (preview)
+
+### Fixed
+- **Guest Wi-Fi left on by the first 1.3.4.3 build moves to GL.iNet's guest network.** That build made a
+  second guest network of its own, which came up as open HT_AP networks and kept dropping the Wi-Fi on GL.iNet
+  repeaters. Fengard now takes it away at its next start and uses the router's own guest network instead.
+  Wi-Fi restarts once while it does
+
 ## 1.3.4.4 - 2026-11-27 (preview)
 
 ### Changed
