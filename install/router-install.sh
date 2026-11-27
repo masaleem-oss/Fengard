@@ -466,7 +466,9 @@ start_service() {
 }
 
 service_triggers() {
-	for n in $LAN_NET $EXTRA_NETS $WAN_NETS; do
+	# not the wan nets, fengard follows those itself while it runs. a reload on them restarted it,
+	# and took dns away, every time the uplink blinked
+	for n in $LAN_NET $EXTRA_NETS; do
 		procd_add_reload_interface_trigger "$n"
 	done
 }

@@ -72,7 +72,24 @@ func MakePlan(r Router, w Want) (Plan, error) {
 	if net, zone, ifaces := existing(r); net != "" {
 		return planExisting(r, w, net, zone, ifaces)
 	}
+	// a vendor wi-fi driver like gl.inet's mediatek one restarts every band when a network is
+	// added, and that drops a repeater's uplink and the internet with it
+	if len(w.Busy) > 0 && vendorWiFi(r) {
+		return Plan{}, errors.New("this router repeats another Wi-Fi network, and adding a guest network to its Wi-Fi chip would restart every band and drop that link. " +
+			"Fengard uses the router's own guest network on a router like this, and couldn't find one that's kept apart from the home network. " +
+			"Check the guest network in the router's own settings, then try again")
+	}
 	return planOwn(r, w)
+}
+
+// vendorWiFi says if a radio runs on something other than openwrt's own mac80211 drivers
+func vendorWiFi(r Router) bool {
+	for _, d := range r.Wireless.OfType("wifi-device") {
+		if t := d.Get("type"); t != "" && t != "mac80211" {
+			return true
+		}
+	}
+	return false
 }
 
 func fields(s *Section, opt string) []string {
@@ -285,19 +302,14 @@ func planExisting(r Router, w Want, net string, zone *Section, ifaces []*Section
 		st.Device = d
 	}
 	var do, undo []Op
-	reload := []string{}
-	nchanged := false
+	// one netifd reload covers the guest network and its wi-fi, see reloadCmd
+	reload := []string{"netifd"}
 	if ns.Get("disabled") == "1" {
 		change(&do, &undo, ns, "network", "disabled", "0")
-		nchanged = true
 	}
 	// ipv4 only, the iptables firewall can't hold unapproved guests back on ipv6
 	if ns.Has("ip6assign") {
 		remove(&do, &undo, ns, "network", "ip6assign")
-		nchanged = true
-	}
-	if nchanged {
-		reload = append(reload, "network")
 	}
 	for _, s := range ifaces {
 		if slices.Contains(w.Busy, s.Get("device")) {
@@ -354,7 +366,7 @@ func planExisting(r Router, w Want, net string, zone *Section, ifaces []*Section
 	do = append(do, webRuleOps(st.Zone, w)...)
 	undo = append(undo, del("firewall."+webRule))
 	st.Undo = reversed(undo)
-	st.Reload = append(reload, "wifi", "firewall")
+	st.Reload = append(reload, "firewall")
 	return Plan{State: st, Do: do}, nil
 }
 
