@@ -4,6 +4,7 @@ import (
 	"context"
 	"net"
 	"net/netip"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -27,6 +28,12 @@ type fakeUpstream struct {
 	down  atomic.Bool
 	// answers SERVFAIL straight away, like a resolver with a broken backend
 	fail atomic.Bool
+	// extra answers by name and type, eg https records, on top of the usual A
+	records atomic.Pointer[map[string][]dns.RR]
+}
+
+func rrKey(name string, qtype uint16) string {
+	return strings.ToLower(name) + "|" + dns.TypeToString[qtype]
 }
 
 func startUpstream(t *testing.T) *fakeUpstream {
@@ -51,6 +58,15 @@ func startUpstream(t *testing.T) *fakeUpstream {
 			return
 		}
 		q := r.Question[0]
+		if recs := u.records.Load(); recs != nil {
+			if rrs, ok := (*recs)[rrKey(q.Name, q.Qtype)]; ok {
+				for _, rr := range rrs {
+					m.Answer = append(m.Answer, dns.Copy(rr))
+				}
+				w.WriteMsg(m)
+				return
+			}
+		}
 		if q.Qtype == dns.TypeA {
 			m.Answer = append(m.Answer, &dns.A{
 				Hdr: dns.RR_Header{Name: q.Name, Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: 3600},
