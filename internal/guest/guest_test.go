@@ -3,6 +3,7 @@ package guest
 import (
 	"context"
 	"encoding/json"
+	"maps"
 	"net/netip"
 	"os"
 	"path/filepath"
@@ -767,5 +768,59 @@ func TestQuietGivesUp(t *testing.T) {
 	m.Sync(ctx)
 	if n := len(f.calls("ip link set ra1 down")) - first; n != quietTries+1 {
 		t.Errorf("took ra1 down %d times after it had stayed down, want %d", n, quietTries+1)
+	}
+}
+
+// the first 1.3.4.3 build made its own fgguest network on the owner's gl-mt3000. guest wi-fi left
+// on like that moves to gl.inet's guest network at the next start, once, and fgguest is gone
+func TestOldOwnNetworkMovesToRouters(t *testing.T) {
+	f := mt3000()
+	before := f.snapshot()
+	r := routerOf(before)
+	g := config.Guest{Enabled: true, SSID: "Guests", Password: "k7pq-m3zt-x9wd-4fhn"}
+	m := manager(t, f)
+	w := m.want4(g)
+	w.Busy = BusyRadios([]byte(mt3000Repeating), r.Wireless)
+	plan, err := planOwn(r, w)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, op := range plan.Do {
+		if err := f.apply(op.String()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, p := range Packages(plan.Do) {
+		f.apply("commit " + p)
+	}
+	st := plan.State
+	st.Done = true
+	data, _ := json.Marshal(st)
+	os.WriteFile(filepath.Join(m.Dir, StateFile), data, 0o600)
+
+	m.RadioWait = 50 * time.Millisecond
+	m.Want(g)
+	ctx := context.Background()
+	m.Sync(ctx)
+	if s := m.Status(); s.State != "on" || s.Mode != "existing" || !slices.Equal(s.WiFi, []string{"guest5g"}) {
+		t.Fatalf("status %+v", s)
+	}
+	for pkg, v := range f.snapshot() {
+		if strings.Contains(v, ownNet) {
+			t.Errorf("%s still has %s:\n%s", pkg, ownNet, v)
+		}
+	}
+	n := len(f.ran)
+	m.Sync(ctx)
+	for _, c := range f.ran[n:] {
+		if strings.HasPrefix(c, "wifi") || strings.Contains(c, "reload") || strings.Contains(c, "restart") {
+			t.Errorf("second sync ran %q", c)
+		}
+	}
+	g.Enabled = false
+	m.Want(g)
+	m.Sync(ctx)
+	if got := f.snapshot(); !maps.Equal(got, before) {
+		t.Errorf("off didn't put the router back")
 	}
 }

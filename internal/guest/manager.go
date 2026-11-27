@@ -55,6 +55,8 @@ type Manager struct {
 	kickers []string // hostapd objects for the guest wi-fi, can disconnect a guest
 	// times in a row each quiet interface was found up again
 	quieted map[string]int
+	// a network fengard made from an older build was checked against what this build would pick
+	ownChecked bool
 
 	ifaces atomic.Pointer[[]string]
 	nets   atomic.Pointer[[]netip.Prefix]
@@ -233,6 +235,12 @@ func (m *Manager) Sync(ctx context.Context) {
 		// stopped halfway through the reloads, a network reload can restart fengard
 		m.reloadPending(ctx, "applying", have)
 	}
+	if on && have != nil && have.Done && m.leaveOwn(ctx, have) {
+		// one restart of the wi-fi to take the old network away, then gl.inet's guest network
+		log.Printf("guest wi-fi: moving off the network an older build made (%s), this router has its own guest network or repeats on a vendor Wi-Fi chip", have.Network)
+		m.disable(ctx)
+		have = nil
+	}
 	switch {
 	case on && have == nil && failed != sig(want):
 		m.enable(ctx, want)
@@ -253,6 +261,32 @@ func (m *Manager) Sync(ctx context.Context) {
 		m.quiet(ctx, still)
 	}
 	m.refresh(ctx)
+}
+
+// leaveOwn says if guest wi-fi left on by an older build runs on a network fengard made where this
+// build wouldn't make one: the router has its own guest network, or it repeats another network on a
+// vendor wi-fi chip, where fengard's extra wi-fi came up as open HT_AP networks and every change to
+// it restarted both bands. checked once per start
+func (m *Manager) leaveOwn(ctx context.Context, have *State) bool {
+	m.mu.Lock()
+	done := m.ownChecked
+	m.ownChecked = true
+	m.mu.Unlock()
+	if done || have.Mode != "own" {
+		return false
+	}
+	r, err := m.read(ctx)
+	if err != nil || r.Wireless == nil {
+		return false
+	}
+	if net, _, _ := existing(r); net != "" {
+		return true
+	}
+	if !vendorWiFi(r) {
+		return false
+	}
+	out, err := m.run(ctx, nil, "iwinfo")
+	return err == nil && len(BusyRadios(out, r.Wireless)) > 0
 }
 
 // quiet takes down the guest radio on a band the router repeats on if the driver brought it up
