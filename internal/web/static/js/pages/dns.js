@@ -23,6 +23,7 @@ function transportLines(info) {
     const host = esc(hostOf(t.url));
     // in order, the ones after the first only get used when it fails
     if (i > 0 && !info.parallelUpstreams && !t.using && !t.error) return `<p class="t-xs t-3">${host} is a standby, used only if the ones above don't answer</p>`;
+    if (t.noHttp3) return `<p class="t-xs t-3">${host} doesn't offer HTTP/3, so it uses HTTP/2</p>`;
     if (t.using === 'HTTP/3') return `<p class="t-xs t-2">${icon('check', 'icon-sm')} ${host} over HTTP/3</p>`;
     if (!t.error) return `<p class="t-xs t-3">${host} tries HTTP/3 the first time it's used</p>`;
     const again = inFuture(t.retryAt) ? `, trying again ${dateTime(t.retryAt)}` : '';
