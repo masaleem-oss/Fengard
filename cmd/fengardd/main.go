@@ -460,6 +460,7 @@ func main() {
 	if *fwOn {
 		glinetAdGuardOff()
 		glinetVPNDNS()
+		go restoreRouterPage()
 	}
 	if *harden {
 		firewall.Harden()

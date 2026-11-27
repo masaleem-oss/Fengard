@@ -46,6 +46,12 @@ import (
 //go:embed static
 var staticFS embed.FS
 
+// the dashboard's logo, the luci page shows it too
+func Logo() []byte {
+	b, _ := staticFS.ReadFile("static/img/logo.svg")
+	return b
+}
+
 //go:embed blockpage.html
 var blockPageHTML string
 
