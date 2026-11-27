@@ -38,7 +38,7 @@ type Manager struct {
 	BlockIP string
 	Ports   []int
 	Exec    Exec // nil runs the real commands
-	// how long the guest radios get to come up with the guest network's name, 30 s when zero
+	// how long the guest radios get to come up with the guest network's name, 45 s when zero
 	RadioWait time.Duration
 	Addrs     func() []netip.Prefix // addresses on the router now, nil reads them
 	NewSyntax func() bool           // nil reads /etc/openwrt_release
@@ -53,6 +53,8 @@ type Manager struct {
 	status  Status
 	kickCh  chan struct{}
 	kickers []string // hostapd objects for the guest wi-fi, can disconnect a guest
+	// times in a row each quiet interface was found up again
+	quieted map[string]int
 
 	ifaces atomic.Pointer[[]string]
 	nets   atomic.Pointer[[]netip.Prefix]
@@ -255,10 +257,32 @@ func (m *Manager) Sync(ctx context.Context) {
 
 // quiet takes down the guest radio on a band the router repeats on if the driver brought it up
 // anyway, gl.inet's mediatek driver does that with no settings, as an open network called HT_AP1
+//
+// it only ever touches that one interface and only when it's up. something that keeps bringing it
+// back gets three goes and is then left alone, an interface flapping every minute on the uplink's
+// band is worse than an open network that isn't bridged to anything
 func (m *Manager) quiet(ctx context.Context, st *State) {
 	for _, i := range st.Quiet {
 		out, err := m.run(ctx, nil, "ip", "-o", "link", "show", i)
-		if err != nil || !linkUp(out) {
+		if err != nil {
+			continue
+		}
+		m.mu.Lock()
+		if m.quieted == nil {
+			m.quieted = map[string]int{}
+		}
+		if !linkUp(out) {
+			delete(m.quieted, i)
+			m.mu.Unlock()
+			continue
+		}
+		m.quieted[i]++
+		n := m.quieted[i]
+		m.mu.Unlock()
+		if n > quietTries {
+			if n == quietTries+1 {
+				log.Printf("guest wi-fi: %s keeps coming back up on the band the router repeats on, leaving it alone now", i)
+			}
 			continue
 		}
 		if _, err := m.run(ctx, nil, "ip", "link", "set", i, "down"); err != nil {
@@ -268,6 +292,9 @@ func (m *Manager) quiet(ctx context.Context, st *State) {
 		log.Printf("guest wi-fi: took %s down, it came up on a band the router repeats on", i)
 	}
 }
+
+// how often in a row quiet takes an interface down before it gives up on it
+const quietTries = 3
 
 // linkUp reads the flags in ip -o link show, like <BROADCAST,MULTICAST,UP,LOWER_UP>
 func linkUp(out []byte) bool {
@@ -350,7 +377,12 @@ func (m *Manager) batch(ctx context.Context, ops []Op) error {
 	return nil
 }
 
+// netifd is what a router's own guest network gets in place of network and wifi. it's netifd's own
+// reload, which restarts only the interfaces and radios whose settings changed. the network init
+// script and wifi reload run it too, but then go on to restart every radio of a wi-fi driver that
+// still has the old style scripts, and on a repeater that drops the uplink
 var reloadCmd = map[string][]string{
+	"netifd":   {"ubus", "call", "network", "reload"},
 	"network":  {"/etc/init.d/network", "reload"},
 	"wifi":     {"wifi", "reload"},
 	"dnsmasq":  {"/etc/init.d/dnsmasq", "restart"},
@@ -358,10 +390,29 @@ var reloadCmd = map[string][]string{
 }
 
 var reloadStep = map[string]string{
+	"netifd":   "Starting the guest network, Wi-Fi on its band drops for a few seconds",
 	"network":  "Starting the guest network",
 	"wifi":     "Restarting Wi-Fi, it drops for a few seconds",
 	"dnsmasq":  "Restarting DHCP",
 	"firewall": "Reloading the firewall",
+}
+
+// reloads is the list to run for this state. one saved by a build that reloaded the whole network
+// and every radio for the router's own guest network gets the netifd reload in their place
+func reloads(st *State, what []string) []string {
+	if st.Mode != "existing" {
+		return what
+	}
+	out := []string{}
+	for _, w := range what {
+		if w == "network" || w == "wifi" {
+			w = "netifd"
+		}
+		if !slices.Contains(out, w) {
+			out = append(out, w)
+		}
+	}
+	return out
 }
 
 func (m *Manager) reload(ctx context.Context, state string, what []string) []string {
@@ -390,6 +441,7 @@ func (m *Manager) reloadOne(ctx context.Context, state, what string) error {
 // runs the reloads still pending, saving after each so a restart picks up from the next one
 func (m *Manager) reloadPending(ctx context.Context, state string, st *State) []string {
 	var notes []string
+	st.Pending = reloads(st, st.Pending)
 	for len(st.Pending) > 0 {
 		w := st.Pending[0]
 		st.Pending = st.Pending[1:]
@@ -516,7 +568,7 @@ func (m *Manager) rename(ctx context.Context, g config.Guest) {
 	m.mu.Lock()
 	m.have = &st
 	m.mu.Unlock()
-	notes := m.reload(ctx, "applying", []string{"wifi"})
+	notes := m.reload(ctx, "applying", reloads(&st, []string{"wifi"}))
 	if err := m.radiosOK(ctx, &st); err != nil {
 		m.unsafe(ctx, g, err)
 		return
@@ -552,12 +604,13 @@ func (m *Manager) disable(ctx context.Context) {
 			order = append(order, w)
 		}
 	}
-	m.reload(ctx, "removing", order)
+	m.reload(ctx, "removing", reloads(&st, order))
 	m.clearState()
 	log.Printf("guest wi-fi: off, router settings put back")
 	m.mu.Lock()
 	m.have = nil
 	m.kickers = nil
+	m.quieted = nil
 	m.status = Status{State: "off"}
 	m.mu.Unlock()
 }
@@ -727,7 +780,7 @@ func (m *Manager) radiosOK(ctx context.Context, st *State) error {
 	m.step("applying", "Checking the guest Wi-Fi came up with its name and password")
 	wait := m.RadioWait
 	if wait == 0 {
-		wait = 30 * time.Second
+		wait = 45 * time.Second
 	}
 	deadline := time.Now().Add(wait)
 	for {

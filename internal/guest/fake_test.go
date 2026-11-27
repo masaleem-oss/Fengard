@@ -169,6 +169,8 @@ func (f *fakeRouter) exec(_ context.Context, stdin []byte, name string, args ...
 			return []byte(args[0] + "   ESSID: \"" + e + "\"\n          Mode: Master\n"), nil
 		}
 		return nil, nil
+	case call == "ubus call network reload":
+		return nil, nil
 	case call == "ubus list hostapd.*":
 		return []byte(strings.Join(f.hostapds, "\n")), nil
 	case strings.HasPrefix(call, "ubus call hostapd."):

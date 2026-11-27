@@ -158,7 +158,7 @@ func TestPlanExisting(t *testing.T) {
 			t.Errorf("undo missing %s", w)
 		}
 	}
-	if !slices.Equal(st.Reload, []string{"network", "dnsmasq", "wifi", "firewall"}) {
+	if !slices.Equal(st.Reload, []string{"netifd", "dnsmasq", "firewall"}) {
 		t.Errorf("reload %v", st.Reload)
 	}
 
@@ -167,6 +167,15 @@ func TestPlanExisting(t *testing.T) {
 	leaky.Firewall.Sections = append(leaky.Firewall.Sections, &Section{Name: "x", Type: "forwarding", Opts: map[string][]string{"src": {"guest"}, "dest": {"lan"}}})
 	if p, err := MakePlan(leaky, want); err != nil || p.State.Mode != "own" {
 		t.Errorf("leaky guest zone used: %v %+v", err, p.State)
+	}
+	// but not while the router repeats on a vendor wi-fi chip, new wi-fi networks restart every band there
+	busy := want
+	busy.Busy = []string{"mt798111"}
+	if p, err := MakePlan(leaky, busy); err == nil || !strings.Contains(err.Error(), "repeats another Wi-Fi network") {
+		t.Errorf("made its own networks on a repeating mediatek router: %v %v", err, lines(p.Do))
+	}
+	if p, err := MakePlan(routerOf(plain), Want{SSID: "g", Password: "k7pq-m3zt-x9wd-4fhn", Busy: []string{"radio0"}}); err != nil || p.State.Mode != "own" {
+		t.Errorf("a repeating mac80211 router can still get its own guest network: %v", err)
 	}
 }
 
@@ -299,8 +308,13 @@ func TestEnableDisableRestores(t *testing.T) {
 		if _, err := os.Stat(filepath.Join(m.Dir, UndoFile)); err == nil {
 			t.Errorf("%s: undo file left behind", name)
 		}
-		if w := f.calls("wifi reload"); len(w) != 3 {
-			t.Errorf("%s: wifi reloads %v", name, w)
+		// on, new password, off. the router's own guest network only ever gets netifd's reload
+		wifi, netifd := len(f.calls("wifi reload")), len(f.calls("ubus call network reload"))
+		if name == "glinet" && (wifi != 0 || netifd != 3 || len(f.calls("/etc/init.d/network")) != 0) {
+			t.Errorf("%s: %d wifi reloads, %d netifd reloads: %v", name, wifi, netifd, f.ran)
+		}
+		if name == "plain" && wifi != 3 {
+			t.Errorf("%s: %d wifi reloads", name, wifi)
 		}
 	}
 }
@@ -560,5 +574,198 @@ func TestRepeatingBandLeftAlone(t *testing.T) {
 	m.Sync(context.Background())
 	if f.up["ra1"] {
 		t.Error("ra1 coming back up wasn't noticed")
+	}
+}
+
+// the owner's gl-mt3000: gl 4.7, wireless type mtk, the wan is apcli0 on 2.4 GHz as network wwan
+func mt3000() *fakeRouter {
+	show := map[string]string{}
+	for k, v := range glinet {
+		show[k] = v
+	}
+	show["wireless"] = strings.ReplaceAll(show["wireless"], "type='mtwifi'", "type='mtk'")
+	show["network"] += `network.wwan=interface
+network.wwan.proto='dhcp'
+network.wwan.metric='20'
+`
+	show["firewall"] = strings.Replace(show["firewall"], "network='wan' 'wan6'", "network='wan' 'wan6' 'wwan'", 1)
+	f := newFake(show)
+	f.ubus["network.interface.guest"] = `{"up": true, "l3_device": "br-guest"}`
+	f.iwinfo = mt3000Repeating
+	f.essid = map[string]string{"ra1": "HT_AP1", "rax1": "Guests"}
+	return f
+}
+
+// what must never run on that router. each of these restarts the 2.4 GHz radio or every radio,
+// and the repeater uplink and the internet go with it
+func uplinkSafe(t *testing.T, when string, f *fakeRouter) {
+	t.Helper()
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, c := range f.ran {
+		for _, bad := range []string{"wifi", "/etc/init.d/network", "ifup", "ifdown", "ubus call network restart", "ubus call network.wireless", "ubus call network.interface.wwan"} {
+			if c == bad || strings.HasPrefix(c, bad+" ") {
+				// reading the radios' state is fine
+				if c == "ubus call network.wireless status" {
+					continue
+				}
+				t.Errorf("%s: ran %q", when, c)
+			}
+		}
+		for _, i := range []string{"ra0", "rax0", "apcli0", "apclix0"} {
+			if strings.HasPrefix(c, "ip link set "+i+" ") {
+				t.Errorf("%s: ran %q", when, c)
+			}
+		}
+	}
+}
+
+// on, a minute of syncs, a new password, off: only gl.inet's own guest network on the free band
+// changes, like its own guest switch, and nothing but netifd's reload applies it
+func TestMT3000RepeaterKeepsUplink(t *testing.T) {
+	f := mt3000()
+	before := f.snapshot()
+	m := manager(t, f)
+	m.RadioWait = 50 * time.Millisecond
+	ctx := context.Background()
+	g := config.Guest{Enabled: true, SSID: "Guests", Password: "k7pq-m3zt-x9wd-4fhn"}
+	m.Want(g)
+	m.Sync(ctx)
+	if st := m.Status(); st.State != "on" || st.Mode != "existing" || !slices.Equal(st.WiFi, []string{"guest5g"}) {
+		t.Fatalf("status %+v", st)
+	}
+	uplinkSafe(t, "on", f)
+	if n := len(f.calls("ubus call network reload")); n != 1 {
+		t.Errorf("%d netifd reloads turning it on, want 1", n)
+	}
+	// every line of the wireless settings that changed belongs to guest5g, so netifd has no
+	// reason to touch the 2.4 GHz radio, and no wi-fi network was added or removed
+	changedOnly := func(when string, was, now string) {
+		t.Helper()
+		old := strings.Split(was, "\n")
+		for _, l := range strings.Split(now, "\n") {
+			if !slices.Contains(old, l) && !strings.HasPrefix(l, "wireless.guest5g.") {
+				t.Errorf("%s: wireless changed outside guest5g: %s", when, l)
+			}
+		}
+		for _, l := range old {
+			if strings.HasSuffix(l, "=wifi-iface") && !strings.Contains(now, l+"\n") {
+				t.Errorf("%s: wi-fi network removed: %s", when, l)
+			}
+		}
+		if strings.Count(now, "=wifi-iface") != strings.Count(was, "=wifi-iface") {
+			t.Errorf("%s: wi-fi networks added or removed", when)
+		}
+	}
+	on := f.snapshot()
+	changedOnly("on", before["wireless"], on["wireless"])
+	if !strings.Contains(on["network"], "network.guest.proto='static'") || strings.Contains(on["network"], "fgguest") {
+		t.Errorf("network:\n%s", on["network"])
+	}
+	for _, l := range strings.Split(on["network"], "\n") {
+		if !slices.Contains(strings.Split(before["network"], "\n"), l) {
+			t.Errorf("network changed outside the guest network: %s", l)
+		}
+	}
+
+	ran := len(f.ran)
+	for range 5 {
+		m.Sync(ctx)
+	}
+	uplinkSafe(t, "syncing", f)
+	for _, c := range f.ran[ran:] {
+		if c == "uci batch" || strings.Contains(c, "reload") || strings.Contains(c, "restart") || strings.HasPrefix(c, "ip link set") {
+			t.Errorf("a sync with nothing to do ran %q", c)
+		}
+	}
+
+	g.Password = "aaaa-bbbb-cccc-dddd"
+	m.Want(g)
+	m.Sync(ctx)
+	uplinkSafe(t, "new password", f)
+	changedOnly("new password", before["wireless"], f.snapshot()["wireless"])
+
+	g.Enabled = false
+	m.Want(g)
+	m.Sync(ctx)
+	uplinkSafe(t, "off", f)
+	after := f.snapshot()
+	for pkg := range before {
+		if after[pkg] != before[pkg] {
+			t.Errorf("%s not restored", pkg)
+		}
+	}
+	if n := len(f.calls("ubus call network reload")); n != 3 {
+		t.Errorf("%d netifd reloads in all, want 3", n)
+	}
+}
+
+// guest wi-fi turned on by a build that reloaded the whole network and every radio turns off
+// without doing that again
+func TestOldStateReloadsGently(t *testing.T) {
+	f := mt3000()
+	m := manager(t, f)
+	m.RadioWait = 50 * time.Millisecond
+	ctx := context.Background()
+	g := config.Guest{Enabled: true, SSID: "Guests", Password: "k7pq-m3zt-x9wd-4fhn"}
+	m.Want(g)
+	m.Sync(ctx)
+	var st State
+	data, _ := os.ReadFile(filepath.Join(m.Dir, StateFile))
+	json.Unmarshal(data, &st)
+	st.Reload = []string{"network", "dnsmasq", "wifi", "firewall"}
+	st.Pending = []string{"wifi", "firewall"}
+	data, _ = json.Marshal(st)
+	os.WriteFile(filepath.Join(m.Dir, StateFile), data, 0o600)
+
+	m2 := manager(t, f)
+	m2.Dir = m.Dir
+	m2.RadioWait = 50 * time.Millisecond
+	m2.Want(g)
+	m2.Sync(ctx)
+	uplinkSafe(t, "pending", f)
+	if n := len(f.calls("ubus call network reload")); n != 2 {
+		t.Errorf("%d netifd reloads after the pending ones, want 2", n)
+	}
+	g.Enabled = false
+	m2.Want(g)
+	m2.Sync(ctx)
+	uplinkSafe(t, "off", f)
+	if n := len(f.calls("ubus call network reload")); n != 3 || m2.Status().State != "off" {
+		t.Errorf("%d netifd reloads after off, want 3: %+v", n, m2.Status())
+	}
+}
+
+// something that keeps bringing the repeating band's guest radio back up gets three goes, not one a minute for ever
+func TestQuietGivesUp(t *testing.T) {
+	f := mt3000()
+	f.up = map[string]bool{"ra1": true}
+	m := manager(t, f)
+	m.RadioWait = 50 * time.Millisecond
+	ctx := context.Background()
+	m.Want(config.Guest{Enabled: true, SSID: "Guests", Password: "k7pq-m3zt-x9wd-4fhn"})
+	m.Sync(ctx)
+	// turning it on took it down once and saw it stay down
+	first := len(f.calls("ip link set ra1 down"))
+	for range 10 {
+		f.mu.Lock()
+		f.up["ra1"] = true
+		f.mu.Unlock()
+		m.Sync(ctx)
+	}
+	if n := len(f.calls("ip link set ra1 down")) - first; n != quietTries {
+		t.Errorf("took ra1 down %d times, want %d", n, quietTries)
+	}
+	// once it has stayed down the count starts again
+	f.mu.Lock()
+	delete(f.up, "ra1")
+	f.mu.Unlock()
+	m.Sync(ctx)
+	f.mu.Lock()
+	f.up["ra1"] = true
+	f.mu.Unlock()
+	m.Sync(ctx)
+	if n := len(f.calls("ip link set ra1 down")) - first; n != quietTries+1 {
+		t.Errorf("took ra1 down %d times after it had stayed down, want %d", n, quietTries+1)
 	}
 }
