@@ -6,7 +6,22 @@ are on the [releases page](https://github.com/masaleem-oss/Fengard/releases).
 
 ## Unreleased
 
-Nothing yet.
+### Changed
+- **Fengard no longer restarts when the internet link drops.** A repeater's uplink blinking used to restart
+  Fengard twice and take DNS with it. Fengard now follows the internet-side interfaces itself while it runs, and
+  updating fixes the service script of an older install
+- The HTTP/3 fallback notice says what actually failed: no reply over UDP, a handshake that didn't finish, or a
+  slow answer. It only blames UDP port 443 when no other resolver works over HTTP/3. When one does, it's an info
+  notice saying your connection is fine. A server that doesn't offer HTTP/3 just shows that it uses HTTP/2
+
+### Fixed
+- **Fengard's page in LuCI comes back after a firmware upgrade or a restored backup.** Those keep Fengard
+  running but dropped its Services → Fengard page. Fengard now puts the page back each time it starts, for
+  every install method, and keeps `/etc/fengard/uninstall.sh` up to date so uninstalling removes all of it
+- Turning guest Wi-Fi on or off with GL.iNet's guest network makes only netifd's reload call, instead of the
+  network and Wi-Fi reloads that could restart the repeating 2.4 GHz radio. Fengard no longer adds its own
+  Wi-Fi networks on a vendor Wi-Fi chip while the router repeats, and it stops after three tries at taking a
+  stray HT_AP1 down
 
 ## 1.3.4.3 - 2026-11-26 (preview)
 
