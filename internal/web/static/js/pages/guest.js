@@ -139,15 +139,25 @@ export async function render(el, ctx) {
 
   let timer = 0;
   const load = async () => {
-    v = await get('/api/guest');
-    if (!ctx.alive()) return;
-    drawTop();
-    await drawJoin();
-    drawLists();
-    // quicker while the router is being changed
     clearTimeout(timer);
-    const st = v.status?.state;
-    timer = setTimeout(() => { if (ctx.alive()) load(); }, st === 'applying' || st === 'removing' ? 2000 : 10000);
+    let next = 10000;
+    try {
+      v = await get('/api/guest');
+      if (!ctx.alive()) return;
+      drawTop();
+      await drawJoin();
+      drawLists();
+      // quicker while the router is being changed
+      const st = v.status?.state;
+      if (st === 'applying' || st === 'removing') next = 2000;
+    } catch (e) {
+      // the first load shows its error like any page, later the wi-fi restarting can cut this
+      // browser off for a moment, so it keeps trying
+      if (!v) throw e;
+      next = 3000;
+    } finally {
+      if (ctx.alive()) timer = setTimeout(load, next);
+    }
   };
 
   el.addEventListener('click', async (e) => {
