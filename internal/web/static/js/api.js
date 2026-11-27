@@ -10,7 +10,7 @@ export class ApiError extends Error {
 let onUnauthorized = () => {};
 export const setUnauthorizedHandler = (fn) => (onUnauthorized = fn);
 
-export async function api(path, { method = 'GET', body, raw } = {}) {
+export async function api(path, { method = 'GET', body, raw, timeout } = {}) {
   const headers = { 'X-Fengard': '1' };
   let payload;
   if (raw !== undefined) {
@@ -22,7 +22,9 @@ export async function api(path, { method = 'GET', body, raw } = {}) {
   }
   let res;
   try {
-    res = await fetch(path, { method, headers, body: payload, credentials: 'same-origin' });
+    // a timeout for requests sent while the browser's own connection may drop, which would otherwise hang
+    const signal = timeout ? AbortSignal.timeout(timeout) : undefined;
+    res = await fetch(path, { method, headers, body: payload, credentials: 'same-origin', signal });
   } catch {
     throw new ApiError("Can't reach Fengard. Check your connection.", 0);
   }

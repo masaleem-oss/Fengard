@@ -1,4 +1,4 @@
-import { get, post, put } from '../api.js';
+import { api, post, put } from '../api.js';
 import { $, esc, icon, attempt, confirmDialog, switchInput, ago, busy, empty } from '../ui.js';
 import { deviceName } from '../meta.js';
 import { isAdmin } from '../main.js';
@@ -142,7 +142,9 @@ export async function render(el, ctx) {
     clearTimeout(timer);
     let next = 10000;
     try {
-      v = await get('/api/guest');
+      // the guest network starting or stopping can restart this browser's wi-fi, and a request on
+      // the old connection can hang for minutes without the timeout
+      v = await api('/api/guest', { timeout: 8000 });
       if (!ctx.alive()) return;
       drawTop();
       await drawJoin();
