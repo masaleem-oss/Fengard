@@ -6,6 +6,10 @@ are on the [releases page](https://github.com/masaleem-oss/Fengard/releases).
 
 ## Unreleased
 
+Nothing yet.
+
+## 1.3.4.4 - 2026-11-27 (preview)
+
 ### Changed
 - **Fengard no longer restarts when the internet link drops.** A repeater's uplink blinking used to restart
   Fengard twice and take DNS with it. Fengard now follows the internet-side interfaces itself while it runs, and
