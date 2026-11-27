@@ -251,10 +251,8 @@ func main() {
 		BlockIP: ip, BlockIPv6: ip6, LocalNames: split(*hosts), Screen: screen,
 		Welcome: gate.Want, TrustLoopback: *fwOn,
 		Note: habits.Note,
-		OnHTTP3Down: func(url, reason string) {
-			alrt.Raise("h3down:"+url, 6*time.Hour, alerts.Alert{Kind: "http3_fallback", Severity: alerts.Warning,
-				Title:  hostOf(url) + " is using HTTP/2, not HTTP/3",
-				Detail: "HTTP/3 kept failing (" + reason + "), so lookups to it went back to HTTP/2. Fengard keeps trying HTTP/3 and the DNS page shows when it's back. Something on the way may be blocking UDP port 443."})
+		OnHTTP3Down: func(url, reason, worksWith string) {
+			alrt.Raise("h3down:"+url, 6*time.Hour, http3DownAlert(url, reason, worksWith))
 		},
 	}
 	dns.Init()
@@ -1113,6 +1111,24 @@ func featuresURL(flagURL, updateURL, version string) string {
 		return ""
 	}
 	return "https://github.com/" + repo + "/releases/download/v" + version + "/"
+}
+
+// http3DownAlert only points at the network when nothing says otherwise. HTTP/3 working with another
+// resolver means UDP gets out, so it's that one server or the route to it, and lookups still work
+func http3DownAlert(url, reason, worksWith string) alerts.Alert {
+	host := hostOf(url)
+	a := alerts.Alert{Kind: "http3_fallback", Severity: alerts.Warning, Title: host + " is using HTTP/2, not HTTP/3"}
+	a.Detail = "HTTP/3 to it kept failing (" + reason + "), so lookups to it went back to HTTP/2. Fengard keeps trying HTTP/3 and the DNS page shows when it's back."
+	switch {
+	case worksWith != "":
+		a.Severity = alerts.Info
+		a.Detail += " HTTP/3 to " + hostOf(worksWith) + " works, so your connection is fine. It's " + host + " or the route to it."
+	case strings.Contains(reason, "UDP"): // nothing came back, or it was refused
+		a.Detail += " Something on the way may be blocking UDP port 443."
+	default:
+		a.Detail += " The server or the connection may be slow right now."
+	}
+	return a
 }
 
 // dns.quad9.net out of https://dns.quad9.net/dns-query
