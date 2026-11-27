@@ -6,6 +6,12 @@ are on the [releases page](https://github.com/masaleem-oss/Fengard/releases).
 
 ## Unreleased
 
+Nothing yet.
+
+## 1.3.5 - 2026-11-27
+
+The full release after 1.3.4. It has everything from the 1.3.4.1 to 1.3.4.5 previews below, plus:
+
 ### Fixed
 - The Guest Wi-Fi page updates by itself while guest Wi-Fi turns on or off. It used to show the old state right
   after the switch, and stopped checking if the browser lost Wi-Fi while the guest network started, so it stayed
